@@ -1,0 +1,107 @@
+<!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>@novacore-dev/novax - v0.1.0</title><meta name="description" content="Documentation for @novacore-dev/novax"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script><script async src="assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar"><div class="tsd-toolbar-contents container"><a href="index.html" class="title">@novacore-dev/novax - v0.1.0</a><div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/><ul role="listbox" id="tsd-search-results"></ul><div id="tsd-search-status" aria-live="polite" aria-atomic="true"><div>Preparing search index...</div></div></dialog><a href="#" class="tsd-widget menu" id="tsd-toolbar-menu-trigger" data-toggle="menu" aria-label="Menu"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-menu"></use></svg></a></div></header><div class="container container-main"><div class="col-content"><div class="tsd-page-title"><h1>@novacore-dev/novax - v0.1.0</h1></div><div class="tsd-panel tsd-typography"><h1 id="novax" class="tsd-anchor-link">NovaX<a href="#novax" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h1>
+<blockquote>
+<p>NovaX is a modular discord bot framework with built in engines and loaders as well as tools and helpers. NovaX can manage i18n, config (json5), multiple database like mongo, redis, postgres, typeorm (sqlite based), has a logger built in, commands and events are auto loaded, you get a very powerful this.heart object with almost every tool available!</p>
+</blockquote>
+<h2 id="contents" class="tsd-anchor-link">Contents<a href="#contents" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<ul>
+<li><a href="#documentation">Documentation (TypeDoc)</a></li>
+<li><a href="#installation">Installation</a>
+<ul>
+<li><a href="#ptero-custom">Pterodactyl Custom Egg</a></li>
+<li><a href="#ptero-generic">Pterodactyl Normal Node.js Egg</a></li>
+<li><a href="#docker">Docker</a></li>
+<li><a href="#vps">VPS</a></li>
+</ul>
+</li>
+<li><a href="#features">Features</a></li>
+<li><a href="#donation">Donation</a></li>
+<li><a href="#credits">Credits</a></li>
+</ul>
+<p><a id="documentation"></a></p>
+<h2 id="documentation-typedoc" class="tsd-anchor-link">Documentation (TypeDoc)<a href="#documentation-typedoc" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h3 id="pre-generated-typedoc-documentation" class="tsd-anchor-link">Pre Generated TypeDoc Documentation<a href="#pre-generated-typedoc-documentation" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>Open <code>docs/index.html</code> in your web browser to see our pre generated documentation</p>
+<h3 id="generate-documentation-via-typedoc" class="tsd-anchor-link">Generate Documentation via TypeDoc<a href="#generate-documentation-via-typedoc" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>Open Terminal and type:</p>
+<pre><code class="bash"><span class="hl-0">npm</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">typedoc</span>
+</code><button type="button">Copy</button></pre>
+
+<p>Then follow the steps shown <a href="#documentation">here</a></p>
+<hr>
+<p><a id="installation"></a></p>
+<h2 id="installation" class="tsd-anchor-link">Installation<a href="#installation" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h3 id="basics" class="tsd-anchor-link">Basics<a href="#basics" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ol>
+<li>Rename <code>.env.example</code> to <code>.env</code> if you are using ENVMode.</li>
+<li>Ensure either <code>.env</code> or <code>common.json</code> exists in your dir and is perfectly configured.</li>
+<li>Now if you are using ENVMode, you may delete <code>common.json</code> or atleast set ENVMode to true in <code>common.json</code>.</li>
+<li>Then Run <code>npm install</code> in your terminal.</li>
+<li>Use <code>npm run build</code> or <code>npm run start</code> or <code>npm start</code>.</li>
+</ol>
+<br>
+<details>
+  <summary><b>Pterodactyl Custom Egg</b></summary>
+  <a id="ptero-custom"></a>
+<ul>
+<li>Use the modified <a href="media/node-js-generic.json">node.js generic egg</a></li>
+<li>Upload the files</li>
+<li>Run</li>
+</ul>
+</details>
+<details>
+  <summary><b>Pterodactyl Normal Node.js Egg</b></summary>
+  <a id="ptero-generic"></a>
+<ul>
+<li>Compile the project in javascript by running <code>npm run build</code> in your terminal</li>
+<li>Zip</li>
+<li>Upload all Files</li>
+<li>Unzip</li>
+<li>Run</li>
+</ul>
+</details>
+<details>
+  <summary><b>Docker</b></summary>
+  <a id="docker"></a>
+<ul>
+<li>Build the Image by running <code>docker compose build</code> in your terminal</li>
+<li>Edit <a href="media/docker-compose.yml">docker-compose.yml</a> as per your liking</li>
+<li>Run the Image by <code>docker compose up -d</code> in your terminal</li>
+</ul>
+</details>
+<details>
+  <summary><b>VPS</b></summary>
+  <a id="vps"></a>
+<ul>
+<li>Install Dependencies by running <code>npm install</code> in your terminal</li>
+<li>Run the Bot by <code>npm run start</code> in your terminal</li>
+</ul>
+</details>
+<hr>
+<p><a id="features"></a></p>
+<h2 id="features" class="tsd-anchor-link">Features<a href="#features" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<ul>
+<li>Multi-Database support [TypeORM, Postgres native, Redis, mongodb]</li>
+<li>Inbuilt Cooldown system with decorator [Redis based fallback to local tool]</li>
+<li>Powerful this.heart object injected to every plugin which has access to all necessary tools and engines</li>
+<li>Auto Application Emoji Uploader</li>
+<li>Events System with discord events injected for integrity</li>
+<li>Hot Reload of Plugins</li>
+<li>Hot Install of Dependency</li>
+<li>Global Error Handler</li>
+<li>Modular</li>
+<li>i18n Engine</li>
+<li>Config Engine</li>
+</ul>
+<p><a id="donation"></a></p>
+<h2 id="donation" class="tsd-anchor-link">Donation<a href="#donation" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>Please consider donating to us as even a small amount can help us bring updates to this project.
+<strong><a href="https://nowpayments.io/donation/novacore">Donate Here</a></strong></p>
+<p>If you donate more than $1 Please open a ticket in our <a href="https://nova-core.me/discord">Discord Server</a> to claim your donator perks.</p>
+<p><a id="credits"></a></p>
+<h2 id="credits" class="tsd-anchor-link">Credits<a href="#credits" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>Made with &lt;3 by:</p>
+<ul>
+<li><a href="https://nova-core.me/discord">NovaCore Development</a></li>
+<li><a href="https://discord.com/users/1414373639826178120">Cool Guy</a></li>
+</ul>
+</div></div><div class="col-sidebar"><div class="page-menu"><div class="tsd-navigation settings"><details class="tsd-accordion"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg><h3>Settings</h3></summary><div class="tsd-accordion-details"><div class="tsd-filter-visibility"><span class="settings-label">Member Visibility</span><ul id="tsd-filter-options"><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-protected" name="protected"/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Protected</span></label></li><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-inherited" name="inherited" checked/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Inherited</span></label></li></ul></div><div class="tsd-theme-toggle"><label class="settings-label" for="tsd-theme">Theme</label><select id="tsd-theme"><option value="os">OS</option><option value="light">Light</option><option value="dark">Dark</option></select></div></div></details></div><details open class="tsd-accordion tsd-page-navigation"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg><h3>On This Page</h3></summary><div class="tsd-accordion-details"><a href="#novax"><span>Nova<wbr/>X</span></a><ul><li><a href="#contents"><span>Contents</span></a></li><li><a href="#documentation-typedoc"><span>Documentation (<wbr/>Type<wbr/>Doc)</span></a></li><li><ul><li><a href="#pre-generated-typedoc-documentation"><span>Pre <wbr/>Generated <wbr/>Type<wbr/>Doc <wbr/>Documentation</span></a></li><li><a href="#generate-documentation-via-typedoc"><span>Generate <wbr/>Documentation via <wbr/>Type<wbr/>Doc</span></a></li></ul></li><li><a href="#installation"><span>Installation</span></a></li><li><ul><li><a href="#basics"><span>Basics</span></a></li></ul></li><li><a href="#features"><span>Features</span></a></li><li><a href="#donation"><span>Donation</span></a></li><li><a href="#credits"><span>Credits</span></a></li></ul></div></details></div><div class="site-menu"><nav class="tsd-navigation"><a href="modules.html">@novacore-dev/novax - v0.1.0</a><ul class="tsd-small-nested-navigation" id="tsd-nav-container"><li>Loading...</li></ul></nav></div></div></div><footer><p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer><div class="overlay"></div></body></html>
