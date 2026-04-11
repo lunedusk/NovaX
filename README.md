@@ -44,7 +44,7 @@ Then follow the steps shown [here](#documentation)
   <summary><b>Pterodactyl Custom Egg</b></summary>
   <a id="ptero-custom"></a>
   
-  * Use the modified [node.js generic egg](pterodactyl-eggs\node-js-generic.json)
+  * Use the modified [node.js generic egg](pterodactyl-eggs/node-js-generic.json)
   * Upload the files
   * Run
 </details>
