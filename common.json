@@ -1,0 +1,21 @@
+{   
+    "__info__": {
+        "__author__": "NovaCore",
+        "version": "0.1.0"
+    },
+    "ENVSettings": true,
+    "DiscordToken": "DISCORD_TOKEN",
+    "DiscordIntents": ["default"],
+    "TZ": "UTC",
+    "DefaultLocale": "en",
+    "APIPort": 3000,
+    "LogLevel": "info",
+    "Database": {
+        "alias": {
+            "uri": "DATABASE_URI",
+            "engine": "mongo || redis || native-pg || [OPTIONAL]",
+            "poolSize": "5 [OPTIONAL]",
+            "maxRetries": "3 [OPTIONAL]"
+        }
+    }
+}

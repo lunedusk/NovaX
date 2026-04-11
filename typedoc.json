@@ -1,0 +1,16 @@
+{
+  "entryPoints": ["./src"],
+  "entryPointStrategy": "expand",
+  "out": "docs",
+  "tsconfig": "tsconfig.json",
+
+  "exclude": [
+    "src/core/internal/**/*"
+  ],
+
+  "excludeExternals": true,
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "categorizeByGroup": true,
+  "includeVersion": true
+}

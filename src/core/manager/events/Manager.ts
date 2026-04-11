@@ -1,0 +1,68 @@
+import { Client, Events } from 'discord.js';
+import { eventBus } from '#core/manager/event.js';
+import { getLogger } from '#core/utils/logger.js';
+import { metricsManager } from '#core/manager/metrics/index.js';
+
+const log = getLogger('EventManager');
+
+export class EventManager {
+    private isBound = false;
+
+    public bindNativeEvents(client: Client): void {
+        if (this.isBound) {
+            log.warn('EventManager.bindNativeEvents called but listeners are already bound. Skipping.');
+            return;
+        }
+
+        log.info('Establishing EventBus bridge for Discord events...');
+
+        let boundCount = 0;
+
+        for (const eventName of Object.values(Events)) {
+            // @ts-expect-error: Dynamic event binding bypasses strict ClientEvents mapping
+            client.on(eventName, (...args: unknown[]) => {
+                try {
+                    metricsManager.eventsTotal.inc({ event: eventName });
+
+                    eventBus.emitConcurrent(`discord.${eventName}`, ...args)
+                        .catch((promiseError: unknown) => {
+                            this.logError(`Async EventBus error on discord.${eventName}`, promiseError);
+                        });
+
+                } catch (syncError: unknown) {
+                    this.logError(`Sync EventBus error on discord.${eventName}`, syncError);
+                }
+            });
+            boundCount++;
+        }
+
+        this.isBound = true;
+        log.info(`Bridged ${boundCount} dynamic Discord events.`);
+
+        eventBus.on(`discord.${Events.GuildCreate}`, () => {
+            metricsManager.activeGuilds.set(client.guilds.cache.size);
+        });
+        
+        eventBus.on(`discord.${Events.GuildDelete}`, () => {
+            metricsManager.activeGuilds.set(client.guilds.cache.size);
+        });
+
+        eventBus.once(`discord.${Events.ClientReady}`, (c: Client<true>) => {
+            log.info(`Gateway Authenticated: ${c.user.tag}`);
+            metricsManager.activeGuilds.set(c.guilds.cache.size);
+            
+            eventBus.emitConcurrent('system.ready', c).catch(e => this.logError('System Ready Hook', e));
+        });
+
+        eventBus.on(`discord.${Events.Error}`, (err: Error) => {
+            log.error(`Gateway Error: ${err.message}`);
+        });
+    }
+
+    private logError(context: string, error: unknown): void {
+        const err = error instanceof Error ? error : new Error(String(error));
+        log.error(`${context}: ${err.message}`, { stack: err.stack });
+    }
+}
+
+export const eventManager = new EventManager();

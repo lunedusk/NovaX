@@ -1,0 +1,104 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { FileWatcher, type WatchEvent } from '#core/watcher/index.js';
+import { getLogger } from '#core/utils/logger.js';
+
+const log = getLogger('EmojiManager');
+
+export class EmojiManager {
+    private static readonly EMOJI_REGEX = /:([a-zA-Z0-9_]+):/g;
+
+    private cache = new Map<string, string>();
+    private frozenCache: Readonly<Record<string, string>> = Object.freeze({});
+    
+    private readonly filePath: string;
+    private watcher: FileWatcher | null = null;
+    
+    private isReloading = false;
+
+    constructor(targetPath?: string) {
+        this.filePath = targetPath ? path.resolve(targetPath) : path.join(process.cwd(), '.data', 'emoji.json');
+    }
+
+    public async init(hotReload: boolean = false): Promise<void> {
+        log.info('Initializing Emoji Manager...');
+        await this.load();
+
+        if (hotReload) {
+            const dir = path.dirname(this.filePath);
+            
+            this.watcher = new FileWatcher(dir, { includePatterns: ['emoji.json'] });
+            
+            this.watcher.on('events', async (events: WatchEvent[]) => {
+                for (const event of events) {
+                    if (event.type === 'deleted') {
+                        this.applyAtomicSwap(new Map());
+                        log.warn('emoji.json was deleted. Emoji cache cleared.');
+                    } else {
+                        await this.load();
+                    }
+                }
+            });
+            
+            this.watcher.start();
+            log.info('Emoji Manager hot-reload active.');
+        }
+    }
+
+    public async reload(): Promise<boolean> {
+        log.info('Force reloading emoji configuration...');
+        return await this.load();
+    }
+
+    private async load(): Promise<boolean> {
+        if (this.isReloading) return false;
+        this.isReloading = true;
+
+        try {
+            const rawData = await fs.readFile(this.filePath, 'utf-8');
+            const parsed: Record<string, string> = JSON.parse(rawData);
+
+            const newCache = new Map<string, string>(Object.entries(parsed));
+            this.applyAtomicSwap(newCache);
+
+            log.debug(`Loaded ${this.cache.size} custom emojis.`);
+            return true;
+
+        } catch (error: unknown) {
+            const err = error as NodeJS.ErrnoException;
+            
+            if (err.code === 'ENOENT') {
+                log.warn(`Emoji file not found at ${this.filePath}. Cache empty.`);
+                this.applyAtomicSwap(new Map());
+            } else {
+                log.error(`Failed to parse emoji.json: ${err.message}`);
+            }
+            return false;
+        } finally {
+            this.isReloading = false;
+        }
+    }
+
+    private applyAtomicSwap(newMap: Map<string, string>): void {
+        this.cache = newMap;
+        this.frozenCache = Object.freeze(Object.fromEntries(this.cache));
+    }
+
+    public get(key: string): string | null {
+        return this.cache.get(key) || null;
+    }
+
+    public parse(text: string): string {
+        if (!text) return text;
+        
+        return text.replace(EmojiManager.EMOJI_REGEX, (match, key) => {
+            return this.cache.get(key) ?? match; 
+        });
+    }
+
+    public getAll(): Readonly<Record<string, string>> {
+        return this.frozenCache;
+    }
+}
+
+export const emojis = new EmojiManager();
