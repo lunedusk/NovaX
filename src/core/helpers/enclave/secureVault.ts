@@ -120,7 +120,8 @@ export class SecureVault {
             aad.writeUInt32BE(chunkIdx, header.length); 
 
             const cipher = createCipheriv('chacha20-poly1305', key, nonce, { authTagLength: 16 }) as CipherGCM;
-            cipher.setAAD(aad);
+            
+            cipher.setAAD(aad as any);
 
             const ciphertext = Buffer.concat([cipher.update(chunk), cipher.final(), cipher.getAuthTag()]);
 
@@ -191,7 +192,8 @@ export class SecureVault {
 
             try {
                 const decipher = createDecipheriv('chacha20-poly1305', key, nonce, { authTagLength: 16 }) as DecipherGCM;
-                decipher.setAAD(aad);
+                
+                decipher.setAAD(aad as any);
                 decipher.setAuthTag(authTag);
                 
                 let plainChunk: any = Buffer.concat([decipher.update(ciphertext), decipher.final()]);

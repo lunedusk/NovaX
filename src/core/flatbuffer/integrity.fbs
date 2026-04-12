@@ -1,0 +1,15 @@
+namespace NovaX.Integrity;
+
+table FileEntry {
+  path: string (key);
+  hash: [ubyte];
+  size: uint;
+}
+
+table Manifest {
+  timestamp: ulong;
+  algorithm: string;
+  files: [FileEntry];
+}
+
+root_type Manifest;

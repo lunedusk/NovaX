@@ -24,7 +24,7 @@ export class HybridVault {
         };
     }
 
-    public async pack(obj: any, serializerName = 'json'): Promise<Buffer> {
+    public async pack(obj: any, serializerName = 'json', compress?: boolean): Promise<Buffer> {
         if (!this.#serverPub) throw new VaultConfigurationError('Public key required to pack data');
 
         const { privateKey: ephPriv, publicKey: ephPub } = generateKeyPairSync('x25519');
@@ -42,7 +42,8 @@ export class HybridVault {
         sharedSecret.fill(0); 
 
         const vault = SecureVault.fromKey(masterSecret);
-        const encryptedBlob = await vault.pack(obj, serializerName);
+        
+        const encryptedBlob = await vault.pack(obj, serializerName, compress);
 
         vault.destroy();
         masterSecret.fill(0);
