@@ -13,7 +13,7 @@
     "Database": {
         "alias": {
             "uri": "DATABASE_URI",
-            "engine": "mongo || redis || native-pg || [OPTIONAL]",
+            "engine": "mongo || redis || native-pg  || native-sqlite || [OPTIONAL]",
             "poolSize": "5 [OPTIONAL]",
             "maxRetries": "3 [OPTIONAL]"
         }
