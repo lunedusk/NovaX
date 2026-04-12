@@ -98,7 +98,7 @@ class NovaX {
                 await this.pluginManager.shutdownAll();
                 await httpServer.stop();
                 this.client.destroy();
-                this.log.info('👋 NovaX shut down cleanly. Goodbye!');
+                this.log.info('NovaX shut down cleanly. Goodbye!');
                 await new Promise(r => setTimeout(r, 500));
                 await flushLogs();
                 setImmediate(() => {
