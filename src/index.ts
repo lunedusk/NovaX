@@ -20,7 +20,6 @@ class NovaX {
     private isShuttingDown = false;
     
     constructor() {
-        
         this.log.info('Setting Up Secret Manager...');
         secrets.assimilateEnv();
         secrets.lock();

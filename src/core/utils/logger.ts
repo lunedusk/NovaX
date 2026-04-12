@@ -44,9 +44,11 @@ const redactFormat = winston.format((info) => {
 
 const humanReadableFormat = winston.format.printf((info) => {
     const { level, message, timestamp, name, stack, metadata } = info;
+
+    const rawLevel = level.replace(/\u001b\[[0-9;]*m/g, '').toLowerCase();
     
     const colorize = info.colorize === true;
-    const color = colorize ? (LEVEL_COLORS[level] || "") : "";
+    const color = colorize ? (LEVEL_COLORS[rawLevel] || "") : "";
     const reset = colorize ? "\x1b[0m" : "";
     
     const modName = name || 'app';
