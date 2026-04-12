@@ -12,6 +12,7 @@ import { eventManager } from '#core/manager/events/Manager.js';
 import { flushLogs } from '#core/utils/logger.js';
 import { initAllDatabases } from '#core/database.js';
 
+const nodeEnv = process.env.NODE_ENV;
 class NovaX {
     private readonly log = getLogger('Core');
     private readonly client: Client<true>;
@@ -19,6 +20,7 @@ class NovaX {
     private isShuttingDown = false;
     
     constructor() {
+        
         this.log.info('Setting Up Secret Manager...');
         secrets.assimilateEnv();
         secrets.lock();
@@ -125,6 +127,9 @@ if (!process.env.NODE_ENV) {
     } catch {
         process.env.NODE_ENV = 'production';
     }
+}
+if (!process.env.NODE_ENV || process.env.NODE_ENV.trim() === '') {
+  process.env.NODE_ENV = 'production';
 }
 common777.bootstrap();
 const app = new NovaX();
