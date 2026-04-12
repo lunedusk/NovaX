@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { secrets } from '#core/helpers/secretManager.js';
 import { Client, Partials, Events } from 'discord.js';
 import { intentBuilder } from '#core/helpers/intentsBuilder.js';
 import { getLogger } from '#core/utils/logger.js';
@@ -17,7 +18,7 @@ class NovaX {
     private readonly client: Client<true>;
     private readonly pluginManager: PluginManager;
     private isShuttingDown = false;
-
+    
     constructor() {
         const intentsInput = process.env.DiscordIntents
             ? process.env.DiscordIntents.split(',').map(s => s.trim())
@@ -48,7 +49,9 @@ class NovaX {
             await initAllDatabases();
             this.log.info('Initializing Interaction Handler...');
             interactionHandler.init();
-
+            this.log.info('Setting Up Secret Manager...');
+            secrets.assimilateEnv();
+            secrets.lock();
             await this.login();
             this.log.info('Initializing Http Server...');
             httpServer.init();
@@ -76,7 +79,13 @@ class NovaX {
                 resolve();
             });
 
-            this.client.login(process.env.DiscordToken);
+            try {
+                const token = secrets.get('DiscordToken');
+                this.client.login(token);
+            } catch (error) {
+                this.log.error('Failed to retrieve DiscordToken from Memory Vault. Is it in your common.json or .env?');
+                process.exit(1);
+            }
         });
     }
 

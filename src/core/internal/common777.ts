@@ -15,7 +15,7 @@ export interface CommonConfig {
     __info__: InfoMeta;
     ENVSettings?: boolean;
     DiscordToken?: string;
-    Intents?: (number | string)[];
+    DiscordIntents?: (number | string)[];
     TZ?: string;
     DefaultLocale?: string;
     APIPort?: number;
