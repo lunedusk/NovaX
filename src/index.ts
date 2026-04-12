@@ -11,8 +11,6 @@ import { common777 } from '#core/internal/common777.js';
 import { eventManager } from '#core/manager/events/Manager.js';
 import { flushLogs } from '#core/utils/logger.js';
 import { initAllDatabases } from '#core/database.js';
-
-const nodeEnv = process.env.NODE_ENV;
 class NovaX {
     private readonly log = getLogger('Core');
     private readonly client: Client<true>;
