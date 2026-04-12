@@ -1,22 +1,23 @@
 import { getLogger } from '#core/utils/logger.js';
 import { redisDB } from './redis.js';
-import { ormDB } from './sqlite.js'; 
+import { ormDB } from './typeorm.js';
 import { mongoDB } from './mongo.js';
 import { pgDB } from './postgres.js';
+import { sqliteDB } from './sqlite.js';
 
 const log = getLogger('DBManager');
 
 export interface DbConfig {
     alias: string;
     uri: string;
-    engine?: 'native-pg' | 'typeorm' | 'redis' | 'mongo'; 
+    engine?: 'native-pg' | 'native-sqlite' | 'typeorm' | 'redis' | 'mongo'; 
     entities?: any[];
     poolSize?: number;
     maxRetries?: number;
 }
 
 export class DatabaseManager {
-    private static async withRetry(operation: () => Promise<void>, alias: string, retries = 5): Promise<void> {
+    private static async withRetry(operation: () => Promise<void> | void, alias: string, retries = 5): Promise<void> {
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 await operation();
@@ -33,6 +34,7 @@ export class DatabaseManager {
     public static async init(config: DbConfig): Promise<void> {
         const retries = config.maxRetries ?? 5;
         const poolSize = config.poolSize ?? 10;
+        const hasEntities = config.entities && config.entities.length > 0;
 
         await this.withRetry(async () => {
             const url = new URL(config.uri);
@@ -40,6 +42,14 @@ export class DatabaseManager {
 
             if (config.engine === 'native-pg' || protocol === 'postgres-native') {
                 await pgDB.connect(config.alias, config.uri, poolSize);
+                return;
+            }
+
+            const isNativeSqlite = config.engine === 'native-sqlite' || 
+                (protocol === 'sqlite' && !hasEntities && config.engine !== 'typeorm');
+
+            if (isNativeSqlite) {
+                sqliteDB.connect(config.alias, config.uri);
                 return;
             }
 
@@ -77,6 +87,7 @@ export class DatabaseManager {
         Object.assign(status, await pgDB.pingAll());
         Object.assign(status, await mongoDB.pingAll());
         Object.assign(status, await ormDB.pingAll());
+        Object.assign(status, await sqliteDB.pingAll());
 
         return status;
     }
@@ -88,7 +99,8 @@ export class DatabaseManager {
                 redisDB.disconnectAll(),
                 ormDB.disconnectAll(),
                 mongoDB.disconnectAll(),
-                pgDB.disconnectAll()
+                pgDB.disconnectAll(),
+                sqliteDB.disconnectAll()
             ]);
             log.info('All databases closed safely.');
         } catch (error) {
@@ -98,4 +110,4 @@ export class DatabaseManager {
     }
 }
 
-export { redisDB, ormDB, mongoDB, pgDB };
+export { redisDB, ormDB, mongoDB, pgDB, sqliteDB };

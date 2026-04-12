@@ -1,56 +1,46 @@
-import 'reflect-metadata';
-import { DataSource, type DataSourceOptions } from 'typeorm';
+import Database from 'better-sqlite3';
 import { getLogger } from '#core/utils/logger.js';
 
-const log = getLogger('SqlRegistry');
-const isProd = process.env.NODE_ENV === 'production';
+const log = getLogger('SqliteNative');
 
-export class SqlRegistry {
-    private engines = new Map<string, DataSource>();
+export class SqliteNativeRegistry {
+    private dbs = new Map<string, Database.Database>();
 
-    public async connect(alias: string, uri: string, entities: any[] = [], poolSize: number = 10): Promise<void> {
-        if (this.engines.has(alias)) return;
+    public connect(alias: string, uri: string): void {
+        if (this.dbs.has(alias)) return;
 
-        const url = new URL(uri);
-        const protocol = url.protocol.replace(':', '');
-
-        let dbType: DataSourceOptions['type'];
+        const filepath = uri.replace(/^sqlite:\/\//, '').replace(/^sqlite:/, '');
         
-        if (['postgres', 'postgresql'].includes(protocol)) dbType = 'postgres';
-        else if (protocol === 'mysql') dbType = 'mysql';
-        else if (protocol === 'mariadb') dbType = 'mariadb';
-        else if (protocol === 'sqlite') dbType = 'sqlite';
-        else throw new Error(`Unsupported ORM dialect: ${protocol}`);
+        log.info(`Initializing Native SQLite [${alias}] at path: ${filepath}`);
 
-        log.info(`Initializing TypeORM (${dbType}) for: [${alias}]`);
+        try {
+            const db = new Database(filepath);
+            
+            db.pragma('journal_mode = WAL');
+            db.pragma('synchronous = NORMAL');
+            db.pragma('temp_store = MEMORY');
+            db.pragma('busy_timeout = 5000');
 
-        const options: DataSourceOptions = {
-            type: dbType as any, 
-            url: dbType === 'sqlite' ? undefined : uri,
-            database: dbType === 'sqlite' ? url.pathname.replace(/^\//, '') : undefined,
-            synchronize: !isProd,
-            logging: false,
-            entities: entities,
-            extra: dbType !== 'sqlite' ? { max: poolSize } : undefined,
-        };
-
-        const engine = new DataSource(options);
-        await engine.initialize();
-        this.engines.set(alias, engine);
-        log.info(`TypeORM [${alias}] connected successfully.`);
+            this.dbs.set(alias, db);
+            log.info(`Native SQLite [${alias}] connected successfully.`);
+        } catch (error) {
+            const err = error as Error;
+            log.error(`Failed to initialize SQLite [${alias}]: ${err.message}`, { stack: err.stack });
+            throw err;
+        }
     }
 
-    public get(alias: string): DataSource {
-        const engine = this.engines.get(alias);
-        if (!engine) throw new Error(`TypeORM engine [${alias}] not found!`);
-        return engine;
+    public get(alias: string): Database.Database {
+        const db = this.dbs.get(alias);
+        if (!db) throw new Error(`Native SQLite database [${alias}] not found!`);
+        return db;
     }
 
     public async pingAll(): Promise<Record<string, boolean>> {
         const status: Record<string, boolean> = {};
-        for (const [alias, engine] of this.engines.entries()) {
+        for (const [alias, db] of this.dbs.entries()) {
             try {
-                await engine.query('SELECT 1');
+                db.prepare('SELECT 1').get();
                 status[alias] = true;
             } catch {
                 status[alias] = false;
@@ -60,14 +50,12 @@ export class SqlRegistry {
     }
 
     public async disconnectAll(): Promise<void> {
-        for (const [alias, engine] of this.engines.entries()) {
-            if (engine.isInitialized) {
-                log.info(`Closing TypeORM connection [${alias}]...`);
-                await engine.destroy();
-            }
-            this.engines.delete(alias);
+        for (const [alias, db] of this.dbs.entries()) {
+            log.info(`Closing Native SQLite connection [${alias}]...`);
+            db.close();
+            this.dbs.delete(alias);
         }
     }
 }
 
-export const ormDB = new SqlRegistry();
+export const sqliteDB = new SqliteNativeRegistry();
