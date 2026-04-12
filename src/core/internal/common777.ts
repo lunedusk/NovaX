@@ -65,16 +65,17 @@ class Common777 {
             if (key === 'ENVSettings' || key === '__info__') continue;
             if (value === undefined || value === null) continue;
 
-            const envName = key;
             let stringValue: string;
 
             if (Array.isArray(value)) {
                 stringValue = value.join(',');
+            } else if (typeof value === 'object') {
+                stringValue = JSON.stringify(value);
             } else {
                 stringValue = String(value);
             }
 
-            process.env[envName] = stringValue;
+            process.env[key] = stringValue;
         }
     }
 

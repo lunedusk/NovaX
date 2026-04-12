@@ -10,10 +10,21 @@ export type Logger = winston.Logger & {
 };
 
 const isProd = process.env.NODE_ENV === 'production';
-const LOG_TZ = secrets.getOptional('LogTZ') || 'UTC';
-const DEFAULT_LEVEL = secrets.getOptional('LogLevel') || (isProd ? 'info' : 'debug');
-
-const SESSION_ID = format.time.toTz(new Date(), LOG_TZ, 'YYYY-MM-DD_HH-mm-ss');
+const getLogTz = () => {
+    try {
+        return secrets?.getOptional?.('LogTZ') || process.env.TZ || 'UTC';
+    } catch {
+        return 'UTC';
+    }
+};
+const getDefaultLevel = () => {
+    try {
+        return secrets?.getOptional?.('LogLevel') || process.env.LOG_LEVEL || (isProd ? 'info' : 'debug');
+    } catch {
+        return (isProd ? 'info' : 'debug');
+    }
+};
+const SESSION_ID = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
 const CUSTOM_LEVELS = {
     fatal: 0,
@@ -25,7 +36,7 @@ const CUSTOM_LEVELS = {
 
 const LEVEL_COLORS: Record<string, string> = {
     debug: "\x1b[38;2;0;255;215m",
-    info: "\x1b[38;2;255;255;255m",
+    info: "\x1b[38;2;135;206;250m",
     warn: "\x1b[38;2;255;255;0m",
     error: "\x1b[38;2;255;80;80m",
     fatal: "\x1b[48;2;180;0;0m\x1b[38;2;255;255;255m",
@@ -117,10 +128,10 @@ const sharedTransports = [
 
 const globalLogger = winston.createLogger({
     levels: CUSTOM_LEVELS,
-    level: DEFAULT_LEVEL,
+    level: getDefaultLevel(),
     exitOnError: false,
     format: winston.format.combine(
-        winston.format.timestamp({ format: () => format.time.toTz(new Date(), LOG_TZ, 'YYYY-MM-DD HH:mm:ss.SSS Z') }),
+        winston.format.timestamp({ format: () => format.time.toTz(new Date(), getLogTz(), 'YYYY-MM-DD HH:mm:ss.SSS Z') }),
         winston.format.metadata({ fillExcept: ['message', 'level', 'timestamp', 'name', 'stack'] })
     ),
     transports: sharedTransports
@@ -153,7 +164,7 @@ export async function flushLogs(): Promise<void> {
     });
 }
 
-export function getLogger(name: string = 'app', level: string = DEFAULT_LEVEL): Logger {
+export function getLogger(name: string = 'app', level: string = getDefaultLevel()): Logger {
     const child = globalLogger.child({ name });
     child.level = level;
     return child as Logger;
