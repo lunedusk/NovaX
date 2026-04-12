@@ -1,3 +1,5 @@
+.DS_Store
+*.DS_Store*
 **/*.DS_Store
 .AppleDouble
 .LSOverride
@@ -6,6 +8,8 @@
 .Trashes
 ._*
 **/*__MACOSX/**
+*__MACOSX/*
+__MACOSX/
 
 Thumbs.db
 ehthumbs.db
