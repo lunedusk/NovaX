@@ -1,4 +1,5 @@
-import { DatabaseManager, type DbConfig } from '#core/database/index.js'; // adjust path if needed
+import { DatabaseManager, type DbConfig } from '#core/database/index.js';
+import { secrets } from './helpers/secretManager.js';
 import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('DatabaseBootstrap');
@@ -10,7 +11,7 @@ function parseIntOrNull(value: unknown): number | undefined {
 }
 
 function loadDbConfigsFromEnv(): DbConfig[] {
-    const raw = process.env.Database ?? '{}';
+    const raw = secrets.getOptional('Database') ?? '{}';
 
     let parsed: unknown;
     try {

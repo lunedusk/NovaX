@@ -14,6 +14,7 @@ import { eventBus } from '#core/manager/event.js';
 import { getLogger } from '#core/utils/logger.js';
 import { cooldownManager } from '#core/manager/cooldown.js';
 import { metricsManager } from '#core/manager/metrics/index.js';
+import { secrets } from '#core/helpers/secretManager.js';
 
 const log = getLogger('InteractionHandler');
 
@@ -40,7 +41,7 @@ export class InteractionHandler {
 
     public async syncCommands(client: Client<true>, guildId?: string): Promise<void> {
         if (!this.restClient) {
-            this.restClient = new REST({ version: '10' }).setToken(process.env.DiscordToken!);
+            this.restClient = new REST({ version: '10' }).setToken(secrets.get('DiscordToken'));
         }
         
         try {

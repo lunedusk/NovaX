@@ -3,6 +3,7 @@ import http from 'node:http';
 import cors from 'cors';
 import { getLogger } from '#core/utils/logger.js';
 import { performance } from 'node:perf_hooks';
+import { secrets } from '#core/helpers/secretManager.js';
 
 const log = getLogger('HttpServer');
 
@@ -57,7 +58,7 @@ export class HttpServer {
         log.debug(`Registered API Route: ${basePath}`);
     }
 
-    public async start(port: number = parseInt(process.env.APIPort || '3000')): Promise<void> {
+    public async start(port: number = parseInt(secrets.getOptional('APIPort') || '3000')): Promise<void> {
         if (!this.app) throw new Error("HttpServer must be initialized before starting.");
         if (this.isRunning) return;
 

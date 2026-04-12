@@ -3,14 +3,15 @@ import 'winston-daily-rotate-file';
 import util from 'util';
 import fastRedact from 'fast-redact';
 import { format } from './format.js';
+import { secrets } from '#core/helpers/secretManager.js';
 
 export type Logger = winston.Logger & {
     fatal: winston.LeveledLogMethod;
 };
 
 const isProd = process.env.NODE_ENV === 'production';
-const LOG_TZ = process.env.TZ || 'UTC';
-const DEFAULT_LEVEL = process.env.LogLevel || (isProd ? 'info' : 'debug');
+const LOG_TZ = secrets.getOptional('LogTZ') || 'UTC';
+const DEFAULT_LEVEL = secrets.getOptional('LogLevel') || (isProd ? 'info' : 'debug');
 
 const SESSION_ID = format.time.toTz(new Date(), LOG_TZ, 'YYYY-MM-DD_HH-mm-ss');
 

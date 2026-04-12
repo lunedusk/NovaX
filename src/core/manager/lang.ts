@@ -3,6 +3,7 @@ import path from 'node:path';
 import JSON5 from 'json5';
 import { FileWatcher, type WatchEvent } from '#core/watcher/index.js';
 import { getLogger } from '#core/utils/logger.js';
+import { secrets } from '#core/helpers/secretManager.js';
 
 const log = getLogger('LanguageManager');
 
@@ -175,7 +176,7 @@ export class LanguageManager {
     }
 
     public async reloadFile(namespace: string, locale?: string): Promise<boolean> {
-        const masterLocale = process.env.DefaultLocale || 'en';
+        const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
         const targetLocale = locale || masterLocale;
         const filename = `${namespace}_${targetLocale}.json5`;
         const filePath = path.join(this.targetDir, filename);
@@ -238,7 +239,7 @@ export class LanguageManager {
         variables?: TranslationVars,
         requestedLocale?: string
     ): string {
-        const masterLocale = process.env.DefaultLocale || 'en';
+        const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
         const targetLocale = requestedLocale || masterLocale;
 
         const fallbacks = [targetLocale];

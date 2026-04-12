@@ -10,7 +10,6 @@ import { performance } from 'node:perf_hooks';
 import { common777 } from '#core/internal/common777.js';
 import { eventManager } from '#core/manager/events/Manager.js';
 import { flushLogs } from '#core/utils/logger.js';
-import { DatabaseManager, type DbConfig } from '#core/database/index.js';
 import { initAllDatabases } from '#core/database.js';
 
 class NovaX {
@@ -20,8 +19,11 @@ class NovaX {
     private isShuttingDown = false;
     
     constructor() {
-        const intentsInput = process.env.DiscordIntents
-            ? process.env.DiscordIntents.split(',').map(s => s.trim())
+        this.log.info('Setting Up Secret Manager...');
+        secrets.assimilateEnv();
+        secrets.lock();
+        const intentsInput = secrets.getOptional('DiscordIntents')
+            ? secrets.get('DiscordIntents').split(',').map(s => s.trim())
             : undefined;
 
         const intents = intentBuilder.build(intentsInput);
@@ -49,9 +51,6 @@ class NovaX {
             await initAllDatabases();
             this.log.info('Initializing Interaction Handler...');
             interactionHandler.init();
-            this.log.info('Setting Up Secret Manager...');
-            secrets.assimilateEnv();
-            secrets.lock();
             await this.login();
             this.log.info('Initializing Http Server...');
             httpServer.init();
