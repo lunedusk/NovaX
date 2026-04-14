@@ -13,6 +13,8 @@ import { getLogger, flushLogs } from '#core/utils/logger.js';
 import { PluginManager } from '#core/loader/index.js';
 import { httpServer } from '#core/manager/http/server.js';
 import { interactionHandler } from '#core/manager/interaction/handler.js';
+import { configManager } from '#core/manager/config.js';
+import { i18n } from '#core/manager/lang.js';
 import { common777 } from '#core/internal/common777.js';
 import { eventManager } from '#core/manager/events/Manager.js';
 import { initAllDatabases } from '#core/database.js';
@@ -59,6 +61,12 @@ class NovaX {
         this.log.info(`Booting NovaX ${this.shardIdentifier} [${process.env.NODE_ENV}]...`);
 
         try {
+            const hotReloadEnabled = secrets.getBoolean('hotReloadEnabled', false);
+            this.log.info('Loading Configurations...');
+            await configManager.init(hotReloadEnabled);
+            
+            this.log.info('Loading Language Dictionary...');
+            await i18n.init(hotReloadEnabled);
             this.log.info('Initializing Databases...');
             await initAllDatabases();
             
