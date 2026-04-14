@@ -25,8 +25,13 @@ interface DiscoveredPlugin {
     manifest: PluginManifest;
 }
 
+interface PreloadedPlugin extends DiscoveredPlugin {
+    PluginClass: new () => BasePlugin;
+}
+
 export enum PluginBootStatus {
     Pending = 'PENDING',
+    Preloaded = 'PRELOADED',
     Success = 'SUCCESS',
     Failed = 'FAILED',
     Skipped = 'SKIPPED'
@@ -35,7 +40,7 @@ export enum PluginBootStatus {
 export class PluginManager extends EventEmitter {
     private readonly pluginsDir: string;
     public readonly registry = new Map<string, BasePlugin>();
-    
+    private preloadedPlugins: PreloadedPlugin[] = [];
     private readonly bootStatuses = new Map<string, PluginBootStatus>();
 
     private readonly LIFECYCLE_TIMEOUT_MS = 15000;
@@ -126,7 +131,6 @@ export class PluginManager extends EventEmitter {
                     if (err.code !== 'ENOENT') log.error(`[${entry.name}] Failed to parse manifest: ${err.message}`);
                 }
             }));
-
         } catch (error: unknown) {
             const err = error as NodeJS.ErrnoException;
             if (err.code === 'ENOENT') log.info('No plugins directory found. Skipping load.');
@@ -135,80 +139,10 @@ export class PluginManager extends EventEmitter {
 
         return discovered;
     }
-
-    private async bootSinglePlugin(plugin: DiscoveredPlugin, baseClient: Client<true>): Promise<void> {
-        const { dir, manifest } = plugin;
-        const id = manifest.id;
-        const start = performance.now();
-
-        if (manifest.dependencies) {
-            for (const depId of manifest.dependencies) {
-                if (this.bootStatuses.get(depId) !== PluginBootStatus.Success) {
-                    this.bootStatuses.set(id, PluginBootStatus.Skipped);
-                    log.warn(`[${id}] Skipped boot. Required dependency '${depId}' failed or was skipped.`);
-                    return;
-                }
-            }
-        }
-
-        log.info(`[${id}] Booting v${manifest.version}...`);
-
-        try {
-            await DependencyLoader.installFromPackageJson(dir, id);
-            await configLoader.syncPlugin(dir, id);
-            await langLoader.syncPlugin(dir, id);
-
-            const isDev = process.env.NODE_ENV !== 'production';
-            const entryPath = path.join(dir, 'src', 'index.js');
-            const baseUrl = pathToFileURL(entryPath).href;
-            const importUrl = isDev ? `${baseUrl}?v=${Date.now()}` : baseUrl;
-
-            const Module = await import(importUrl).catch(err => {
-                throw new Error(`Failed to evaluate entrypoint: ${err.message}`);
-            });
-
-            const PluginClass = Module.default;
-            if (typeof PluginClass !== 'function' || !(PluginClass.prototype instanceof BasePlugin)) {
-                throw new Error(`Entrypoint does not export a valid BasePlugin class as default.`);
-            }
-            
-            const scopedHeart = HeartFactory.create(id, baseClient);
-            scopedHeart.assets.config.reloadFile(id);
-            scopedHeart.assets.lang.reloadFile(id);
-            const instance: BasePlugin = new PluginClass();
-            instance._injectCore(scopedHeart); 
-            
-            instance._setState(PluginState.Setup);
-            if (typeof instance.onSetup === 'function') {
-                await this.withTimeout(instance.onSetup(), id, 'onSetup()');
-            }
-            
-            await EventLoader.loadForPlugin(dir, id, scopedHeart);
-            await CommandLoader.loadForPlugin(dir, id, scopedHeart);
-            await RouteLoader.loadForPlugin(dir, id, scopedHeart);
-
-            instance._setState(PluginState.Enabled);
-            await this.withTimeout(instance.onEnable(), id, 'onEnable()');
-
-            this.registry.set(id, instance);
-            this.bootStatuses.set(id, PluginBootStatus.Success);
-            
-            const timeMs = (performance.now() - start).toFixed(2);
-            log.info(`[${id}] Successfully enabled in ${timeMs}ms.`);
-            this.emit('pluginLoaded', manifest);
-
-        } catch (error: unknown) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.bootStatuses.set(id, PluginBootStatus.Failed);
-            log.error(`[${id}] Critical failure during boot sequence: ${err.message}`, { stack: err.stack });
-            this.emit('pluginFailed', manifest, err);
-        }
-    }
-
-    public async bootAll(baseClient: Client<true>): Promise<void> {
-        const totalStart = performance.now();
-        log.info('Initializing Plugin Ecosystem...');
-
+    
+    public async preloadAll(): Promise<void> {
+        log.info('Initiating Plugin Preload Sequence...');
+        
         const discoveredMap = await this.discoverPlugins();
         if (discoveredMap.size === 0) return;
 
@@ -216,21 +150,104 @@ export class PluginManager extends EventEmitter {
         log.info(`Resolved dependency graph for ${sortedPlugins.length} plugins.`);
 
         for (const plugin of sortedPlugins) {
-            await this.bootSinglePlugin(plugin, baseClient);
+            const id = plugin.manifest.id;
+            
+            try {
+                await DependencyLoader.installFromPackageJson(plugin.dir, id);
+                
+                await configLoader.syncPlugin(plugin.dir, id);
+                await langLoader.syncPlugin(plugin.dir, id);
+
+                const isDev = process.env.NODE_ENV !== 'production';
+                const entryPath = path.join(plugin.dir, 'index.js');
+                const baseUrl = pathToFileURL(entryPath).href;
+                const importUrl = isDev ? `${baseUrl}?v=${Date.now()}` : baseUrl;
+
+                const Module = await import(importUrl).catch(err => {
+                    throw new Error(`Failed to evaluate entrypoint: ${err.message}`);
+                });
+
+                const PluginClass = Module.default;
+                if (typeof PluginClass !== 'function' || !(PluginClass.prototype instanceof BasePlugin)) {
+                    throw new Error(`Entrypoint does not export a valid BasePlugin class as default.`);
+                }
+
+                this.preloadedPlugins.push({ ...plugin, PluginClass });
+                this.bootStatuses.set(id, PluginBootStatus.Preloaded);
+                log.debug(`[${id}] Preload complete. Assets synced and code cached.`);
+
+            } catch (error: unknown) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                this.bootStatuses.set(id, PluginBootStatus.Failed);
+                log.error(`[${id}] Failed during preload phase: ${err.message}`);
+            }
+        }
+    }
+
+    public async bootAll(baseClient: Client<true>): Promise<void> {
+        const totalStart = performance.now();
+        log.info('Initiating Plugin Boot Sequence...');
+
+        for (const plugin of this.preloadedPlugins) {
+            const { dir, manifest, PluginClass } = plugin;
+            const id = manifest.id;
+            const start = performance.now();
+
+            if (manifest.dependencies) {
+                let skip = false;
+                for (const depId of manifest.dependencies) {
+                    const status = this.bootStatuses.get(depId);
+                    if (status !== PluginBootStatus.Success && status !== PluginBootStatus.Preloaded) {
+                        this.bootStatuses.set(id, PluginBootStatus.Skipped);
+                        log.warn(`[${id}] Skipped boot. Dependency '${depId}' failed.`);
+                        skip = true;
+                        break;
+                    }
+                }
+                if (skip) continue;
+            }
+
+            log.info(`[${id}] Booting v${manifest.version}...`);
+
+            try {
+                const scopedHeart = HeartFactory.create(id, baseClient);
+                const instance: BasePlugin = new PluginClass();
+                instance._injectCore(scopedHeart); 
+                
+                instance._setState(PluginState.Setup);
+                if (typeof instance.onSetup === 'function') {
+                    await this.withTimeout(instance.onSetup(), id, 'onSetup()');
+                }
+                
+                await EventLoader.loadForPlugin(dir, id, scopedHeart);
+                await CommandLoader.loadForPlugin(dir, id, scopedHeart);
+                await RouteLoader.loadForPlugin(dir, id, scopedHeart);
+
+                instance._setState(PluginState.Enabled);
+                await this.withTimeout(instance.onEnable(), id, 'onEnable()');
+
+                this.registry.set(id, instance);
+                this.bootStatuses.set(id, PluginBootStatus.Success);
+                
+                const timeMs = (performance.now() - start).toFixed(2);
+                log.info(`[${id}] Successfully enabled in ${timeMs}ms.`);
+                this.emit('pluginLoaded', manifest);
+
+            } catch (error: unknown) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                this.bootStatuses.set(id, PluginBootStatus.Failed);
+                log.error(`[${id}] Critical failure during boot sequence: ${err.message}`, { stack: err.stack });
+                this.emit('pluginFailed', manifest, err);
+            }
         }
 
-        if (baseClient) {
-            await emojiLoader.init(baseClient);
-        } else {
-            log.warn('Discord client unavailable. Skipping global Emoji sync.');
-        }
+        if (baseClient) await emojiLoader.init(baseClient);
 
         const activeCount = this.registry.size;
         const totalTime = ((performance.now() - totalStart) / 1000).toFixed(2);
-        const failedCount = sortedPlugins.length - activeCount;
-
-        log.info(`Ecosystem Boot Complete in ${totalTime}s. [Loaded: ${activeCount}] [Failed/Skipped: ${failedCount}]`);
-        this.emit('ecosystemReady', { loaded: activeCount, failed: failedCount, timeSec: totalTime });
+        
+        log.info(`Ecosystem Boot Complete in ${totalTime}s. [Loaded: ${activeCount}]`);
+        this.emit('ecosystemReady', { loaded: activeCount, timeSec: totalTime });
     }
 
     public async disable(pluginId: string): Promise<boolean> {

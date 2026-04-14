@@ -62,11 +62,16 @@ class NovaX {
 
         try {
             const hotReloadEnabled = secrets.getBoolean('hotReloadEnabled', false);
+            
+            this.log.info('Preloading Plugins...');
+            await this.pluginManager.preloadAll();
+
             this.log.info('Loading Configurations...');
             await configManager.init(hotReloadEnabled);
             
             this.log.info('Loading Language Dictionary...');
             await i18n.init(hotReloadEnabled);
+            
             this.log.info('Initializing Databases...');
             await initAllDatabases();
             
