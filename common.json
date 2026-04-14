@@ -17,5 +17,6 @@
             "poolSize": "5 [OPTIONAL]",
             "maxRetries": "3 [OPTIONAL]"
         }
-    }
+    },
+    "isSharded": true
 }

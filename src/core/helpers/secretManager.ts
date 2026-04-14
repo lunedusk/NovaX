@@ -94,6 +94,20 @@ export class SecretManager {
         log.info(`Vault loaded ${assimilatedCount} environment variables (Scrubbed ${scrubbedCount} sensitive keys from global scope).`);
     }
 
+    public getBoolean(key: string, fallback = false): boolean {
+        const val = this.getOptional(key);
+        
+        if (val === undefined || val === null) return fallback;
+        if (typeof val === 'boolean') return val;
+        
+        if (typeof val === 'string') {
+            const normalized = val.trim().toLowerCase();
+            return normalized === 'true' || normalized === '1' || normalized === 'yes';
+        }
+        
+        return false;
+    }
+
     public lock(): void {
         this.#isLocked = true;
         log.info('Memory Vault is now locked in Append-Only mode. Core configs are sealed.');
