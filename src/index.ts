@@ -160,17 +160,19 @@ class NovaX {
 
 async function main() {
     const logger = getLogger('Bootstrap');
+    const isSpawnedWorker = process.env.SHARD_LIST !== undefined || typeof process.send === 'function';
+
     try {
         secrets.assimilateEnv();
         secrets.lock();
+        
         const isSharded = secrets.getBoolean('isSharded', false);
-        const isSpawnedWorker = 'SHARD_LIST' in process.env;
 
         if (isSharded && !isSpawnedWorker) {
             globalCatcher.init();
             
             const masterLog = getLogger('ShardingManager');
-            masterLog.info('Booting into Enterprise Sharded Mode...');
+            masterLog.info('Booting into Sharded Mode...');
 
             const entryFile = fileURLToPath(import.meta.url);
             const manager = new ShardingManager(entryFile, {
@@ -182,10 +184,13 @@ async function main() {
             manager.on('shardCreate', shard => {
                 masterLog.info(`Successfully launched Shard #${shard.id}`);
             });
-
+            let masterShuttingDown = false;
             const shutdownMaster = () => {
-                masterLog.warn('[SIGTERM] Master shutting down. Broadcasting exit to fleet...');
-                setTimeout(() => process.exit(0), 5000); 
+                if (masterShuttingDown) return;
+                masterShuttingDown = true;
+                masterLog.warn('Shutting down. Broadcasting exit to fleet...');
+                manager.respawn = false;
+                setTimeout(() => process.exit(0), 2000); 
             };
             process.on('SIGTERM', shutdownMaster);
             process.on('SIGINT', shutdownMaster);
@@ -202,4 +207,9 @@ async function main() {
     }
 }
 
-main();
+const BOOT_LOCK = Symbol.for('NOVAX_BOOT_LOCK');
+
+if (!(globalThis as any)[BOOT_LOCK]) {
+    (globalThis as any)[BOOT_LOCK] = true;
+    main();
+}

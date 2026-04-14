@@ -75,6 +75,10 @@ export class SecretManager {
     }
 
     public assimilateEnv(pattern: RegExp = SecretManager.DEFAULT_SENSITIVE_PATTERN): void {
+        if (this.#isLocked) {
+            log.debug('Vault is already locked. Skipping redundant environment assimilation.');
+            return;
+        }
         let assimilatedCount = 0;
         let scrubbedCount = 0;
 
