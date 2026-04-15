@@ -125,9 +125,16 @@ export class PluginManager extends EventEmitter {
     private async discoverPlugins(): Promise<Map<string, DiscoveredPlugin>> {
         const discovered = new Map<string, DiscoveredPlugin>();
         
-        const publicKeyB64 = secrets.getOptional('PublicKey');
-        if (!publicKeyB64) {
-            log.warn('No PublicKey in Vault. Discovery aborted to prevent unsigned code execution.');
+        const publicKeyB64 = secrets.getOptional('PluginPublicKey');
+        const allowUncertified = secrets.getBoolean('allowUnCertifiedPlugins', false);
+        const whitelistedStr = secrets.getOptional('whitelistedPlugins');
+        
+        const whitelistedSet = new Set(
+            whitelistedStr ? whitelistedStr.split(',').map(s => s.trim()).filter(Boolean) : []
+        );
+
+        if (!publicKeyB64 && !allowUncertified && whitelistedSet.size === 0) {
+            log.warn('No PluginPublicKey in Vault and uncertified plugins are disabled. Discovery aborted.');
             return discovered;
         }
 
@@ -138,25 +145,61 @@ export class PluginManager extends EventEmitter {
                 if (!entry.isDirectory()) return;
 
                 const pluginDir = path.join(this.pluginsDir, entry.name);
+                const nvxPath = path.join(pluginDir, 'manifest.nvx');
+                const jsonPath = path.join(pluginDir, 'manifest.json');
 
                 try {
-                    const manifest = await PackageManager.unpackAndVerify(pluginDir, publicKeyB64, 'manifest.nvx');
+                    let manifest: ExtendedPluginManifest | null = null;
+                    let integrityPassed = false;
+                    
+                    const hasNvx = await fs.access(nvxPath).then(() => true).catch(() => false);
 
-                    if (manifest.novax_version && !SemVer.satisfies(this.coreVersion, manifest.novax_version)) {
-                        log.warn(`[${manifest.id}] Incompatible Core Version. Plugin requires ${manifest.novax_version}, but core is ${this.coreVersion}. Skipping.`);
-                        return;
+                    if (hasNvx) {
+                        if (!publicKeyB64) {
+                            log.warn(`[${entry.name}] Plugin contains manifest.nvx, but no PluginPublicKey is available to verify it.`);
+                        } else {
+                            try {
+                                manifest = await PackageManager.unpackAndVerify(pluginDir, publicKeyB64, 'manifest.nvx');
+                                integrityPassed = true;
+                            } catch (verifyError: unknown) {
+                                const err = verifyError as Error;
+                                log.warn(`[${entry.name}] INTEGRITY FAILURE: ${err.message}`);
+                            }
+                        }
                     }
 
-                    discovered.set(manifest.id, { dir: pluginDir, manifest });
-                    this.bootStatuses.set(manifest.id, PluginBootStatus.Pending);
+                    if (!integrityPassed) {
+                        const isWhitelisted = whitelistedSet.has(entry.name);
+                        
+                        if (!allowUncertified && !isWhitelisted) {
+                            log.error(`[${entry.name}] Rejected: Integrity check failed/missing, and unsigned plugins are disabled.`);
+                            return; 
+                        }
+
+                        log.warn(`[${entry.name}] BYPASS ACTIVE: Loading plugin via manifest.json without cryptographic guarantees.`);
+                        
+                        const jsonRaw = await fs.readFile(jsonPath, 'utf-8').catch(() => {
+                            throw new Error('Missing manifest.json fallback. Cannot load bypassed plugin.');
+                        });
+                        
+                        manifest = JSON.parse(jsonRaw);
+
+                        if (!manifest || !manifest.id || !manifest.name || !manifest.version) {
+                            throw new Error('Invalid manifest.json: Missing required fields (id, name, version).');
+                        }
+                    }
+
+                    if (manifest!.novax_version && !SemVer.satisfies(this.coreVersion, manifest!.novax_version)) {
+                        log.warn(`[${manifest!.id}] Incompatible Core Version. Plugin requires ${manifest!.novax_version}, but core is v${this.coreVersion}. Skipping.`);
+                        return; 
+                    }
+
+                    discovered.set(manifest!.id, { dir: pluginDir, manifest: manifest! });
+                    this.bootStatuses.set(manifest!.id, PluginBootStatus.Pending);
                     
                 } catch (error: unknown) {
-                    const err = error as NodeJS.ErrnoException;
-                    if (err.code === 'ENOENT') {
-                        log.warn(`[${entry.name}] Ignored: Missing signed manifest.nvx file.`);
-                    } else {
-                        log.error(`[${entry.name}] SECURITY ALERT or BAD PACKAGE: ${err.message}`);
-                    }
+                    const err = error as Error;
+                    log.error(`[${entry.name}] CRITICAL LOAD ERROR: ${err.message}`);
                 }
             }));
         } catch (error: unknown) {
