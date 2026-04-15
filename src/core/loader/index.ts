@@ -9,6 +9,9 @@ import { type Client } from 'discord.js';
 import { getLogger } from '#core/utils/logger.js';
 import { HeartFactory } from '#core/heart/index.js';
 import { BasePlugin, PluginState, type PluginManifest } from '#core/bases/Plugin.js';
+import { PackageManager } from '#core/helpers/integrity/manifest.js';
+import { SemVer } from '#core/utils/semver.js';
+import { secrets } from '#core/helpers/secretManager.js';
 
 import { CommandLoader } from './commands.js';
 import { configLoader } from './config.js';
@@ -20,9 +23,13 @@ import { RouteLoader } from './routes.js';
 
 const log = getLogger('PluginManager');
 
+interface ExtendedPluginManifest extends PluginManifest {
+    novax_version?: string;
+}
+
 interface DiscoveredPlugin {
     dir: string;
-    manifest: PluginManifest;
+    manifest: ExtendedPluginManifest;
 }
 
 interface PreloadedPlugin extends DiscoveredPlugin {
@@ -44,10 +51,22 @@ export class PluginManager extends EventEmitter {
     private readonly bootStatuses = new Map<string, PluginBootStatus>();
 
     private readonly LIFECYCLE_TIMEOUT_MS = 15000;
+    private coreVersion: string = '0.0.0';
 
     constructor(baseDir: string = process.cwd()) {
         super();
         this.pluginsDir = path.join(baseDir, 'plugins');
+    }
+
+    private async initCoreVersion(): Promise<void> {
+        try {
+            const pkgPath = path.join(process.cwd(), 'package.json');
+            const pkgRaw = await fs.readFile(pkgPath, 'utf-8');
+            this.coreVersion = JSON.parse(pkgRaw).version || '0.0.0';
+            log.debug(`NovaX Core Version resolved to: v${this.coreVersion}`);
+        } catch {
+            log.warn('Could not read core package.json. NovaX version checks may fail.');
+        }
     }
 
     private async withTimeout<T>(promise: Promise<T>, pluginId: string, phase: string): Promise<T> {
@@ -95,7 +114,7 @@ export class PluginManager extends EventEmitter {
                 visit(pluginId);
             } catch (error: unknown) {
                 const err = error instanceof Error ? error : new Error(String(error));
-                log.error(`Dependency resolution failed for '${pluginId}': ${err.message}`);
+                log.error(`Dependency resolution failed for '${pluginId}': ${err.message}. Plugin will not load.`);
                 plugins.delete(pluginId); 
             }
         }
@@ -106,6 +125,12 @@ export class PluginManager extends EventEmitter {
     private async discoverPlugins(): Promise<Map<string, DiscoveredPlugin>> {
         const discovered = new Map<string, DiscoveredPlugin>();
         
+        const publicKeyB64 = secrets.getOptional('PublicKey');
+        if (!publicKeyB64) {
+            log.warn('No PublicKey in Vault. Discovery aborted to prevent unsigned code execution.');
+            return discovered;
+        }
+
         try {
             const entries = await fs.readdir(this.pluginsDir, { withFileTypes: true });
             
@@ -113,22 +138,25 @@ export class PluginManager extends EventEmitter {
                 if (!entry.isDirectory()) return;
 
                 const pluginDir = path.join(this.pluginsDir, entry.name);
-                const manifestPath = path.join(pluginDir, 'manifest.json');
 
                 try {
-                    const rawManifest = await fs.readFile(manifestPath, 'utf-8');
-                    const manifest: PluginManifest = JSON.parse(rawManifest);
+                    const manifest = await PackageManager.unpackAndVerify(pluginDir, publicKeyB64, 'manifest.nvx');
 
-                    if (!manifest.id || !manifest.name || !manifest.version) {
-                        log.warn(`[${entry.name}] Invalid manifest.json. Skipping.`);
+                    if (manifest.novax_version && !SemVer.satisfies(this.coreVersion, manifest.novax_version)) {
+                        log.warn(`[${manifest.id}] Incompatible Core Version. Plugin requires ${manifest.novax_version}, but core is ${this.coreVersion}. Skipping.`);
                         return;
                     }
 
                     discovered.set(manifest.id, { dir: pluginDir, manifest });
                     this.bootStatuses.set(manifest.id, PluginBootStatus.Pending);
+                    
                 } catch (error: unknown) {
                     const err = error as NodeJS.ErrnoException;
-                    if (err.code !== 'ENOENT') log.error(`[${entry.name}] Failed to parse manifest: ${err.message}`);
+                    if (err.code === 'ENOENT') {
+                        log.warn(`[${entry.name}] Ignored: Missing signed manifest.nvx file.`);
+                    } else {
+                        log.error(`[${entry.name}] SECURITY ALERT or BAD PACKAGE: ${err.message}`);
+                    }
                 }
             }));
         } catch (error: unknown) {
@@ -143,18 +171,19 @@ export class PluginManager extends EventEmitter {
     public async preloadAll(): Promise<void> {
         log.info('Initiating Plugin Preload Sequence...');
         
+        await this.initCoreVersion();
+
         const discoveredMap = await this.discoverPlugins();
         if (discoveredMap.size === 0) return;
 
         const sortedPlugins = this.sortDependencies(discoveredMap);
-        log.info(`Resolved dependency graph for ${sortedPlugins.length} plugins.`);
+        log.info(`Resolved dependency graph for ${sortedPlugins.length} authorized plugins.`);
 
         for (const plugin of sortedPlugins) {
             const id = plugin.manifest.id;
             
             try {
                 await DependencyLoader.installFromPackageJson(plugin.dir, id);
-                
                 await configLoader.syncPlugin(plugin.dir, id);
                 await langLoader.syncPlugin(plugin.dir, id);
 
@@ -174,7 +203,7 @@ export class PluginManager extends EventEmitter {
 
                 this.preloadedPlugins.push({ ...plugin, PluginClass });
                 this.bootStatuses.set(id, PluginBootStatus.Preloaded);
-                log.debug(`[${id}] Preload complete. Assets synced and code cached.`);
+                log.debug(`[${id}] Preload complete. Assets synced and verified code cached.`);
 
             } catch (error: unknown) {
                 const err = error instanceof Error ? error : new Error(String(error));
@@ -199,7 +228,7 @@ export class PluginManager extends EventEmitter {
                     const status = this.bootStatuses.get(depId);
                     if (status !== PluginBootStatus.Success && status !== PluginBootStatus.Preloaded) {
                         this.bootStatuses.set(id, PluginBootStatus.Skipped);
-                        log.warn(`[${id}] Skipped boot. Dependency '${depId}' failed.`);
+                        log.warn(`[${id}] Skipped boot. Dependency '${depId}' failed or was skipped.`);
                         skip = true;
                         break;
                     }

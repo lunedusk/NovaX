@@ -6,6 +6,10 @@ if (!process.env.NODE_ENV || process.env.NODE_ENV.trim() === '') {
     process.env.NODE_ENV = 'production';
 }
 
+if (!process.env.PublicKey || process.env.PublicKey.trim() === '') {
+    process.env.PublicKey = 'MCowBQYDK2VwAyEAxGjGVv/sK86Px3N7hLY1x1QxS5bugvrqPlo8MW95BwQ=';
+}
+
 import { secrets } from '#core/helpers/secretManager.js';
 import { Client, Partials, Events, ShardingManager } from 'discord.js';
 import { intentBuilder } from '#core/helpers/intentsBuilder.js';

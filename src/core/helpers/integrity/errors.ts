@@ -6,3 +6,4 @@ export class IntegrityError extends Error {
 }
 export class ManifestSignatureError extends IntegrityError {}
 export class FileTamperingError extends IntegrityError {}
+export class VaultMissingKeyError extends IntegrityError {}
