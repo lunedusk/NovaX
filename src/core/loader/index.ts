@@ -125,7 +125,7 @@ export class PluginManager extends EventEmitter {
     private async discoverPlugins(): Promise<Map<string, DiscoveredPlugin>> {
         const discovered = new Map<string, DiscoveredPlugin>();
         
-        const publicKeyB64 = secrets.getOptional('PluginPublicKey');
+        const publicKeyB64 = secrets.getOptional('PublicKey');
         const allowUncertified = secrets.getBoolean('allowUnCertifiedPlugins', false);
         const whitelistedStr = secrets.getOptional('whitelistedPlugins');
         
@@ -134,7 +134,7 @@ export class PluginManager extends EventEmitter {
         );
 
         if (!publicKeyB64 && !allowUncertified && whitelistedSet.size === 0) {
-            log.warn('No PluginPublicKey in Vault and uncertified plugins are disabled. Discovery aborted.');
+            log.warn('No PublicKey in Vault and uncertified plugins are disabled. Discovery aborted.');
             return discovered;
         }
 
