@@ -25,7 +25,7 @@ export class PackageManager {
     public static async pack(
         rootDir: string, 
         signingPrivKeyPem: string, 
-        metadata: PluginManifest & { novax_version?: string },
+        metadata: PluginManifest,
         outputFile = 'manifest.nvx'
     ): Promise<void> {
         const files: Record<string, FileMetadata> = {};
