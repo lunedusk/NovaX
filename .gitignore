@@ -184,3 +184,5 @@ docker-compose.override.yml
 .idea_modules/
 *.sublime-workspace
 *.sublime-project
+Icon?
+Icon*
