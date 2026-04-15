@@ -16,7 +16,7 @@ import type { PluginManifest } from '#core/bases/Plugin.js';
 
 const log = getLogger('PackageManager');
 
-const MAGIC_HEADER = Buffer.from('NCHYB', 'utf8');
+const MAGIC_HEADER = Buffer.from('NCPLUG', 'utf8');
 const HEADER_OFFSET = MAGIC_HEADER.length; 
 const PAYLOAD_OFFSET = HEADER_OFFSET + SIGNATURE_LENGTH;
 

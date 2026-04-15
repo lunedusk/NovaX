@@ -6,6 +6,7 @@ import { IntegrityManager } from '#core/helpers/integrity.js';
 import { HybridVault, SecureVault } from '#core/helpers/enclave.js';
 import { codecRegistry as codec } from '#core/helpers/codec.js'; 
 import { TTLCache as Cache } from '#core/helpers/cache.js'; 
+import { PackageManager } from '#core/helpers/integrity/manifest.js';
 
 export type ToolboxDomain = {
     readonly utils: {
@@ -15,6 +16,7 @@ export type ToolboxDomain = {
     };
     readonly security: {
         readonly integrity: typeof IntegrityManager;
+        readonly manifest: typeof PackageManager;
         readonly HybridVault: typeof HybridVault;
         readonly SecureVault: typeof SecureVault;
     };
@@ -32,6 +34,7 @@ export const toolboxDomain: ToolboxDomain = Object.freeze({
     }),
     security: Object.freeze({
         integrity: IntegrityManager,
+        manifest: PackageManager,
         HybridVault,
         SecureVault
     }),
