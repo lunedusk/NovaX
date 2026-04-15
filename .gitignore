@@ -186,3 +186,7 @@ docker-compose.override.yml
 *.sublime-project
 Icon?
 Icon*
+src/plugins/**
+plugins/**
+core/**
+configuration/**
