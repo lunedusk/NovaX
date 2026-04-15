@@ -16,6 +16,7 @@ export interface PluginManifest {
     readonly description?: string;
     readonly author?: string;
     readonly dependencies?: string[];
+    readonly novax_version?: string;
 }
 
 export abstract class BasePlugin {

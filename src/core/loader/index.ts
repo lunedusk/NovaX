@@ -23,13 +23,9 @@ import { RouteLoader } from './routes.js';
 
 const log = getLogger('PluginManager');
 
-interface ExtendedPluginManifest extends PluginManifest {
-    novax_version?: string;
-}
-
 interface DiscoveredPlugin {
     dir: string;
-    manifest: ExtendedPluginManifest;
+    manifest: PluginManifest;
 }
 
 interface PreloadedPlugin extends DiscoveredPlugin {
@@ -149,14 +145,14 @@ export class PluginManager extends EventEmitter {
                 const jsonPath = path.join(pluginDir, 'manifest.json');
 
                 try {
-                    let manifest: ExtendedPluginManifest | null = null;
+                    let manifest: PluginManifest | null = null;
                     let integrityPassed = false;
                     
                     const hasNvx = await fs.access(nvxPath).then(() => true).catch(() => false);
 
                     if (hasNvx) {
                         if (!publicKeyB64) {
-                            log.warn(`[${entry.name}] Plugin contains manifest.nvx, but no PluginPublicKey is available to verify it.`);
+                            log.warn(`[${entry.name}] Plugin contains manifest.nvx, but no PublicKey is available to verify it.`);
                         } else {
                             try {
                                 manifest = await PackageManager.unpackAndVerify(pluginDir, publicKeyB64, 'manifest.nvx');
