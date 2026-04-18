@@ -72,6 +72,7 @@ export class PackageManager {
         const descOffset = metadata.description ? builder.createString(metadata.description) : 0;
         const authorOffset = metadata.author ? builder.createString(metadata.author) : 0;
         const nvxVersionOffset = metadata.novax_version ? builder.createString(metadata.novax_version) : 0;
+        const nodeVersionOffset = metadata.node_version ? builder.createString(metadata.node_version) : 0;
 
         let depsOffset = 0;
         if (metadata.dependencies && metadata.dependencies.length > 0) {
@@ -86,6 +87,7 @@ export class PackageManager {
         if (descOffset) NovaXManifest.addDescription(builder, descOffset);
         if (authorOffset) NovaXManifest.addAuthor(builder, authorOffset);
         if (nvxVersionOffset) NovaXManifest.addNovaxVersion(builder, nvxVersionOffset);
+        if (nodeVersionOffset) NovaXManifest.addNodeVersion(builder, nodeVersionOffset);
         if (depsOffset) NovaXManifest.addDependencies(builder, depsOffset);
         
         NovaXManifest.addIntegrity(builder, integrityOffset);
@@ -115,7 +117,7 @@ export class PackageManager {
         rootDir: string, 
         signingPubKeyB64: string, 
         manifestFile = 'manifest.nvx'
-    ): Promise<PluginManifest & { novax_version?: string }> {
+    ): Promise<PluginManifest> {
         const manifestPath = path.resolve(rootDir, manifestFile);
         
         const fileBytes = await fs.readFile(manifestPath).catch(() => {
@@ -216,6 +218,7 @@ export class PackageManager {
             description: manifest.description() ?? undefined,
             author: manifest.author() ?? undefined,
             novax_version: manifest.novaxVersion() ?? undefined,
+            node_version: manifest.nodeVersion() ?? undefined,
             dependencies: dependencies.length > 0 ? dependencies : undefined,
         };
     }

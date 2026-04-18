@@ -12,7 +12,7 @@ import { BasePlugin, PluginState, type PluginManifest } from '#core/bases/Plugin
 import { PackageManager } from '#core/helpers/integrity/manifest.js';
 import { SemVer } from '#core/utils/semver.js';
 import { secrets } from '#core/helpers/secretManager.js';
-
+import { NodeVersion } from '#core/utils/nodever.js';
 import { CommandLoader } from './commands.js';
 import { configLoader } from './config.js';
 import { DependencyLoader } from './dependency.js';
@@ -188,6 +188,14 @@ export class PluginManager extends EventEmitter {
                     if (manifest!.novax_version && !SemVer.satisfies(this.coreVersion, manifest!.novax_version)) {
                         log.warn(`[${manifest!.id}] Incompatible Core Version. Plugin requires ${manifest!.novax_version}, but core is v${this.coreVersion}. Skipping.`);
                         return; 
+                    }
+                    if (manifest!.node_version && !NodeVersion.satisfies(manifest!.node_version)) {
+                        const currentNode = NodeVersion.current().toString();
+                        log.warn(
+                            `[${manifest!.id}] Incompatible Node.js version. ` +
+                            `Plugin requires ${manifest!.node_version}, but runtime is v${currentNode}. Skipping.`,
+                        );
+                        return;
                     }
 
                     discovered.set(manifest!.id, { dir: pluginDir, manifest: manifest! });

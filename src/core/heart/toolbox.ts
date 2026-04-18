@@ -1,4 +1,3 @@
-// --- 1. Utilities ---
 import { random } from '#core/utils/random.js';
 import { format } from '#core/utils/format.js';
 import { EmojiSyncer } from '#core/helpers/emojiSync.js';

@@ -20,6 +20,7 @@ table NovaXManifest {
   author: string;
   dependencies: [string];
   novax_version: string;
+  node_version: string;
   integrity: IntegrityPayload;
 }
 

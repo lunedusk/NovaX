@@ -79,13 +79,20 @@ novaxVersion(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
-integrity(obj?:IntegrityPayload):IntegrityPayload|null {
+nodeVersion():string|null
+nodeVersion(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+nodeVersion(optionalEncoding?:any):string|Uint8Array|null {
   const offset = this.bb!.__offset(this.bb_pos, 18);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+integrity(obj?:IntegrityPayload):IntegrityPayload|null {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
   return offset ? (obj || new IntegrityPayload()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
 static startNovaXManifest(builder:flatbuffers.Builder) {
-  builder.startObject(8);
+  builder.startObject(9);
 }
 
 static addId(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset) {
@@ -128,8 +135,12 @@ static addNovaxVersion(builder:flatbuffers.Builder, novaxVersionOffset:flatbuffe
   builder.addFieldOffset(6, novaxVersionOffset, 0);
 }
 
+static addNodeVersion(builder:flatbuffers.Builder, nodeVersionOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(7, nodeVersionOffset, 0);
+}
+
 static addIntegrity(builder:flatbuffers.Builder, integrityOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(7, integrityOffset, 0);
+  builder.addFieldOffset(8, integrityOffset, 0);
 }
 
 static endNovaXManifest(builder:flatbuffers.Builder):flatbuffers.Offset {
