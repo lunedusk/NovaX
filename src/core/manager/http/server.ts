@@ -13,25 +13,24 @@ export class HttpServer {
     private isRunning = false;
 
     public init(): void {
-        if (this.app) {
-            log.warn('HttpServer is already initialized. Skipping.');
-            return;
-        }
+        if (this.app) return;
 
         log.info('Initializing REST API Server...');
         this.app = express();
 
         this.app.use(cors());
-        this.app.use(express.json({ limit: '500kb' })); 
+        
+        this.app.use(express.json({ 
+            limit: '500kb',
+            verify: (req: any, _res, buf) => { req.rawBody = buf; } 
+        })); 
         this.app.use(express.urlencoded({ extended: true, limit: '500kb' }));
 
         this.app.use((req: Request, res: Response, next: NextFunction) => {
             const start = performance.now();
-            
             res.on('finish', () => {
                 const duration = performance.now() - start;
                 const status = res.statusCode;
-                
                 const cleanUrl = req.originalUrl.split('?')[0];
                 const msg = `[${req.method}] ${cleanUrl} - ${status} (${duration.toFixed(2)}ms)`;
                 
@@ -39,41 +38,24 @@ export class HttpServer {
                 else if (status >= 400) log.warn(msg);
                 else log.debug(msg);
             });
-            
             next();
         });
 
         this.app.get('/api/health', (req: Request, res: Response) => {
-            res.status(200).json({ 
-                status: 'online', 
-                uptime: process.uptime(), 
-                timestamp: Date.now() 
-            });
+            res.status(200).json({ status: 'online', uptime: process.uptime() });
         });
     }
 
     public registerRouter(basePath: string, router: Router): void {
-        if (!this.app) throw new Error("HttpServer must be initialized before registering routes.");
+        if (!this.app) throw new Error("HttpServer not initialized.");
         this.app.use(basePath, router);
-        log.debug(`Registered API Route: ${basePath}`);
+        log.debug(`Mounted Router: ${basePath}`);
     }
 
     public async start(port: number = parseInt(secrets.getOptional('APIPort') || '3000')): Promise<void> {
-        if (!this.app) throw new Error("HttpServer must be initialized before starting.");
         if (this.isRunning) return;
 
         return new Promise((resolve, reject) => {
-            this.app!.use((req: Request, res: Response) => {
-                res.status(404).json({ error: 'Endpoint Not Found' });
-            });
-
-            this.app!.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-                const cleanUrl = req.originalUrl.split('?')[0];
-                log.error(`API Error [${req.method} ${cleanUrl}]: ${err.message}`, { stack: err.stack });
-                
-                res.status(500).json({ error: 'Internal Server Error' });
-            });
-
             try {
                 this.server = this.app!.listen(port, () => {
                     this.isRunning = true;
@@ -86,25 +68,30 @@ export class HttpServer {
         });
     }
 
+    public finalize(): void {
+        if (!this.app) return;
+
+        this.app.use((req: Request, res: Response) => {
+            res.status(404).json({ 
+                error: 'Not Found', 
+                message: `Route ${req.method} ${req.originalUrl} does not exist.` 
+            });
+        });
+
+        this.app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+            log.error(`API Exception: ${err.message}`, { stack: err.stack });
+            res.status(500).json({ error: 'Internal Server Error' });
+        });
+
+        log.info('HttpServer pipeline finalized and locked.');
+    }
+
     public async stop(): Promise<void> {
-        if (!this.server || !this.isRunning) return;
-
+        if (!this.server) return;
         return new Promise((resolve) => {
-            log.info('Initiating REST API shutdown...');
-
-            if ('closeAllConnections' in this.server!) {
-                this.server.closeAllConnections();
-            }
-
-            this.server!.close((err) => {
+            this.server!.close(() => {
                 this.isRunning = false;
-                this.server = null;
-                
-                if (err) {
-                    log.error(`Error during REST API shutdown: ${err.message}`);
-                } else {
-                    log.info('REST API gracefully shut down.');
-                }
+                log.info('REST API shut down.');
                 resolve();
             });
         });

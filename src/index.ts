@@ -85,13 +85,16 @@ class NovaX {
             await this.login();
             
             if (this.isPrimaryShard) {
-                this.log.info('Initializing Http Server...');
                 httpServer.init();
-                await httpServer.start();
+                await httpServer.start(parseInt(secrets.getOptional('APIPort') || '3000'));
             }
 
             this.log.info('Booting Plugins...');
             await this.pluginManager.bootAll(this.client);
+
+            if (this.isPrimaryShard) {
+                httpServer.finalize();
+            }
             
             this.log.info('Syncing Commands...');
             await interactionHandler.syncCommands(this.client, secrets.getOptional('GuildID'));
