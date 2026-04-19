@@ -5,7 +5,8 @@
   "tsconfig": "tsconfig.json",
 
   "exclude": [
-    "src/core/internal/**/*"
+    "src/core/internal/**/*",
+    "src/plugins/**/*"
   ],
 
   "excludeExternals": true,
