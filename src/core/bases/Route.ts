@@ -9,7 +9,7 @@ export abstract class BaseRoute {
     public abstract readonly basePath: string;
     constructor(heart: IHeart) {
         this.#heart = heart;
-        this.router = Router({ strict: true }); 
+        this.router = Router({ strict: false, mergeParams: true });
     }
     public _buildRouter(): Router {
         this.register();

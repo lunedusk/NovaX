@@ -17,7 +17,7 @@ export class EmojiManager {
     private isReloading = false;
 
     constructor(targetPath?: string) {
-        this.filePath = targetPath ? path.resolve(targetPath) : path.join(process.cwd(), '.data', 'emoji.json');
+        this.filePath = targetPath ? path.resolve(targetPath) : path.join(process.cwd(), '.data', 'emojis.json');
     }
 
     public async init(hotReload: boolean = false): Promise<void> {

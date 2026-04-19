@@ -23,6 +23,7 @@ import { common777 } from '#core/internal/common777.js';
 import { eventManager } from '#core/manager/events/Manager.js';
 import { initAllDatabases } from '#core/database.js';
 import { globalCatcher } from '#core/error/index.js';
+import { emojis } from '#core/manager/emoji.js';
 
 class NovaX {
     private readonly log = getLogger('Bootstrap');
@@ -95,6 +96,8 @@ class NovaX {
             if (this.isPrimaryShard) {
                 httpServer.finalize();
             }
+
+            await emojis.init(hotReloadEnabled);
             
             this.log.info('Syncing Commands...');
             await interactionHandler.syncCommands(this.client, secrets.getOptional('GuildID'));

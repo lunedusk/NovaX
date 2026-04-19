@@ -26,7 +26,7 @@ export abstract class BasePlugin {
     #logger?: Logger;
     public abstract readonly manifest: PluginManifest;
     public get state(): PluginState { 
-        return this.#state; 
+        return this.#state;
     }
     public get isEnabled(): boolean { 
         return this.#state === PluginState.Enabled; 
