@@ -190,3 +190,5 @@ src/plugins/**
 plugins/**
 core/**
 configuration/**
+src/scripts/**
+scripts/**

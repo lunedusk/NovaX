@@ -1,6 +1,6 @@
 {
   "name": "@novacore-dev/novax",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The most versatile modular discord framework for Node.js (discord.js) in TypeScript",
   "main": "./index.js",
   "type": "module",
@@ -12,13 +12,15 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "clean": "rm -rf core plugins index.js index.d.ts",
+    "clean": "rm -rf core plugins scripts index.js index.d.ts",
     "compile": "tsc",
     "copy-assets": "copyfiles -u 1 \"src/**/*.{json5,json,nvx,png,webp,jpg,jpeg,svg}\" \"src/**/data/**/*\" ./",
     "build": "npm run clean && npm run compile && npm run copy-assets",
     "start": "node --import ./core/dependency/index.mjs ./index.js",
     "dev": "tsx --import ./src/core/dependency/index.mts ./src/index.ts",
-    "docs": "typedoc"
+    "docs": "npm run rmdocs && typedoc",
+    "rmdocs": "rm -rf docs",
+    "flush": "rm -rf core plugins configuration logs .data scripts index.js index.d.ts"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",
