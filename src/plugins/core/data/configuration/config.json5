@@ -1,0 +1,37 @@
+{
+    // ==========================================
+    // NovaCore Presence Configuration
+    // ==========================================
+
+    // Set to false to temporarily disable the presence engine without unloading the plugin.
+    "enabled": true,
+
+    // The bot's global status.
+    // Allowed values: 'online', 'idle', 'dnd', 'invisible'
+    "status": "online",
+
+    // How often (in seconds) the bot should cycle to the next activity in the list.
+    // Minimum recommended is 15 seconds to avoid Discord API rate limits.
+    "updateIntervalSeconds": 60,
+
+    // The list of activities to rotate through. 
+    // If you only provide one, the rotation timer is automatically bypassed to save CPU.
+    "activities": [
+        {
+            "name": "over the NovaX Ecosystem",
+            // Allowed Types: PLAYING, STREAMING, LISTENING, WATCHING, COMPETING, CUSTOM
+            "type": "WATCHING" 
+        },
+        {
+            "name": "Enterprise Grade TypeScript",
+            "type": "PLAYING"
+        },
+        {
+            "name": "a coding masterclass",
+            "type": "STREAMING",
+            // The 'url' field is strictly required by Discord when the type is STREAMING.
+            // It must be a valid Twitch or YouTube URL.
+            "url": "https://twitch.tv/discord" 
+        }
+    ]
+}

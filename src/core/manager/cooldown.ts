@@ -28,13 +28,21 @@ export class CooldownManager {
         log.debug(`Bucket Defined: [${slug}] -> ${limit} req / ${windowSeconds}s`);
     }
 
-    public async isRateLimited(slug: string, ctx: CooldownContext): Promise<CooldownResult> {
+    public async isRateLimited(
+        slug: string, 
+        ctx: CooldownContext, 
+        customLimit?: number, 
+        customWindowMs?: number
+    ): Promise<CooldownResult> {
         let bucket = this.buckets.get(slug);
         
         if (!bucket) {
-            log.warn(`Cooldown bucket [${slug}] was not pre-defined. Auto-provisioning default (1 req / 5s).`);
+            const limit = customLimit ?? 1;
+            const windowSeconds = customWindowMs ? customWindowMs / 1000 : 5;
+
+            log.info(`Auto-provisioning dynamic bucket [${slug}] -> ${limit} req / ${windowSeconds}s`);
             
-            this.define(slug, 1, 5);
+            this.define(slug, limit, windowSeconds);
             bucket = this.buckets.get(slug)!;
         }
 

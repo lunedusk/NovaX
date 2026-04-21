@@ -1,8 +1,10 @@
 {   
     "__info__": {
         "__author__": "NovaCore",
-        "version": "0.1.0"
+        "version": "0.1.2"
     },
+    "BotName": "MyBot",
+    "MainGuildName": "MyGuild",
     "ENVSettings": true,
     "DiscordToken": "DISCORD_TOKEN",
     "DiscordIntents": ["default"],
@@ -19,5 +21,9 @@
         }
     },
     "isSharded": true,
-    "hotReloadEnabled": false
+    "hotReloadEnabled": false,
+    "SmtpHost": "SMTP_HOST",
+    "SmtpPort": 587,
+    "SmtpUser": "SMTP_USER",
+    "SmtpPass": "SMTP_PASS"
 }

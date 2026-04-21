@@ -1,0 +1,15 @@
+{
+  "name": "sellauth",
+  "version": "0.1.0",
+  "description": "Enterprise Sellauth Integration",
+  "type": "module",
+  "imports": {
+    "#core/*": "./../../core/*",
+    "#plugins/*": "./../../plugins/*"
+  },
+  "author": "NovaCore Development",
+  "dependencies": {
+    "zod": "^3.22.4",
+    "nodemailer": "^8.0.5"
+  }
+}

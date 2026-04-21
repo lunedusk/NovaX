@@ -93,17 +93,21 @@ export class InteractionHandler {
             }
 
             if (!interaction.isAutocomplete()) {
-                const cooldown = await cooldownManager.isRateLimited('global', {
-                    userId: interaction.user.id,
-                    guildId: interaction.guildId ?? 'dm',
-                    commandId: route.lookupKey
-                });
+                const isGlobalEnabled = secrets.getBoolean('EnableGlobalRatelimit', true);
+                
+                if (isGlobalEnabled) {
+                    const cooldown = await cooldownManager.isRateLimited('global', {
+                        userId: interaction.user.id,
+                        guildId: interaction.guildId ?? 'dm',
+                        commandId: route.lookupKey
+                    });
 
-                if (cooldown.limited) {
-                    metricsManager.rateLimitsTotal.inc({ bucket: 'global' });
-                    metricsManager.interactionsTotal.inc({ type: route.category, command: route.lookupKey, status: 'rate_limited' });
-                    await this.sendSystemState(interaction, 'RATE_LIMIT', cooldown.remaining);
-                    return;
+                    if (cooldown.limited) {
+                        metricsManager.rateLimitsTotal.inc({ bucket: 'global' });
+                        metricsManager.interactionsTotal.inc({ type: route.category, command: route.lookupKey, status: 'rate_limited' });
+                        await this.sendSystemState(interaction, 'RATE_LIMIT', cooldown.remaining);
+                        return;
+                    }
                 }
             }
 

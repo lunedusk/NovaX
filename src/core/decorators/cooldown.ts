@@ -10,26 +10,28 @@ import {
 } from 'discord.js';
 import { cooldownManager } from '#core/manager/cooldown.js';
 import { getLogger } from '#core/utils/logger.js';
+import { emojis } from '#core/manager/emoji.js';
 
 const log = getLogger('CooldownDecorator');
 
 export interface CooldownOptions {
     userIndex?: number; 
     onLimit?: (remainingMs: number) => unknown;
+    limit?: number;
+    windowMs?: number;
 }
 
 type RepliableContext = Message | Interaction<CacheType>;
 
 export function Cooldown(slug: string, options: CooldownOptions = {}) {
-    return function (
-        _target: any,
-        propertyKey: string,
-        descriptor: PropertyDescriptor
+    return function <T extends (...args: any[]) => any>(
+        originalMethod: T,
+        context: ClassMethodDecoratorContext
     ) {
-        const originalMethod = descriptor.value;
-        const userIdx = options.userIndex ?? 0;
+        const propertyKey = String(context.name);
 
-        descriptor.value = async function (...args: any[]) {
+        async function replacementMethod(this: any, ...args: Parameters<T>) {
+            const userIdx = options.userIndex ?? 0;
             const ctx = args[userIdx] as RepliableContext;
             
             const userId = ('user' in ctx ? ctx.user.id : ('author' in ctx ? ctx.author.id : null));
@@ -41,11 +43,12 @@ export function Cooldown(slug: string, options: CooldownOptions = {}) {
                 return originalMethod.apply(this, args);
             }
 
-            const result = await cooldownManager.isRateLimited(slug, {
-                userId,
-                guildId,
-                commandId
-            });
+            const result = await cooldownManager.isRateLimited(
+                slug, 
+                { userId, guildId, commandId },
+                options.limit,
+                options.windowMs
+            );
 
             if (result.limited) {
                 const remainingSec = (result.remaining / 1000).toFixed(1);
@@ -55,18 +58,17 @@ export function Cooldown(slug: string, options: CooldownOptions = {}) {
                 }
 
                 if (ctx && 'isRepliable' in ctx && typeof ctx.isRepliable === 'function' && ctx.isRepliable()) {
-                    
                     const cooldownUI = new ContainerBuilder()
                         .setAccentColor(0xFF4444)
                         .addTextDisplayComponents(
-                            new TextDisplayBuilder().setContent("**⏳ Rate Limit Exceeded**"),
+                            new TextDisplayBuilder().setContent(`**${emojis.get('clock') || '⏳'} Rate Limit Exceeded**`),
                         )
                         .addSeparatorComponents(
                             new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true),
                         )
                         .addTextDisplayComponents(
                             new TextDisplayBuilder().setContent(
-                                `Please wait **${remainingSec}s** before using \`${propertyKey}\` again.`
+                                `${emojis.get('cross') || '❌'} Please wait **${remainingSec}s** before using \`${propertyKey}\` again.`
                             ),
                         );
 
@@ -91,8 +93,8 @@ export function Cooldown(slug: string, options: CooldownOptions = {}) {
             }
 
             return originalMethod.apply(this, args);
-        };
+        }
 
-        return descriptor;
+        return replacementMethod;
     };
 }

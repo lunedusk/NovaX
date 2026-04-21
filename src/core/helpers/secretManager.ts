@@ -24,7 +24,7 @@ export class SecretManager {
     readonly #store = new Map<string, EncryptedPayload>();
     #isLocked = false;
 
-    static readonly DEFAULT_SENSITIVE_PATTERN = /(TOKEN|SECRET|KEY|PASSWORD|URI|DB|DATABASE|LICENSE|CERT|AUTH)/i;
+    static readonly DEFAULT_SENSITIVE_PATTERN = /(TOKEN|SECRET|KEY|PASSWORD|URI|DB|DATABASE|LICENSE|CERT|AUTH|PASS)/i;
 
     constructor() {
         this.#ephemeralKey = crypto.randomBytes(32);
