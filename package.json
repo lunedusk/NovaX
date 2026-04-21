@@ -17,6 +17,7 @@
     "copy-assets": "copyfiles -u 1 \"src/**/*.{json5,json,nvx,png,webp,jpg,jpeg,svg}\" \"src/**/data/**/*\" ./",
     "build": "npm run clean && npm run compile && npm run copy-assets",
     "start": "node --import ./core/dependency/index.mjs ./index.js",
+    "pack": "node --import ./core/dependency/index.mjs ./scripts/manifestPacker.js",
     "dev": "tsx --import ./src/core/dependency/index.mts ./src/index.ts",
     "docs": "npm run rmdocs && typedoc",
     "rmdocs": "rm -rf docs",
