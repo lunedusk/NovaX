@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { getLogger } from '#core/utils/logger.js';
 import { type IHeart } from '#core/heart/index.js';
 import { BaseEvent } from '#core/bases/Event.js';
+import { interactionRegistry } from '#core/manager/interaction/registry.js';
 
 const log = getLogger('EventLoader');
 
@@ -19,7 +20,7 @@ export class EventLoader {
             if (entry.isDirectory()) {
                 return this.getFiles(fullPath);
             }
-            return fullPath.endsWith('.js') ? fullPath : [];
+            return fullPath.match(/\.(js)$/) ? fullPath : [];
         }));
 
         return paths.flat();
@@ -48,11 +49,27 @@ export class EventLoader {
                 }
 
                 const instance: BaseEvent = new EventClass(heart);
-
-                if (instance.once) {
-                    heart.system.events.once(instance.name, (...args: any[]) => instance.execute(...args));
-                } else {
-                    heart.system.events.on(instance.name, (...args: any[]) => instance.execute(...args));
+                if (instance.buttons) {
+                    for (const [pattern, handler] of instance.buttons.entries()) {
+                        interactionRegistry.button.register(pattern, handler as any, pluginId);
+                    }
+                }
+                if (instance.modals) {
+                    for (const [pattern, handler] of instance.modals.entries()) {
+                        interactionRegistry.modal.register(pattern, handler as any, pluginId);
+                    }
+                }
+                if (instance.selects) {
+                    for (const [pattern, handler] of instance.selects.entries()) {
+                        interactionRegistry.select.register(pattern, handler as any, pluginId);
+                    }
+                }
+                if (instance.name) {
+                    if (instance.once) {
+                        heart.system.events.once(instance.name, (...args: any[]) => instance.execute(...args));
+                    } else {
+                        heart.system.events.on(instance.name, (...args: any[]) => instance.execute(...args));
+                    }
                 }
 
                 loadedCount++;

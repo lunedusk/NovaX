@@ -38,7 +38,7 @@ class NovaX {
 
         this.client = new Client({
             intents: intentBuilder.build(intentsInput),
-            partials: [ Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember ]
+            partials: [ Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction, Partials.ThreadMember, Partials.GuildScheduledEvent ]
         }) as Client<true>;
 
         eventManager.bindNativeEvents(this.client);

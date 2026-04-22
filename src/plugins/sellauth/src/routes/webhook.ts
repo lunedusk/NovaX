@@ -13,7 +13,8 @@ import {
     ButtonBuilder,
     ButtonStyle,
     ActionRowBuilder,
-    MessageFlags
+    MessageFlags,
+    EmbedBuilder
 } from 'discord.js';
 import { BaseRoute } from '../../../../core/bases/Route.js';
 import { type IHeart } from '../../../../core/heart/index.js';
@@ -164,7 +165,7 @@ export default class SellAuthWebhookRoute extends BaseRoute {
         return await response.json() as SellAuthInvoice;
     }
 
-    private extractDiscordId(invoice: any): string | null {
+    private async extractDiscordId(invoice: any): Promise<string | null> {
         if (invoice.customer?.discord_id) return String(invoice.customer.discord_id);
         
         if (invoice.custom_fields) {
@@ -179,11 +180,22 @@ export default class SellAuthWebhookRoute extends BaseRoute {
             }
         }
         
+        if (invoice.email) {
+            try {
+                const pool = this.getDatabasePool();
+                const res = await pool.query('SELECT discord_id FROM sellauth_users WHERE email = $1', [invoice.email.toLowerCase()]);
+                if (res.rowCount === null) return null;
+                if (res.rowCount > 0) return String(res.rows[0].discord_id);
+            } catch (err) {
+                this.log.error(`DB extraction failed for invoice ${invoice.id}:`, err);
+            }
+        }
+        
         return null;
     }
 
     private async handleFulfillment(invoice: SellAuthInvoice, config: SellAuthConfig, guild: Guild): Promise<void> {
-        const discordId = this.extractDiscordId(invoice);
+        const discordId = await this.extractDiscordId(invoice);
         
         if (!discordId) {
             this.log.info(`[Invoice:${invoice.id}] No discord_id attached to order. Skipping Discord fulfillment.`);
@@ -202,7 +214,17 @@ export default class SellAuthWebhookRoute extends BaseRoute {
             }
 
             if (config.features?.autoDMInstructions && invoice.items && invoice.items.length > 0) {
-                await this.deliverProductInstructions(member, invoice);
+                try {
+                    await this.deliverProductInstructions(member, invoice);
+                } catch (err) {
+                    this.log.warn(`[Invoice:${invoice.id}] Instructions failed or missing, but continuing to Receipt/Review payload.`);
+                }
+            }
+
+            try {
+                await this.deliverReceiptAndReviewDM(member, invoice);
+            } catch (err) {
+                this.log.error(`[Invoice:${invoice.id}] Receipt delivery failed.`, err);
             }
 
         } catch (error: any) {
@@ -214,11 +236,63 @@ export default class SellAuthWebhookRoute extends BaseRoute {
         }
     }
 
+    private async deliverReceiptAndReviewDM(member: GuildMember, invoice: SellAuthInvoice): Promise<void> {
+        const invoiceId = String(invoice.id);
+        const emoji_tada = this.heart.assets.emoji.get('tada') || '🎉';
+        
+        const reviewBtnId = `sa_rev_btn_${invoiceId}`;
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId(reviewBtnId)
+                .setStyle(ButtonStyle.Success)
+                .setLabel('Leave a Review')
+        );
+
+        const v2Container = new ContainerBuilder()
+            .setAccentColor(0x2ECC71) 
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(
+                    `## ${emoji_tada} Order Complete!\n` +
+                    `Thank you for your purchase. We greatly appreciate your business!\n\n` +
+                    `If you have a moment, please consider leaving a review for your order (\`${invoice.id}\`).`
+                )
+            );
+        v2Container.addActionRowComponents(row);
+
+        const dispatchPayload = async () => {
+            try {
+                await member.send({ components: [v2Container], flags: MessageFlags.IsComponentsV2 });
+                this.log.info(`[Invoice:${invoiceId}] V2 Component Receipt delivered to ${member.user.tag}`);
+            } catch (error: any) {
+                if (error.code === 50035 || error.message.includes('components')) {
+                    this.log.warn(`[Invoice:${invoiceId}] Discord blocked unprompted V2 Component DM. Switching to standard Embed fallback.`);
+                    
+                    const fallbackEmbed = new EmbedBuilder()
+                        .setColor(0x2ECC71)
+                        .setTitle(`${emoji_tada} Order Complete!`)
+                        .setDescription(`Thank you for your purchase. We greatly appreciate your business!\n\nIf you have a moment, please consider leaving a review for your order (\`${invoice.id}\`).`);
+                    
+                    await member.send({ embeds: [fallbackEmbed], components: [row] });
+                    this.log.info(`[Invoice:${invoiceId}] Embed Fallback Receipt delivered to ${member.user.tag}`);
+                } else if (error.code === 50007) {
+                    throw error;
+                } else {
+                    throw error;
+                }
+            }
+        };
+
+        await this.withRetry(dispatchPayload, `DM Receipt (${member.user.tag})`, invoiceId);
+    }
+
     private async deliverProductInstructions(member: GuildMember, invoice: SellAuthInvoice): Promise<void> {
         const invoiceId = String(invoice.id);
         try {
             const pool = this.getDatabasePool();
-            let deliveryMessage = `**Order Complete!** 🎉\nThank you for your purchase. Here is your product information:\n\n`;
+            const emoji_box = this.heart.assets.emoji.get('box') || '📦';
+            
+            let v2Message = `## ${emoji_box} Your Product Instructions\nBelow is the delivery information for your recent purchase:\n\n`;
+            let fallbackMessage = `Below is the delivery information for your recent purchase:\n\n`;
             let hasInstructions = false;
 
             for (const item of invoice.items) {
@@ -230,7 +304,8 @@ export default class SellAuthWebhookRoute extends BaseRoute {
                 if (result.rowCount && result.rowCount > 0) {
                     const instructions = result.rows[0].delivery_instructions;
                     const productName = item.product?.name || `Product ID ${item.product_id}`;
-                    deliveryMessage += `__**${productName}**__\n${instructions}\n\n`;
+                    v2Message += `### ${productName}\n${instructions}\n\n`;
+                    fallbackMessage += `**${productName}**\n${instructions}\n\n`;
                     hasInstructions = true;
                 }
             }
@@ -240,23 +315,36 @@ export default class SellAuthWebhookRoute extends BaseRoute {
                 return;
             }
 
-            await this.withRetry(
-                () => member.send({ content: deliveryMessage.trim() }),
-                `DM Delivery (${member.user.tag})`,
-                invoiceId
-            );
+            const v2Container = new ContainerBuilder()
+                .setAccentColor(0x3498DB)
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(v2Message.trim()));
+
+            try {
+                await member.send({ components: [v2Container], flags: MessageFlags.IsComponentsV2 });
+            } catch (error: any) {
+                if (error.code === 50035 || error.message.includes('components')) {
+                    this.log.warn(`[Invoice:${invoiceId}] Discord API rejected V2 Component in DM. Gracefully falling back to Standard Embed UI.`);
+                    
+                    const fallbackEmbed = new EmbedBuilder()
+                        .setColor(0x3498DB)
+                        .setTitle(`${emoji_box} Your Product Instructions`)
+                        .setDescription(fallbackMessage.trim());
+                    
+                    await member.send({ embeds: [fallbackEmbed] });
+                } else if (error.code === 50007) {
+                    this.log.warn(`[Invoice:${invoiceId}] Cannot deliver instructions. User has DMs closed.`);
+                } else {
+                    throw error;
+                }
+            }
 
         } catch (error: any) {
-            if (error instanceof DiscordAPIError && error.code === 50007) {
-                this.log.warn(`[Invoice:${invoiceId}] Cannot deliver instructions. ${member.user.tag} has DMs closed.`);
-            } else {
-                this.log.error(`[Invoice:${invoiceId}] Instruction delivery failed:`, error);
-            }
+            this.log.error(`[Invoice:${invoiceId}] Instruction delivery DB query failed:`, error);
         }
     }
 
     private async handleRevocation(invoice: SellAuthInvoice, config: SellAuthConfig, guild: Guild): Promise<void> {
-        const discordId = this.extractDiscordId(invoice);
+        const discordId = await this.extractDiscordId(invoice);
         if (!discordId || !config.roles?.customer) return;
         
         try {

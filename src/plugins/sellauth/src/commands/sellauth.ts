@@ -53,6 +53,10 @@ export default class SellAuthCommand extends BaseCommand {
             .setName('profile')
             .setDescription('View your linked SellAuth profile, purchase history, and statistics.')
         )
+        .addSubcommand(sub => sub
+            .setName('privacy')
+            .setDescription('Toggle anonymous mode for your public reviews.')
+        )
         .addSubcommandGroup(group => group
             .setName('admin')
             .setDescription('Administrative tools for SellAuth')
@@ -149,6 +153,10 @@ export default class SellAuthCommand extends BaseCommand {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             await this.handleProfile(interaction);
         }
+        else if (subcommand === 'privacy') {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await this.handlePrivacy(interaction);
+        }
     }
 
     private async handleLink(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -244,6 +252,44 @@ export default class SellAuthCommand extends BaseCommand {
         } catch (error: any) {
             this.log.error('SMTP Delivery Failed:', error);
             await interaction.editReply(`${this.heart.assets.emoji.get('cross') || '❌'} **Mail Server Error:** Unable to dispatch email. Please notify administrators.`);
+        }
+    }
+
+    @Cooldown('sellauth_privacy', { limit: 1, windowMs: 60000 })
+    private async handlePrivacy(interaction: ChatInputCommandInteraction): Promise<void> {
+        const pool = this.getDatabasePool();
+
+        try {
+            try {
+                await pool.query(`ALTER TABLE sellauth_users ADD COLUMN IF NOT EXISTS is_anonymous BOOLEAN DEFAULT false;`);
+            } catch (e) {  }
+
+            const userRes = await pool.query('SELECT is_anonymous FROM sellauth_users WHERE discord_id = $1', [interaction.user.id]);
+            
+            if (userRes.rowCount === 0) {
+                await interaction.editReply(`${this.heart.assets.emoji.get('cross') || '❌'} **No Account Linked:** Please link your email first using \`/sellauth link\`.`);
+                return;
+            }
+
+            const currentState = userRes.rows[0].is_anonymous;
+            const newState = !currentState;
+
+            await pool.query('UPDATE sellauth_users SET is_anonymous = $1 WHERE discord_id = $2', [newState, interaction.user.id]);
+
+            const emoji_shield = this.heart.assets.emoji.get('shield') || '🛡️';
+            const stateText = newState ? '**Anonymous** (Your ID will be hidden on reviews)' : '**Public** (Your ID will be visible on reviews)';
+
+            const container = new ContainerBuilder()
+                .setAccentColor(newState ? 0x9B59B6 : 0x3498DB)
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(`## ${emoji_shield} Privacy Settings Updated\nYour review visibility is now set to: ${stateText}`)
+                );
+
+            await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
+
+        } catch (error: any) {
+            this.log.error(`Privacy Toggle Error:`, error);
+            await interaction.editReply(`${this.heart.assets.emoji.get('cross') || '❌'} **Database Error:** \`${error.message}\``);
         }
     }
 

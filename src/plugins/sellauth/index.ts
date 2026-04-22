@@ -5,6 +5,7 @@ export interface SellAuthConfig {
     shopId: string;
     webhookSecret: string;
     sellauthApiKey: string;
+    reviewChannel: string;
     guild: string;
     notificationChannel: string;
     roles: {
@@ -37,6 +38,7 @@ export default class SellauthPlugin extends BasePlugin {
                 shopId: '',
                 webhookSecret: '',
                 sellauthApiKey: '',
+                reviewChannel: '',
                 guild: '',
                 notificationChannel: '',
                 roles: {

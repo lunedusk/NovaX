@@ -13,6 +13,7 @@
     },
     "guild": "GUILD_ID",
     "notificationChannel": "NOTIFICATION_CHANNEL",
+    "reviewChannel": "REVIEW_CHANNEL",
     "features": {
         "autoDMInstructions": true
     }
