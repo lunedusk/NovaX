@@ -1,0 +1,9 @@
+export const MAX_COMPONENTS_TOTAL    = 40;
+export const MAX_TEXT_CHARS_TOTAL    = 4000;
+export const MAX_COMPONENTS_PER_ROW  = 5;
+export const MAX_MEDIA_ITEMS         = 10;
+export const MAX_SELECT_OPTIONS      = 25;
+export const MAX_LABEL_LENGTH        = 80;
+export const MAX_DESCRIPTION_LENGTH  = 200;
+export const MAX_CUSTOM_ID_LENGTH    = 100;
+export const MAX_COMPONENT_ID        = 0xffffffff;

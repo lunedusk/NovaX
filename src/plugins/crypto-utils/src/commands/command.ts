@@ -12,8 +12,6 @@ import {
     ButtonStyle
 } from 'discord.js';
 import { BaseCommand } from '../../../../core/bases/Command.js';
-import { Cooldown } from '../../../../core/decorators/cooldown.js';
-import { getLogger } from '../../../../core/utils/logger.js';
 
 export default class CryptoCommand extends BaseCommand {
 

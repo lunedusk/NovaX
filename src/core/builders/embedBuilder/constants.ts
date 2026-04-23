@@ -1,0 +1,12 @@
+export const LIMITS = {
+    MAX_EMBEDS_PER_MESSAGE: 10,
+    MAX_EMBED_TITLE:        256,
+    MAX_EMBED_DESCRIPTION:  4096,
+    MAX_EMBED_FIELDS:       25,
+    MAX_FIELD_NAME:         256,
+    MAX_FIELD_VALUE:        1024,
+    MAX_FOOTER_TEXT:        2048,
+    MAX_AUTHOR_NAME:        256,
+    MAX_TOTAL_EMBED_CHARS:  6000,
+    ZERO_WIDTH_SPACE:       "\u200B",
+} as const;

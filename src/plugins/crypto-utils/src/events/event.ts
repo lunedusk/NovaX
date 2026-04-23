@@ -17,35 +17,28 @@ export default class CryptoEvent extends BaseEvent {
     public readonly name = 'system.ready';
     private log = getLogger('CryptoEvent');
     
-    // Internal States
     private activeSelections = new Map<string, Set<string>>();
     private publicExportCache = new Map<string, { ids: number[], expiry: number }>();
 
     public buttons = new Map([
-        // Get Commands (Private to owner)
         [/^crypt_use_(\d+)$/, async (i: any, match: any) => { await this.handleUseSingle(i, match[1]); }],
         [/^crypt_usepage_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handleUsePage(i, parseInt(match[1]), match[2]); }],
         [/^crypt_usevault_(.+)$/, async (i: any, match: any) => { await this.handleUseVault(i, match[1]); }],
         
-        // Select Modes (Private to owner)
         [/^crypt_sel_enter_([a-z]+)_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handleSelectMode(i, 'enter', match[1], parseInt(match[2]), match[3]); }],
         [/^crypt_sel_exit_([a-z]+)_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handleSelectMode(i, 'exit', match[1], parseInt(match[2]), match[3]); }],
         [/^crypt_sel_toggle_([a-z]+)_(\d+)_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handleSelectToggle(i, match[1], match[2], parseInt(match[3]), match[4]); }],
         [/^crypt_sel_confirm_([a-z]+)_(.+)$/, async (i: any, match: any) => { await this.handleSelectConfirm(i, match[1], match[2]); }],
 
-        // Copy (Publicly Accessible)
         [/^crypt_cpy_(\d+)$/, async (i: any, match: any) => { await this.handleCopyEphemeral(i, match[1]); }],
         
-        // Public Paginated Views (Publicly Accessible)
         [/^crypt_pub_vault_(\d+)_(.+)_(.+)$/, async (i: any, match: any) => { await this.renderPublicVaultExport(i, parseInt(match[1]), match[2], match[3]); }],
         [/^crypt_pub_sel_(\d+)_(.+)$/, async (i: any, match: any) => { await this.renderPublicSelectExport(i, parseInt(match[1]), match[2]); }],
 
-        // Remove Commands (Private to owner)
         [/^crypt_rmv_(\d+)$/, async (i: any, match: any) => { await this.handleRemoveExecute(i, match[1]); }],
         [/^crypt_rmvpage_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handleRemovePage(i, parseInt(match[1]), match[2]); }],
         [/^crypt_rmvvault_(.+)$/, async (i: any, match: any) => { await this.handleRemoveVault(i, match[1]); }],
         
-        // Base Vault Pagination (Private to owner)
         [/^crypt_page_([a-z_]+)_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handlePagination(i, match[1], parseInt(match[2]), match[3]); }]
     ]);
 
@@ -72,9 +65,6 @@ export default class CryptoEvent extends BaseEvent {
         return true;
     }
 
-    // ==========================================
-    // PUBLIC EXPORT RENDERING
-    // ==========================================
     private async renderPublicUI(interaction: ButtonInteraction, rows: any[], titleText: string, pageComponents: ActionRowBuilder<ButtonBuilder> | null) {
         const container = new ContainerBuilder()
             .setAccentColor(0x3498DB)
@@ -139,7 +129,6 @@ export default class CryptoEvent extends BaseEvent {
     private async renderPublicSelectExport(interaction: ButtonInteraction, page: number, exportId: string) {
         await interaction.deferUpdate();
 
-        // 1-Hour Ephemeral Cache Cleanup Check
         const now = Date.now();
         for (const [key, val] of this.publicExportCache.entries()) {
             if (now > val.expiry) this.publicExportCache.delete(key);
@@ -171,10 +160,6 @@ export default class CryptoEvent extends BaseEvent {
         await this.renderPublicUI(interaction, res.rows, 'Shared Selection', navRow);
     }
 
-
-    // ==========================================
-    // CORE UI RE-RENDERER: BASE VAULT
-    // ==========================================
     private async renderVaultPage(interaction: ButtonInteraction, mode: string, page: number, query: string) {
         const pool = this.getDatabasePool();
         const limit = 5;
@@ -323,9 +308,6 @@ export default class CryptoEvent extends BaseEvent {
         await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
     }
 
-    // ==========================================
-    // MULTI-SELECT MODE HANDLERS
-    // ==========================================
     private async handleSelectMode(interaction: ButtonInteraction, action: 'enter' | 'exit', baseMode: string, page: number, query: string) {
         if (!(await this.verifyOwnership(interaction))) return;
         await interaction.deferUpdate();
@@ -360,12 +342,11 @@ export default class CryptoEvent extends BaseEvent {
 
         const pool = this.getDatabasePool();
         const ids = Array.from(userSet).map(id => parseInt(id, 10));
-        this.activeSelections.delete(interaction.user.id); // Clear local state
+        this.activeSelections.delete(interaction.user.id);
 
         if (baseMode === 'get') {
-            // Store selection in the 1-hour Public Cache for Paginated Sharing
             const exportId = Date.now().toString(36) + Math.random().toString(36).substring(2, 5);
-            this.publicExportCache.set(exportId, { ids, expiry: Date.now() + 3600000 }); // 1 Hour
+            this.publicExportCache.set(exportId, { ids, expiry: Date.now() + 3600000 });
             await this.renderPublicSelectExport(interaction, 1, exportId);
 
         } else if (baseMode === 'rmv') {
@@ -388,17 +369,12 @@ export default class CryptoEvent extends BaseEvent {
         await this.renderVaultPage(interaction, mode, page, query);
     }
 
-    // ==========================================
-    // GET ACTIONS
-    // ==========================================
     private async handleUseSingle(interaction: ButtonInteraction, addressId: string) {
         if (!(await this.verifyOwnership(interaction))) return;
         await interaction.deferUpdate();
         const pool = this.getDatabasePool();
         const res = await pool.query('SELECT * FROM crypto_addresses WHERE id = $1 AND discord_id = $2', [addressId, interaction.user.id]);
         if (res.rowCount === 0) return;
-        
-        // Exporting Single Item is simple enough to bypass Cache
         await this.renderPublicUI(interaction, res.rows, 'Active Wallet', null);
     }
 
@@ -425,22 +401,16 @@ export default class CryptoEvent extends BaseEvent {
 
     private async handleUseVault(interaction: ButtonInteraction, query: string) {
         if (!(await this.verifyOwnership(interaction))) return;
-        
-        // Push full vault export through the paginated Public Vault Handler
         await this.renderPublicVaultExport(interaction, 1, query, interaction.user.id);
     }
 
     private async handleCopyEphemeral(interaction: ButtonInteraction, addressId: string) {
         const pool = this.getDatabasePool();
-        // Public copy! No owner check.
         const res = await pool.query('SELECT address FROM crypto_addresses WHERE id = $1', [addressId]);
         if (res.rowCount === 0) return await interaction.reply({ content: `${this.e('cross', '❌')} Address not found.`, flags: MessageFlags.Ephemeral });
         await interaction.reply({ content: res.rows[0].address, flags: MessageFlags.Ephemeral });
     }
 
-    // ==========================================
-    // REMOVE ACTIONS
-    // ==========================================
     private async handleRemoveExecute(interaction: ButtonInteraction, addressId: string) {
         if (!(await this.verifyOwnership(interaction))) return;
         await interaction.deferUpdate();
