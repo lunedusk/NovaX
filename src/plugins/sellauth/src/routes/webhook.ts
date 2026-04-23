@@ -376,12 +376,14 @@ export default class SellAuthWebhookRoute extends BaseRoute {
 
             const createdAt = new Date(invoice.created_at);
             const createdTs = Math.floor(createdAt.getTime() / 1000);
-
+            var eventString = eventAction;
+            if (eventAction === 'NOTIFICATION.SHOP_INVOICE_CREATED') eventString = 'Invoice Created';
+            else if (eventAction === 'NOTIFICATION.SHOP_INVOICE_PROCESSED') eventString = 'Invoice Completed';
             const container = new ContainerBuilder()
                 .setAccentColor(isSuccess ? 0x2ECC71 : 0xF1C40F)
                 .addTextDisplayComponents(
                     new TextDisplayBuilder().setContent(
-                        `## ${emoji} SellAuth Log: ${eventAction}\n` +
+                        `## ${emoji} SellAuth Log: ${eventString}\n` +
                         `**Status:** \`${invoice.status.toUpperCase()}\`\n` +
                         `**ASN:** \`${invoice.asn || 'N/A'}\`\n` +
                         `**Created:** <t:${createdTs}:f>`

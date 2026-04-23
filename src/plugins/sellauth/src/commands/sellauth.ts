@@ -83,6 +83,11 @@ export default class SellAuthCommand extends BaseCommand {
                 .setDescription('Fetch full details of a specific SellAuth invoice.')
                 .addStringOption(option => option.setName('invoice_id').setDescription('The Invoice ID or UUID to lookup.').setRequired(true))
             )
+            .addSubcommand(sub => sub
+                .setName('audit')
+                .setDescription('Global identity audit: View linking statistics and a directory of verified users.')
+                .addIntegerOption(option => option.setName('page').setDescription('The page number to view.').setMinValue(1))
+            )
         );
 
     constructor(heart: IHeart) {
@@ -143,6 +148,7 @@ export default class SellAuthCommand extends BaseCommand {
             if (subcommand === 'setinstruction') await this.handleSetInstruction(interaction);
             else if (subcommand === 'getinvoice') await this.handleGetInvoice(interaction);
             else if (subcommand === 'lookup') await this.handleAdminLookup(interaction);
+            else if (subcommand === 'audit') await this.handleAdminAudit(interaction);
         } 
         
         else if (subcommand === 'link') {
@@ -290,6 +296,106 @@ export default class SellAuthCommand extends BaseCommand {
         } catch (error: any) {
             this.log.error(`Privacy Toggle Error:`, error);
             await interaction.editReply(`${this.heart.assets.emoji.get('cross') || '❌'} **Database Error:** \`${error.message}\``);
+        }
+    }
+
+    private async handleAdminAudit(interaction: ChatInputCommandInteraction): Promise<void> {
+        const pool = this.getDatabasePool();
+        const page = interaction.options.getInteger('page') || 1;
+        const limit = 10;
+        const offset = (page - 1) * limit;
+
+        try {
+            const statsRes = await pool.query(`
+                SELECT 
+                    (SELECT COUNT(*) FROM sellauth_users) as total_linked,
+                    (SELECT COUNT(DISTINCT discord_id) FROM sellauth_invoices) as total_customers
+            `);
+
+            const totalLinked = parseInt(statsRes.rows[0].total_linked, 10);
+            const totalCustomers = parseInt(statsRes.rows[0].total_customers, 10);
+            const totalMembers = interaction.guild?.memberCount || 0;
+            
+            const linkRate = totalMembers > 0 ? ((totalLinked / totalMembers) * 100).toFixed(1) : '0';
+            const coverageRate = totalCustomers > 0 ? ((totalLinked / totalCustomers) * 100).toFixed(1) : '0';
+
+            const listRes = await pool.query(`
+                SELECT discord_id, email, linked_at 
+                FROM sellauth_users 
+                ORDER BY linked_at DESC 
+                LIMIT $1 OFFSET $2
+            `, [limit, offset]);
+
+            const totalPages = Math.ceil(totalLinked / limit);
+
+            const emoji_audit = this.heart.assets.emoji.get('audit') || '📊';
+            const emoji_user = this.heart.assets.emoji.get('user') || '👤';
+
+            const container = new ContainerBuilder()
+                .setAccentColor(0x5865F2)
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(`## ${emoji_audit} SellAuth Identity Audit`)
+                )
+                .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+
+            container.addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(
+                    `### Global Statistics\n` +
+                    `**Verified Identities:** \`${totalLinked}\` users\n` +
+                    `**Guild Coverage:** \`${linkRate}%\` of members\n` +
+                    `**Customer Conversion:** \`${coverageRate}%\` linked`
+                )
+            );
+
+            let directoryText = '';
+            if (listRes.rowCount === 0) {
+                directoryText = '*No linked users found on this page.*';
+            } else {
+                for (const row of listRes.rows) {
+                    const ts = Math.floor(new Date(row.linked_at).getTime() / 1000);
+                    directoryText += `• <@${row.discord_id}> | \`${row.email}\` (<t:${ts}:R>)\n`;
+                }
+            }
+
+            container.addSeparatorComponents(new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(`### ${emoji_user} Verified Directory (Page ${page}/${totalPages || 1})\n${directoryText}`)
+                );
+
+            if (totalPages > 1) {
+                const row = new ActionRowBuilder<ButtonBuilder>();
+                
+                if (page > 1) {
+                    row.addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`sa_audit_prev_${page - 1}`)
+                            .setLabel('Previous')
+                            .setStyle(ButtonStyle.Secondary)
+                    );
+                }
+
+                if (page < totalPages) {
+                    row.addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`sa_audit_next_${page + 1}`)
+                            .setLabel('Next')
+                            .setStyle(ButtonStyle.Secondary)
+                    );
+                }
+
+                if (row.components.length > 0) {
+                    container.addActionRowComponents(row);
+                }
+            }
+
+            await interaction.editReply({ 
+                components: [container],
+                flags: MessageFlags.IsComponentsV2 
+            });
+
+        } catch (error: any) {
+            this.log.error(`Admin Audit Error:`, error);
+            await interaction.editReply(`${this.heart.assets.emoji.get('cross') || '❌'} **Audit Failure:** \`${error.message}\``);
         }
     }
 
