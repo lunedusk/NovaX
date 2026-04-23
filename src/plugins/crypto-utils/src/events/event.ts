@@ -1,47 +1,51 @@
 import { 
     type ButtonInteraction, 
-    type StringSelectMenuInteraction,
     MessageFlags, 
     ContainerBuilder, 
     TextDisplayBuilder, 
     SeparatorBuilder, 
     SeparatorSpacingSize,
     ActionRowBuilder,
-    StringSelectMenuBuilder,
     SectionBuilder,
     ButtonBuilder,
     ButtonStyle
 } from 'discord.js';
 import { BaseEvent } from '../../../../core/bases/Event.js';
+import { getLogger } from '../../../../core/utils/logger.js';
 
 export default class CryptoEvent extends BaseEvent {
     public readonly name = 'system.ready';
-
-    // Centralized State Cache for Select Modes
+    private log = getLogger('CryptoEvent');
+    
+    // Internal States
     private activeSelections = new Map<string, Set<string>>();
-
-    public selects = new Map([
-        [/^crypto_net_(\d+)$/, async (i: any, match: any) => { await this.handleNetworkSelect(i, match[1]); }],
-        [/^crypto_stable_(\d+)$/, async (i: any, match: any) => { await this.handleStableSelect(i, match[1]); }]
-    ]);
+    private publicExportCache = new Map<string, { ids: number[], expiry: number }>();
 
     public buttons = new Map([
+        // Get Commands (Private to owner)
         [/^crypt_use_(\d+)$/, async (i: any, match: any) => { await this.handleUseSingle(i, match[1]); }],
         [/^crypt_usepage_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handleUsePage(i, parseInt(match[1]), match[2]); }],
         [/^crypt_usevault_(.+)$/, async (i: any, match: any) => { await this.handleUseVault(i, match[1]); }],
         
-        // Dynamic Select Mode Handlers
+        // Select Modes (Private to owner)
         [/^crypt_sel_enter_([a-z]+)_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handleSelectMode(i, 'enter', match[1], parseInt(match[2]), match[3]); }],
         [/^crypt_sel_exit_([a-z]+)_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handleSelectMode(i, 'exit', match[1], parseInt(match[2]), match[3]); }],
         [/^crypt_sel_toggle_([a-z]+)_(\d+)_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handleSelectToggle(i, match[1], match[2], parseInt(match[3]), match[4]); }],
         [/^crypt_sel_confirm_([a-z]+)_(.+)$/, async (i: any, match: any) => { await this.handleSelectConfirm(i, match[1], match[2]); }],
 
+        // Copy (Publicly Accessible)
         [/^crypt_cpy_(\d+)$/, async (i: any, match: any) => { await this.handleCopyEphemeral(i, match[1]); }],
         
+        // Public Paginated Views (Publicly Accessible)
+        [/^crypt_pub_vault_(\d+)_(.+)_(.+)$/, async (i: any, match: any) => { await this.renderPublicVaultExport(i, parseInt(match[1]), match[2], match[3]); }],
+        [/^crypt_pub_sel_(\d+)_(.+)$/, async (i: any, match: any) => { await this.renderPublicSelectExport(i, parseInt(match[1]), match[2]); }],
+
+        // Remove Commands (Private to owner)
         [/^crypt_rmv_(\d+)$/, async (i: any, match: any) => { await this.handleRemoveExecute(i, match[1]); }],
         [/^crypt_rmvpage_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handleRemovePage(i, parseInt(match[1]), match[2]); }],
         [/^crypt_rmvvault_(.+)$/, async (i: any, match: any) => { await this.handleRemoveVault(i, match[1]); }],
         
+        // Base Vault Pagination (Private to owner)
         [/^crypt_page_([a-z_]+)_(\d+)_(.+)$/, async (i: any, match: any) => { await this.handlePagination(i, match[1], parseInt(match[2]), match[3]); }]
     ]);
 
@@ -56,39 +60,7 @@ export default class CryptoEvent extends BaseEvent {
         catch { return this.heart.db.postgres.get('main'); }
     }
 
-    private formatNetworks(netData: any): string {
-        if (!netData) return 'Unknown';
-        if (Array.isArray(netData)) return netData.join(', ');
-        if (typeof netData === 'string') {
-            try {
-                const parsed = JSON.parse(netData);
-                return Array.isArray(parsed) ? parsed.join(', ') : parsed;
-            } catch { return netData; }
-        }
-        return 'Unknown';
-    }
-
-    private getEvmOptions() {
-        return [
-            { label: 'Ethereum (ERC20)', value: 'Ethereum', emoji: this.e('eth', '⟠') },
-            { label: 'BNB Smart Chain (BEP20)', value: 'BSC', emoji: this.e('bsc', '🟡') },
-            { label: 'Polygon (ERC20/MATIC)', value: 'Polygon', emoji: this.e('matic', '🟣') },
-            { label: 'Base', value: 'Base', emoji: this.e('base_crypto', '🔵') },
-            { label: 'Arbitrum (ERC20)', value: 'Arbitrum', emoji: this.e('arb_crypto', '🔷') },
-            { label: 'Optimism (ERC20)', value: 'Optimism', emoji: this.e('op_crypto', '🔴') },
-            { label: 'Avalanche (C-Chain)', value: 'Avalanche', emoji: this.e('avax_crypto', '🔺') }
-        ];
-    }
-
-    private getStableOptions() {
-        return [
-            { label: 'USDT (Tether)', value: 'USDT', emoji: this.e('usdt', '💵') },
-            { label: 'USDC (USD Coin)', value: 'USDC', emoji: this.e('usdc', '💲') },
-            { label: 'Clear Stablecoins', value: 'NONE', emoji: this.e('cross', '❌') }
-        ];
-    }
-
-    private async verifyOwnership(interaction: ButtonInteraction | StringSelectMenuInteraction): Promise<boolean> {
+    private async verifyOwnership(interaction: ButtonInteraction): Promise<boolean> {
         const originalUser = interaction.message.interaction?.user.id;
         if (originalUser && originalUser !== interaction.user.id) {
             await interaction.reply({ 
@@ -101,7 +73,107 @@ export default class CryptoEvent extends BaseEvent {
     }
 
     // ==========================================
-    // CORE UI RE-RENDERER: SHARED ACROSS ALL MODES
+    // PUBLIC EXPORT RENDERING
+    // ==========================================
+    private async renderPublicUI(interaction: ButtonInteraction, rows: any[], titleText: string, pageComponents: ActionRowBuilder<ButtonBuilder> | null) {
+        const container = new ContainerBuilder()
+            .setAccentColor(0x3498DB)
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(`## ${this.e('globe', '🌍')} ${titleText}`),
+                new TextDisplayBuilder().setContent(`Tap a copy button below to securely send the address to your clipboard.`)
+            );
+
+        const groupedAddresses: Record<string, any[]> = {};
+        for (const row of rows) {
+            if (!groupedAddresses[row.coin]) groupedAddresses[row.coin] = [];
+            groupedAddresses[row.coin].push(row);
+        }
+
+        for (const [coin, cRows] of Object.entries(groupedAddresses)) {
+            container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${coin}`));
+            for (const row of cRows) {
+                container.addSectionComponents(
+                    new SectionBuilder()
+                        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${row.label}**\n\`${row.address}\``))
+                        .setButtonAccessory(new ButtonBuilder().setCustomId(`crypt_cpy_${row.id}`).setLabel('Copy').setStyle(ButtonStyle.Success).setEmoji(this.e('copy', '📋')))
+                );
+            }
+        }
+        
+        if (pageComponents) container.addActionRowComponents(pageComponents);
+        await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
+    }
+
+    private async renderPublicVaultExport(interaction: ButtonInteraction, page: number, query: string, ownerId: string) {
+        await interaction.deferUpdate();
+        const pool = this.getDatabasePool();
+        const limit = 5;
+        const offset = (page - 1) * limit;
+
+        let baseQuery = `FROM crypto_addresses WHERE discord_id = $1`;
+        const params: any[] = [ownerId];
+        if (query && query !== 'none') {
+            baseQuery += ` AND (LOWER(address) LIKE $2 OR LOWER(coin) LIKE $2 OR LOWER(label) LIKE $2)`;
+            params.push(`%${query}%`);
+        }
+
+        const countRes = await pool.query(`SELECT COUNT(*) ${baseQuery}`, params);
+        const total = parseInt(countRes.rows[0].count, 10);
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+
+        const res = await pool.query(`SELECT * ${baseQuery} ORDER BY coin ASC, added_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, limit, offset]);
+        
+        let navRow = null;
+        if (totalPages > 1) {
+            navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId(`crypt_pub_vault_${page - 1}_${query}_${ownerId}`).setLabel('◀ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page <= 1),
+                new ButtonBuilder().setCustomId('dummy_page').setLabel(`Page ${page} of ${totalPages}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setCustomId(`crypt_pub_vault_${page + 1}_${query}_${ownerId}`).setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages)
+            );
+        }
+
+        await this.renderPublicUI(interaction, res.rows, 'Shared Vault Export', navRow);
+    }
+
+    private async renderPublicSelectExport(interaction: ButtonInteraction, page: number, exportId: string) {
+        await interaction.deferUpdate();
+
+        // 1-Hour Ephemeral Cache Cleanup Check
+        const now = Date.now();
+        for (const [key, val] of this.publicExportCache.entries()) {
+            if (now > val.expiry) this.publicExportCache.delete(key);
+        }
+
+        const exportData = this.publicExportCache.get(exportId);
+        if (!exportData) {
+            return await interaction.followUp({ content: `${this.e('cross', '❌')} This shared selection has expired (1 hour limit).`, flags: MessageFlags.Ephemeral });
+        }
+
+        const pool = this.getDatabasePool();
+        const limit = 5;
+        const total = exportData.ids.length;
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+        const offset = (page - 1) * limit;
+        const pageIds = exportData.ids.slice(offset, offset + limit);
+
+        const res = await pool.query('SELECT * FROM crypto_addresses WHERE id = ANY($1::int[]) ORDER BY coin ASC', [pageIds]);
+        
+        let navRow = null;
+        if (totalPages > 1) {
+            navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId(`crypt_pub_sel_${page - 1}_${exportId}`).setLabel('◀ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page <= 1),
+                new ButtonBuilder().setCustomId('dummy_page').setLabel(`Page ${page} of ${totalPages}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setCustomId(`crypt_pub_sel_${page + 1}_${exportId}`).setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages)
+            );
+        }
+
+        await this.renderPublicUI(interaction, res.rows, 'Shared Selection', navRow);
+    }
+
+
+    // ==========================================
+    // CORE UI RE-RENDERER: BASE VAULT
     // ==========================================
     private async renderVaultPage(interaction: ButtonInteraction, mode: string, page: number, query: string) {
         const pool = this.getDatabasePool();
@@ -124,26 +196,36 @@ export default class CryptoEvent extends BaseEvent {
 
         const isGet = mode === 'get';
         const isRmv = mode === 'rmv';
+        const isBal = mode === 'bal';
         const isSelGet = mode === 'sel_get';
         const isSelRmv = mode === 'sel_rmv';
-        const isSel = isSelGet || isSelRmv;
-        const baseMode = isSelGet || isGet ? 'get' : 'rmv';
+        const isSelBal = mode === 'sel_bal';
+        const isSel = isSelGet || isSelRmv || isSelBal;
+        
+        let baseMode = 'get';
+        if (isRmv || isSelRmv) baseMode = 'rmv';
+        if (isBal || isSelBal) baseMode = 'bal';
         
         let color = 0x9B59B6;
         let e_icon = this.e('bank', '🏦');
         let title = `## ${e_icon} Crypto Vault`;
         let subtitle = `Select an address below to securely isolate and use it.`;
 
-        if (isRmv) {
+        if (isRmv || isSelRmv) {
             color = 0xE74C3C;
             e_icon = this.e('trash', '🗑️');
             title = `## ${e_icon} Delete Address`;
-            subtitle = `Select an address below to **permanently delete** it.`;
+            subtitle = isSel ? `Select addresses to **permanently delete**, then confirm.` : `Select an address below to **permanently delete** it.`;
+        } else if (isBal || isSelBal) {
+            color = 0xF1C40F; 
+            e_icon = this.e('money', '💵');
+            title = `## ${e_icon} Balance Scanner`;
+            subtitle = isSel ? `Select addresses to **scan balances**, then confirm.` : `Select an address below to check its live balance.`;
         } else if (isSel) {
-            color = isSelGet ? 0x3498DB : 0xE74C3C;
+            color = 0x3498DB;
             e_icon = this.e('checklist', '☑️');
             title = `## ${e_icon} Select Multiple`;
-            subtitle = `Select the addresses you want to ${isSelGet ? 'use' : 'delete'}, then confirm.`;
+            subtitle = `Select the addresses you want to use, then confirm.`;
         }
 
         const container = new ContainerBuilder()
@@ -163,18 +245,19 @@ export default class CryptoEvent extends BaseEvent {
             container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${coin}`));
             
             for (const row of rows) {
-                const networks = this.formatNetworks(row.networks);
                 let btnId = '', btnLabel = '', btnStyle = ButtonStyle.Primary, btnEmoji = '';
 
                 if (isGet) {
                     btnId = `crypt_use_${row.id}`; btnLabel = 'Use'; btnEmoji = this.e('link', '🔗');
                 } else if (isRmv) {
                     btnId = `crypt_rmv_${row.id}`; btnLabel = 'Delete'; btnStyle = ButtonStyle.Danger; btnEmoji = this.e('trash', '🗑️');
+                } else if (isBal) {
+                    btnId = `crypt_bal_${row.id}`; btnLabel = 'Check Bal'; btnStyle = ButtonStyle.Primary; btnEmoji = this.e('money', '💵');
                 } else if (isSel) {
                     btnId = `crypt_sel_toggle_${baseMode}_${row.id}_${page}_${query}`;
                     if (userSet.has(String(row.id))) {
                         btnLabel = 'Selected'; 
-                        btnStyle = isSelGet ? ButtonStyle.Success : ButtonStyle.Danger; 
+                        btnStyle = isSelGet ? ButtonStyle.Success : (isSelBal ? ButtonStyle.Primary : ButtonStyle.Danger); 
                         btnEmoji = this.e('tick', '✅');
                     } else {
                         btnLabel = 'Select'; 
@@ -185,7 +268,7 @@ export default class CryptoEvent extends BaseEvent {
 
                 container.addSectionComponents(
                     new SectionBuilder()
-                        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${row.label}**\n\`${row.address}\` - ${networks}`))
+                        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${row.label}**\n\`${row.address}\``))
                         .setButtonAccessory(new ButtonBuilder().setCustomId(btnId).setLabel(btnLabel).setStyle(btnStyle).setEmoji(btnEmoji))
                 );
             }
@@ -207,9 +290,17 @@ export default class CryptoEvent extends BaseEvent {
                     new ButtonBuilder().setCustomId(`crypt_rmvpage_${page}_${query}`).setLabel('Clear Page').setStyle(ButtonStyle.Danger).setEmoji(this.e('trash', '🗑️')),
                     new ButtonBuilder().setCustomId(`crypt_rmvvault_${query}`).setLabel('Clear Vault').setStyle(ButtonStyle.Danger).setEmoji(this.e('warning', '⚠️'))
                 );
+            } else if (isBal) {
+                actionRow.addComponents(
+                    new ButtonBuilder().setCustomId(`crypt_sel_enter_bal_${page}_${query}`).setLabel('Select Mode').setStyle(ButtonStyle.Secondary).setEmoji(this.e('checklist', '☑️')),
+                    new ButtonBuilder().setCustomId(`crypt_balpage_${page}_${query}`).setLabel('Scan Page').setStyle(ButtonStyle.Success).setEmoji(this.e('box', '📦')),
+                    new ButtonBuilder().setCustomId(`crypt_balvault_${query}`).setLabel('Scan Vault').setStyle(ButtonStyle.Primary).setEmoji(this.e('globe', '🌍'))
+                );
             } else if (isSel) {
-                const confirmLabel = isSelGet ? `Use (${userSet.size})` : `Delete (${userSet.size})`;
-                const confirmStyle = isSelGet ? ButtonStyle.Success : ButtonStyle.Danger;
+                let confirmLabel = `Use (${userSet.size})`;
+                let confirmStyle = ButtonStyle.Success;
+                if (isSelRmv) { confirmLabel = `Delete (${userSet.size})`; confirmStyle = ButtonStyle.Danger; }
+                if (isSelBal) { confirmLabel = `Scan (${userSet.size})`; confirmStyle = ButtonStyle.Primary; }
                 
                 actionRow.addComponents(
                     new ButtonBuilder().setCustomId(`crypt_sel_exit_${baseMode}_${page}_${query}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
@@ -231,7 +322,6 @@ export default class CryptoEvent extends BaseEvent {
 
         await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
     }
-
 
     // ==========================================
     // MULTI-SELECT MODE HANDLERS
@@ -264,22 +354,22 @@ export default class CryptoEvent extends BaseEvent {
 
     private async handleSelectConfirm(interaction: ButtonInteraction, baseMode: string, query: string) {
         if (!(await this.verifyOwnership(interaction))) return;
-        await interaction.deferUpdate();
-
+        
         const userSet = this.activeSelections.get(interaction.user.id);
-        if (!userSet || userSet.size === 0) return;
+        if (!userSet || userSet.size === 0) return await interaction.deferUpdate();
 
         const pool = this.getDatabasePool();
         const ids = Array.from(userSet).map(id => parseInt(id, 10));
-        
-        // Clear state immediately to prevent memory leaks
-        this.activeSelections.delete(interaction.user.id);
+        this.activeSelections.delete(interaction.user.id); // Clear local state
 
         if (baseMode === 'get') {
-            const res = await pool.query('SELECT * FROM crypto_addresses WHERE id = ANY($1::int[]) AND discord_id = $2', [ids, interaction.user.id]);
-            if (res.rowCount === 0) return;
-            await this.renderActiveWalletsUI(interaction, res.rows, 'Selected Wallets');
+            // Store selection in the 1-hour Public Cache for Paginated Sharing
+            const exportId = Date.now().toString(36) + Math.random().toString(36).substring(2, 5);
+            this.publicExportCache.set(exportId, { ids, expiry: Date.now() + 3600000 }); // 1 Hour
+            await this.renderPublicSelectExport(interaction, 1, exportId);
+
         } else if (baseMode === 'rmv') {
+            await interaction.deferUpdate();
             await pool.query(`DELETE FROM crypto_addresses WHERE id = ANY($1::int[]) AND discord_id = $2`, [ids, interaction.user.id]);
             const container = new ContainerBuilder()
                 .setAccentColor(0x2ECC71)
@@ -288,26 +378,28 @@ export default class CryptoEvent extends BaseEvent {
                     new TextDisplayBuilder().setContent(`Successfully deleted **${ids.length}** selected addresses from your vault.`)
                 );
             await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
+
         }
     }
 
-
-    // ==========================================
-    // ACTION HANDLERS
-    // ==========================================
     private async handlePagination(interaction: ButtonInteraction, mode: string, page: number, query: string) {
         if (!(await this.verifyOwnership(interaction))) return;
         await interaction.deferUpdate();
         await this.renderVaultPage(interaction, mode, page, query);
     }
 
+    // ==========================================
+    // GET ACTIONS
+    // ==========================================
     private async handleUseSingle(interaction: ButtonInteraction, addressId: string) {
         if (!(await this.verifyOwnership(interaction))) return;
         await interaction.deferUpdate();
         const pool = this.getDatabasePool();
         const res = await pool.query('SELECT * FROM crypto_addresses WHERE id = $1 AND discord_id = $2', [addressId, interaction.user.id]);
         if (res.rowCount === 0) return;
-        await this.renderActiveWalletsUI(interaction, res.rows, 'Active Wallet');
+        
+        // Exporting Single Item is simple enough to bypass Cache
+        await this.renderPublicUI(interaction, res.rows, 'Active Wallet', null);
     }
 
     private async handleUsePage(interaction: ButtonInteraction, page: number, query: string) {
@@ -327,65 +419,28 @@ export default class CryptoEvent extends BaseEvent {
 
         const res = await pool.query(dbQuery, [...params, limit, offset]);
         if (res.rowCount === 0) return;
-        await this.renderActiveWalletsUI(interaction, res.rows, 'Active Wallets');
+        
+        await this.renderPublicUI(interaction, res.rows, 'Active Wallets', null);
     }
 
     private async handleUseVault(interaction: ButtonInteraction, query: string) {
         if (!(await this.verifyOwnership(interaction))) return;
-        await interaction.deferUpdate();
-        const pool = this.getDatabasePool();
         
-        let dbQuery = `SELECT * FROM crypto_addresses WHERE discord_id = $1`;
-        const params: any[] = [interaction.user.id];
-        if (query && query !== 'none') {
-            dbQuery += ` AND (LOWER(address) LIKE $2 OR LOWER(coin) LIKE $2 OR LOWER(label) LIKE $2)`;
-            params.push(`%${query}%`);
-        }
-        dbQuery += ` ORDER BY coin ASC`;
-
-        const res = await pool.query(dbQuery, params);
-        if (res.rowCount === 0) return;
-
-        // For large queries, send raw ephemeral text instead of components to avoid 40 item limit crash
-        const text = res.rows.map(r => `**${r.label} (${r.coin})**\n\`${r.address}\``).join('\n\n');
-        await interaction.followUp({ content: `## ${this.e('globe', '🌍')} Full Vault Export\n\n${text}`, flags: MessageFlags.Ephemeral });
-    }
-
-    private async renderActiveWalletsUI(interaction: ButtonInteraction, rows: any[], titleText: string) {
-        const container = new ContainerBuilder()
-            .setAccentColor(0x3498DB)
-            .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`## ${this.e('link', '🔗')} ${titleText}`),
-                new TextDisplayBuilder().setContent(`Tap a copy button below to securely send the address to your clipboard.`)
-            );
-
-        const groupedAddresses: Record<string, any[]> = {};
-        for (const row of rows) {
-            if (!groupedAddresses[row.coin]) groupedAddresses[row.coin] = [];
-            groupedAddresses[row.coin].push(row);
-        }
-
-        for (const [coin, cRows] of Object.entries(groupedAddresses)) {
-            container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${coin}`));
-            for (const row of cRows) {
-                container.addSectionComponents(
-                    new SectionBuilder()
-                        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${row.label}**\n\`${row.address}\` - ${this.formatNetworks(row.networks)}`))
-                        .setButtonAccessory(new ButtonBuilder().setCustomId(`crypt_cpy_${row.id}`).setLabel('Copy').setStyle(ButtonStyle.Success).setEmoji(this.e('copy', '📋')))
-                );
-            }
-        }
-        await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
+        // Push full vault export through the paginated Public Vault Handler
+        await this.renderPublicVaultExport(interaction, 1, query, interaction.user.id);
     }
 
     private async handleCopyEphemeral(interaction: ButtonInteraction, addressId: string) {
         const pool = this.getDatabasePool();
+        // Public copy! No owner check.
         const res = await pool.query('SELECT address FROM crypto_addresses WHERE id = $1', [addressId]);
         if (res.rowCount === 0) return await interaction.reply({ content: `${this.e('cross', '❌')} Address not found.`, flags: MessageFlags.Ephemeral });
         await interaction.reply({ content: res.rows[0].address, flags: MessageFlags.Ephemeral });
     }
 
+    // ==========================================
+    // REMOVE ACTIONS
+    // ==========================================
     private async handleRemoveExecute(interaction: ButtonInteraction, addressId: string) {
         if (!(await this.verifyOwnership(interaction))) return;
         await interaction.deferUpdate();
@@ -456,88 +511,5 @@ export default class CryptoEvent extends BaseEvent {
                 new TextDisplayBuilder().setContent(`Successfully and permanently deleted **${res.rowCount}** matching addresses from your vault.`)
             );
         await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
-    }
-
-    private rebuildConfigurationUI(data: any): any[] {
-        const isEVM = /^0x[a-fA-F0-9]{40}$/i.test(data.address);
-        const nets = this.formatNetworks(data.networks);
-        const isStableCompatible = isEVM || nets.includes('Tron') || nets.includes('Solana');
-
-        const e_tick = this.e('tick', '✅');
-        const e_gear = this.e('gear', '⚙️');
-        
-        const container = new ContainerBuilder()
-            .setAccentColor(0x2ECC71) 
-            .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`## ${e_tick} Configuration Updated`),
-                new TextDisplayBuilder().setContent(`**Label:** \`${data.label}\`\n**Coin:** \`${data.coin}\`\n**Networks:** \`${nets}\`\n**Address:** \`${data.address}\``)
-            );
-
-        if (isEVM || isStableCompatible) {
-            container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${e_gear} Network Configuration`));
-
-            if (isEVM) {
-                const netSelect = new StringSelectMenuBuilder()
-                    .setCustomId(`crypto_net_${data.id}`)
-                    .setPlaceholder('Update EVM networks (ERC20, BEP20...)')
-                    .setMinValues(1).setMaxValues(7)
-                    .addOptions(this.getEvmOptions());
-                container.addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(netSelect));
-            }
-
-            if (isStableCompatible) {
-                const stableSelect = new StringSelectMenuBuilder()
-                    .setCustomId(`crypto_stable_${data.id}`)
-                    .setPlaceholder('Update Stablecoins (USDT/USDC)...')
-                    .setMinValues(1).setMaxValues(3)
-                    .addOptions(this.getStableOptions());
-                container.addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(stableSelect));
-            }
-        }
-        return [container];
-    }
-
-    private async handleNetworkSelect(interaction: StringSelectMenuInteraction, addressId: string) {
-        if (!(await this.verifyOwnership(interaction))) return;
-        await interaction.deferUpdate();
-        const pool = this.getDatabasePool();
-        const selectedNetworks = interaction.values;
-
-        const checkRes = await pool.query('SELECT coin FROM crypto_addresses WHERE id = $1', [addressId]);
-        const parts = checkRes.rows[0].coin.split(' / ');
-        const existingStables = parts.filter((p: string) => p === 'USDT' || p === 'USDC');
-
-        const tickerMap: Record<string, string> = {
-            'Ethereum': 'ETH', 'BSC': 'BNB', 'Polygon': 'POL',
-            'Base': 'ETH', 'Arbitrum': 'ARB', 'Optimism': 'OP', 'Avalanche': 'AVAX'
-        };
-        const mappedTickers = selectedNetworks.map(net => tickerMap[net] || net);
-        const uniqueBaseTickers = Array.from(new Set(mappedTickers));
-
-        const finalCoin = [...uniqueBaseTickers, ...existingStables].join(' / ');
-        await pool.query('UPDATE crypto_addresses SET networks = $1, coin = $2 WHERE id = $3', [JSON.stringify(selectedNetworks), finalCoin, addressId]);
-        
-        const res = await pool.query('SELECT * FROM crypto_addresses WHERE id = $1', [addressId]);
-        await interaction.editReply({ components: this.rebuildConfigurationUI(res.rows[0]), flags: MessageFlags.IsComponentsV2 });
-    }
-
-    private async handleStableSelect(interaction: StringSelectMenuInteraction, addressId: string) {
-        if (!(await this.verifyOwnership(interaction))) return;
-        await interaction.deferUpdate();
-        const pool = this.getDatabasePool();
-        const rawSelection = interaction.values;
-        const selectedStables = rawSelection.includes('NONE') ? [] : rawSelection.filter(s => s === 'USDT' || s === 'USDC');
-
-        const checkRes = await pool.query('SELECT coin FROM crypto_addresses WHERE id = $1', [addressId]);
-        const parts = checkRes.rows[0].coin.split(' / ');
-        const nonStables = parts.filter((p: string) => p !== 'USDT' && p !== 'USDC');
-
-        const newCoinArr = Array.from(new Set([...nonStables, ...selectedStables]));
-        const finalCoin = newCoinArr.length > 0 ? newCoinArr.join(' / ') : 'UNKNOWN';
-
-        await pool.query('UPDATE crypto_addresses SET coin = $1 WHERE id = $2', [finalCoin, addressId]);
-        const res = await pool.query('SELECT * FROM crypto_addresses WHERE id = $1', [addressId]);
-        await interaction.editReply({ components: this.rebuildConfigurationUI(res.rows[0]), flags: MessageFlags.IsComponentsV2 });
     }
 }
