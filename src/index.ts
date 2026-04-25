@@ -14,7 +14,7 @@ import { secrets } from '#core/helpers/secretManager.js';
 import { Client, Partials, Events, ShardingManager } from 'discord.js';
 import { intentBuilder } from '#core/helpers/intentsBuilder.js';
 import { getLogger, flushLogs } from '#core/utils/logger.js';
-import { PluginManager } from '#core/loader/index.js';
+import { pluginManager } from '#core/loader/index.js';
 import { httpServer } from '#core/manager/http/server.js';
 import { interactionHandler } from '#core/manager/interaction/handler.js';
 import { configManager } from '#core/manager/config.js';
@@ -28,7 +28,6 @@ import { emojis } from '#core/manager/emoji.js';
 class NovaX {
     private readonly log = getLogger('Bootstrap');
     private readonly client: Client<true>;
-    private readonly pluginManager: PluginManager;
     private isShuttingDown = false;
     
     constructor() {
@@ -42,7 +41,6 @@ class NovaX {
         }) as Client<true>;
 
         eventManager.bindNativeEvents(this.client);
-        this.pluginManager = new PluginManager();
         
         globalCatcher.init();
         globalCatcher.registerTeardown(async () => await this.cleanupResources());
@@ -69,7 +67,7 @@ class NovaX {
             const hotReloadEnabled = secrets.getBoolean('hotReloadEnabled', false);
             
             this.log.info('Preloading Plugins...');
-            await this.pluginManager.preloadAll();
+            await pluginManager.preloadAll();
 
             this.log.info('Loading Configurations...');
             await configManager.init(hotReloadEnabled);
@@ -91,7 +89,7 @@ class NovaX {
             }
 
             this.log.info('Booting Plugins...');
-            await this.pluginManager.bootAll(this.client);
+            await pluginManager.bootAll(this.client);
 
             if (this.isPrimaryShard) {
                 httpServer.finalize();
@@ -142,7 +140,7 @@ class NovaX {
         this.log.info(`Tearing down resources for ${this.shardIdentifier}...`);
 
         try {
-            await this.pluginManager.shutdownAll().catch(e => this.log.error('Plugin shutdown error:', e));
+            await pluginManager.shutdownAll().catch(e => this.log.error('Plugin shutdown error:', e));
             
             if (this.isPrimaryShard) {
                 await httpServer.stop().catch(e => this.log.error('HTTP Server shutdown error:', e));

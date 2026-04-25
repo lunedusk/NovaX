@@ -82,19 +82,14 @@ export class EmojiSyncer {
     private processUrlMap(
         urlMap: Record<string, string>,
         appEmojisMap: Map<string, ApplicationEmoji>,
-        emojiData: Record<string, string>,
-        seenNames: Set<string>,
         tasks: UploadTask[],
+        queuedUploads: Set<string>,
         sourceName: string
     ): void {
         for (const [name, url] of Object.entries(urlMap)) {
             const safeName = this.sanitizeName(name);
             
-            const existingEmoji = appEmojisMap.get(safeName);
-            if (seenNames.has(safeName) || existingEmoji) {
-                if (existingEmoji) emojiData[safeName] = existingEmoji.toString();
-                continue;
-            }
+            if (appEmojisMap.has(safeName) || queuedUploads.has(safeName)) continue;
 
             try { 
                 new URL(url); 
@@ -104,7 +99,7 @@ export class EmojiSyncer {
             }
 
             tasks.push({ safeName, type: 'url', target: url });
-            seenNames.add(safeName);
+            queuedUploads.add(safeName);
         }
     }
 
@@ -126,34 +121,50 @@ export class EmojiSyncer {
             await fs.mkdir(path.dirname(this.jsonPath), { recursive: true });
             
             const rawAppEmojis = await this.client.application.emojis.fetch();
-            
             const appEmojisMap = new Map<string, ApplicationEmoji>();
+            const validEmojiIds = new Set<string>();
+
             for (const [_, emoji] of rawAppEmojis) {
-                if (emoji.name) appEmojisMap.set(emoji.name, emoji);
+                if (emoji.name) {
+                    appEmojisMap.set(emoji.name, emoji);
+                    validEmojiIds.add(emoji.id);
+                }
             }
 
-            const emojiData: Record<string, string> = {};
+            const finalEmojiData: Record<string, string> = {};
 
             try {
                 const raw = await fs.readFile(this.jsonPath, 'utf-8');
                 const existing = JSON.parse(raw);
-                Object.assign(emojiData, existing);
+
+                for (const [key, val] of Object.entries(existing)) {
+                    if (typeof val !== 'string') continue;
+
+                    const match = val.match(/<a?:[a-zA-Z0-9_]+:(\d+)>/);
+                    if (match) {
+                        const emojiId = match[1];
+                        if (validEmojiIds.has(emojiId)) {
+                            finalEmojiData[key] = val;
+                        } else {
+                            log.debug(`[Purge] Removed dead/foreign emoji reference: ${key}`);
+                        }
+                    } else {
+                        finalEmojiData[key] = val;
+                    }
+                }
             } catch {
                 log.debug('Starting with a fresh emoji map.');
             }
 
+            for (const [name, emoji] of appEmojisMap) {
+                finalEmojiData[name] = emoji.toString();
+            }
+
             const tasks: UploadTask[] = [];
-            const seenNames = new Set(Object.keys(emojiData));
+            const queuedUploads = new Set<string>();
 
             if (Object.keys(this.programmaticEmojis).length > 0) {
-                this.processUrlMap(
-                    this.programmaticEmojis, 
-                    appEmojisMap, 
-                    emojiData, 
-                    seenNames, 
-                    tasks, 
-                    'Programmatic Payload'
-                );
+                this.processUrlMap(this.programmaticEmojis, appEmojisMap, tasks, queuedUploads, 'Programmatic Payload');
             }
 
             for (const folder of this.folders) {
@@ -166,7 +177,7 @@ export class EmojiSyncer {
                         try {
                             const rawJson = await fs.readFile(fullPath, 'utf-8');
                             const urlMap: Record<string, string> = JSON.parse(rawJson);
-                            this.processUrlMap(urlMap, appEmojisMap, emojiData, seenNames, tasks, `File: ${folder}`);
+                            this.processUrlMap(urlMap, appEmojisMap, tasks, queuedUploads, `File: ${folder}`);
                         } catch (error: unknown) {
                             const err = error instanceof Error ? error : new Error(String(error));
                             log.warn(`[${folder}] Malformed emoji.json: ${err.message}`);
@@ -179,11 +190,7 @@ export class EmojiSyncer {
 
                     const safeName = this.sanitizeName(path.basename(fileName, ext));
                     
-                    const existingEmoji = appEmojisMap.get(safeName);
-                    if (seenNames.has(safeName) || existingEmoji) {
-                        if (existingEmoji) emojiData[safeName] = existingEmoji.toString();
-                        continue;
-                    }
+                    if (appEmojisMap.has(safeName) || queuedUploads.has(safeName)) continue;
 
                     const stats = await fs.stat(fullPath);
                     if (stats.size > MAX_FILE_SIZE) {
@@ -192,7 +199,7 @@ export class EmojiSyncer {
                     }
 
                     tasks.push({ safeName, type: 'file', target: fullPath });
-                    seenNames.add(safeName);
+                    queuedUploads.add(safeName);
                 }
             }
 
@@ -205,11 +212,11 @@ export class EmojiSyncer {
                 this.failedTasks = 0;
                 this.startTime = Date.now();
 
-                log.info(`Syncing ${finalTasks.length} new emojis to Discord...`);
-                await this.processQueue(finalTasks, emojiData, 2);
+                log.info(`Syncing ${finalTasks.length} missing emojis to Discord...`);
+                await this.processQueue(finalTasks, finalEmojiData, 2);
             }
 
-            await this.atomicWrite(this.jsonPath, emojiData);
+            await this.atomicWrite(this.jsonPath, finalEmojiData);
             log.info('Emoji synchronization complete.');
 
         } catch (error: unknown) {

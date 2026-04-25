@@ -1,9 +1,0 @@
-{   
-    "id": "crypto-utils",
-    "name": "Crypto Utils",
-    "version": "0.1.0",
-    "author": "NovaCore Development",
-    "dependencies": ["core"],
-    "node_version": ">=18.20.8",
-    "novax_version": ">=0.1.0"
-}

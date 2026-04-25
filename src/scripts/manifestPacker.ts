@@ -70,7 +70,7 @@ class BinaryManifestPacker {
             );
 
             this.log.info('--------------------------------------------------');
-            this.log.info(`✅ Successfully locked and signed: ${pluginId}`);
+            this.log.info(`Successfully locked and signed: ${pluginId}`);
             this.log.info(`Output: plugins/${pluginId}/manifest.nvx`);
             this.log.info('--------------------------------------------------');
 

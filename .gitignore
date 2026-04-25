@@ -2,8 +2,6 @@
 **/*.mjs
 **/*.js
 core/**
-!src/**
-!src
 !package.json
 !tsconfig.json
 !common.json
@@ -187,8 +185,10 @@ docker-compose.override.yml
 Icon?
 Icon*
 plugins/**
+src/plugins/**/*
 core/**
 configuration/**
 scripts/**
 .data/**
 __**
+.env.diff

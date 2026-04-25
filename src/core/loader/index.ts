@@ -400,4 +400,88 @@ export class PluginManager extends EventEmitter {
         this.bootStatuses.clear();
         this.emit('ecosystemOffline');
     }
+
+    public async reload(pluginString: string, baseClient: Client<true>): Promise<{ success: string[], failed: string[] }> {
+        const ids = pluginString.split('$').map(id => id.trim()).filter(Boolean);
+        const results = { success: [] as string[], failed: [] as string[] };
+
+        for (const pluginId of ids) {
+            log.info(`[${pluginId}] Commencing Enterprise Hot-Reload Sequence...`);
+            
+            try {
+                if (this.registry.has(pluginId)) {
+                    const disabled = await this.disable(pluginId);
+                    if (!disabled) throw new Error(`Failed to gracefully disable plugin: ${pluginId}`);
+                }
+
+                const discoveredMap = await this.discoverPlugins();
+                const plugin = discoveredMap.get(pluginId);
+                
+                if (!plugin) throw new Error(`Plugin [${pluginId}] not found on disk or failed integrity checks.`);
+
+                await DependencyLoader.installFromPackageJson(plugin.dir, pluginId);
+                await configLoader.syncPlugin(plugin.dir, pluginId);
+                await langLoader.syncPlugin(plugin.dir, pluginId);
+
+                const entryPath = path.join(plugin.dir, 'index.js');
+                const baseUrl = pathToFileURL(entryPath).href;
+                const importUrl = `${baseUrl}?v=${Date.now()}`; 
+                
+                const Module = await import(importUrl).catch(err => {
+                    throw new Error(`Failed to evaluate entrypoint: ${err.message}`);
+                });
+
+                const PluginClass = Module.default;
+                if (typeof PluginClass !== 'function' || !(PluginClass.prototype instanceof BasePlugin)) {
+                    throw new Error(`Entrypoint does not export a valid BasePlugin class as default.`);
+                }
+
+                const scopedHeart = HeartFactory.create(pluginId, baseClient);
+                const instance: BasePlugin = new PluginClass();
+                instance._injectCore(scopedHeart); 
+                
+                instance._setState(PluginState.Setup);
+                if (typeof instance.onSetup === 'function') {
+                    await this.withTimeout(instance.onSetup(), pluginId, 'onSetup()');
+                }
+                
+                await EventLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+                await CommandLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+                await RouteLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+
+                instance._setState(PluginState.Enabled);
+                await this.withTimeout(instance.onEnable(), pluginId, 'onEnable()');
+
+                this.registry.set(pluginId, instance);
+                this.bootStatuses.set(pluginId, PluginBootStatus.Success);
+
+                log.info(`[${pluginId}] Hot-Reload Complete. New code is online.`);
+                this.emit('pluginLoaded', plugin.manifest);
+                
+                results.success.push(pluginId);
+
+            } catch (error: unknown) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                this.bootStatuses.set(pluginId, PluginBootStatus.Failed);
+                log.error(`[${pluginId}] Fatal error during hot-reload: ${err.message}`);
+                results.failed.push(pluginId);
+            }
+        }
+
+        if (results.success.length > 0) {
+            try {
+                const { interactionHandler } = await import('#core/manager/interaction/handler.js');
+                const { secrets } = await import('#core/helpers/secretManager.js');
+                
+                log.info('Resynchronizing Discord Application Commands after hot-reload...');
+                await interactionHandler.syncCommands(baseClient, secrets.getOptional('GuildID'));
+            } catch (syncErr) {
+                log.error(`Failed to resync commands after reload: ${(syncErr as Error).message}`);
+            }
+        }
+
+        return results;
+    }
 }
+
+export const pluginManager = new PluginManager();
