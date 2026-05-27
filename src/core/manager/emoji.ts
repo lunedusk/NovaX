@@ -7,13 +7,11 @@ const log = getLogger('EmojiManager');
 
 export class EmojiManager {
     private static readonly EMOJI_REGEX = /:([a-zA-Z0-9_]+):/g;
-
     private cache = new Map<string, string>();
-    private frozenCache: Readonly<Record<string, string>> = Object.freeze({});
+    private readonly liveRecord: Record<string, string> = {};
     
     private readonly filePath: string;
     private watcher: FileWatcher | null = null;
-    
     private isReloading = false;
 
     constructor(targetPath?: string) {
@@ -26,14 +24,15 @@ export class EmojiManager {
 
         if (hotReload) {
             const dir = path.dirname(this.filePath);
+            const fileName = path.basename(this.filePath);
             
-            this.watcher = new FileWatcher(dir, { includePatterns: ['emoji.json'] });
+            this.watcher = new FileWatcher(dir, { includePatterns: [fileName] });
             
             this.watcher.on('events', async (events: WatchEvent[]) => {
                 for (const event of events) {
                     if (event.type === 'deleted') {
                         this.applyAtomicSwap(new Map());
-                        log.warn('emoji.json was deleted. Emoji cache cleared.');
+                        log.warn(`${fileName} was deleted. Emoji cache cleared.`);
                     } else {
                         await this.load();
                     }
@@ -81,7 +80,13 @@ export class EmojiManager {
 
     private applyAtomicSwap(newMap: Map<string, string>): void {
         this.cache = newMap;
-        this.frozenCache = Object.freeze(Object.fromEntries(this.cache));
+        
+        for (const key in this.liveRecord) {
+            if (Object.prototype.hasOwnProperty.call(this.liveRecord, key)) {
+                delete this.liveRecord[key];
+            }
+        }
+        Object.assign(this.liveRecord, Object.fromEntries(this.cache));
     }
 
     public get(key: string): string | null {
@@ -97,7 +102,7 @@ export class EmojiManager {
     }
 
     public getAll(): Readonly<Record<string, string>> {
-        return this.frozenCache;
+        return this.liveRecord;
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "@novacore-dev/novax",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "The most versatile modular discord framework for Node.js (discord.js) in TypeScript",
   "main": "./index.js",
   "type": "module",

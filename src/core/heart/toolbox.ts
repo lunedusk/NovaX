@@ -6,12 +6,14 @@ import { HybridVault, SecureVault } from '#core/helpers/enclave.js';
 import { codecRegistry as codec } from '#core/helpers/codec.js'; 
 import { TTLCache as Cache } from '#core/helpers/cache.js'; 
 import { PackageManager } from '#core/helpers/integrity/manifest.js';
+import { BloomFilter } from '#core/helpers/bloom.js';
 
 export type ToolboxDomain = {
     readonly utils: {
         readonly random: typeof random;
         readonly format: typeof format;
         readonly EmojiSyncer: typeof EmojiSyncer;
+
     };
     readonly security: {
         readonly integrity: typeof IntegrityManager;
@@ -22,6 +24,7 @@ export type ToolboxDomain = {
     readonly data: {
         readonly codec: typeof codec;
         readonly Cache: typeof Cache;
+        readonly BloomFilter: typeof BloomFilter;
     };
 };
 
@@ -39,6 +42,7 @@ export const toolboxDomain: ToolboxDomain = Object.freeze({
     }),
     data: Object.freeze({
         codec,
-        Cache
+        Cache,
+        BloomFilter
     })
 });

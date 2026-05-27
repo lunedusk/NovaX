@@ -6,7 +6,6 @@ import { getLogger } from '#core/utils/logger.js';
 import { secrets } from '#core/helpers/secretManager.js';
 
 const log = getLogger('LanguageManager');
-
 const SUPPORTED_LOCALES = new Set(['en', 'es', 'fr', 'de']);
 
 export type TranslationVars = Record<string, string | number | boolean>;
@@ -17,9 +16,10 @@ export class LanguageManager {
 
     private readonly dictionary = new Map<string, Map<string, Map<string, CompiledTranslation>>>();
     
+    private readonly liveNamespaces = new Map<string, Map<string, Record<string, CompiledTranslation>>>();
+    
     private readonly targetDir: string;
     private watcher: FileWatcher | null = null;
-    
     private readonly loadLocks = new Set<string>();
 
     constructor(targetDir?: string) {
@@ -39,7 +39,6 @@ export class LanguageManager {
             .map(file => this.loadFile(path.join(this.targetDir, file)).then(() => loadedCount++));
 
         await Promise.all(loadPromises);
-
         log.info(`Language Manager initialized with ${loadedCount} namespaces.`);
 
         if (hotReload) {
@@ -53,7 +52,6 @@ export class LanguageManager {
                         if (!this.loadLocks.has(event.path)) {
                             this.loadLocks.add(event.path);
                             await this.loadFile(event.path);
-                            
                             setTimeout(() => this.loadLocks.delete(event.path), 100);
                         }
                     }
@@ -98,8 +96,23 @@ export class LanguageManager {
             if (!this.dictionary.has(meta.locale)) {
                 this.dictionary.set(meta.locale, new Map());
             }
-
             this.dictionary.get(meta.locale)!.set(meta.namespace, flatMap);
+
+            if (!this.liveNamespaces.has(meta.locale)) {
+                this.liveNamespaces.set(meta.locale, new Map());
+            }
+            const localeMap = this.liveNamespaces.get(meta.locale)!;
+            
+            if (!localeMap.has(meta.namespace)) {
+                localeMap.set(meta.namespace, {});
+            }
+            
+            const liveRef = localeMap.get(meta.namespace)!;
+            for (const key in liveRef) {
+                if (Object.prototype.hasOwnProperty.call(liveRef, key)) delete liveRef[key];
+            }
+            Object.assign(liveRef, Object.fromEntries(flatMap));
+
             log.debug(`Loaded [${meta.locale}] namespace: '${meta.namespace}' (${flatMap.size} keys)`);
 
         } catch (error: unknown) {
@@ -119,6 +132,14 @@ export class LanguageManager {
 
             if (localeMap.size === 0) {
                 this.dictionary.delete(meta.locale);
+            }
+        }
+
+        const liveLocaleMap = this.liveNamespaces.get(meta.locale);
+        const liveRef = liveLocaleMap?.get(meta.namespace);
+        if (liveRef) {
+            for (const key in liveRef) {
+                if (Object.prototype.hasOwnProperty.call(liveRef, key)) delete liveRef[key];
             }
         }
     }
@@ -183,9 +204,7 @@ export class LanguageManager {
 
         try {
             await fs.access(filePath);
-            
             log.debug(`Manually reloading language file: [${filename}]`);
-            
             await this.loadFile(filePath);
             return true;
         } catch (error: unknown) {
@@ -226,25 +245,47 @@ export class LanguageManager {
     public wipeCache(locale?: string): void {
         if (locale) {
             this.dictionary.delete(locale);
+            const liveLocaleMap = this.liveNamespaces.get(locale);
+            if (liveLocaleMap) {
+                for (const [, liveRef] of liveLocaleMap) {
+                    for (const key in liveRef) delete liveRef[key];
+                }
+                this.liveNamespaces.delete(locale);
+            }
             log.warn(`Language cache for locale [${locale}] has been purged.`);
         } else {
             this.dictionary.clear();
+            for (const [, liveLocaleMap] of this.liveNamespaces) {
+                for (const [, liveRef] of liveLocaleMap) {
+                    for (const key in liveRef) delete liveRef[key];
+                }
+            }
+            this.liveNamespaces.clear();
             log.warn('Global language dictionary has been purged.');
         }
     }
 
-    public get(
-        namespace: string, 
-        key: string, 
-        variables?: TranslationVars,
-        requestedLocale?: string
-    ): string {
+    public getNamespace(namespace: string, locale?: string): Readonly<Record<string, CompiledTranslation>> {
+        const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
+        const targetLocale = locale || masterLocale;
+
+        if (!this.liveNamespaces.has(targetLocale)) {
+            this.liveNamespaces.set(targetLocale, new Map());
+        }
+        const localeMap = this.liveNamespaces.get(targetLocale)!;
+        if (!localeMap.has(namespace)) {
+            localeMap.set(namespace, {});
+        }
+        return localeMap.get(namespace)!;
+    }
+
+    public get(namespace: string, key: string, variables?: TranslationVars, requestedLocale?: string): string {
         const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
         const targetLocale = requestedLocale || masterLocale;
 
         const fallbacks = [targetLocale];
-        
         const baseLocale = targetLocale.split('-')[0];
+        
         if (baseLocale !== targetLocale) fallbacks.push(baseLocale);
         if (masterLocale !== targetLocale && masterLocale !== baseLocale) fallbacks.push(masterLocale);
         if (!fallbacks.includes('en')) fallbacks.push('en');

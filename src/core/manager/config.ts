@@ -8,9 +8,11 @@ const log = getLogger('ConfigManager');
 
 export class ConfigManager {
     private cache = new Map<string, unknown>();
+    
+    private readonly liveConfigs = new Map<string, Record<string, any>>();
+    
     private readonly targetDir: string;
     private watcher: FileWatcher | null = null;
-    
     private isReloading = false;
 
     constructor(targetDir?: string) {
@@ -21,7 +23,6 @@ export class ConfigManager {
         log.info('Initializing Configuration Manager...');
         
         await fs.mkdir(this.targetDir, { recursive: true });
-        
         await this.loadAll();
 
         if (hotReload) {
@@ -42,6 +43,12 @@ export class ConfigManager {
             
             if (event.type === 'deleted') {
                 this.cache.delete(name);
+                const liveRef = this.liveConfigs.get(name);
+                if (liveRef) {
+                    for (const key in liveRef) {
+                        if (Object.prototype.hasOwnProperty.call(liveRef, key)) delete liveRef[key];
+                    }
+                }
                 log.info(`Unloaded configuration: [${name}]`);
             } else {
                 await this.reloadFile(name);
@@ -61,7 +68,8 @@ export class ConfigManager {
             const rawContent = await fs.readFile(filePath, 'utf-8');
             const parsed = JSON5.parse(rawContent);
 
-            this.cache.set(name, this.deepFreeze(parsed));
+            this.cache.set(name, parsed);
+            this.updateLiveReference(name, parsed);
             
             log.debug(`Successfully reloaded configuration: [${name}.json5]`);
             return true;
@@ -94,7 +102,8 @@ export class ConfigManager {
                     const rawContent = await fs.readFile(path.join(this.targetDir, entry.name), 'utf-8');
                     const parsed = JSON5.parse(rawContent);
                     
-                    newCache.set(configName, this.deepFreeze(parsed));
+                    newCache.set(configName, parsed);
+                    this.updateLiveReference(configName, parsed);
                     loadedCount++;
                 } catch (parseError: unknown) {
                     const err = parseError instanceof Error ? parseError : new Error(String(parseError));
@@ -115,21 +124,43 @@ export class ConfigManager {
         }
     }
 
-    private deepFreeze<T extends object>(obj: T): Readonly<T> {
-        const propNames = Object.getOwnPropertyNames(obj);
-        for (const name of propNames) {
-            const value = (obj as any)[name];
-            if (value && typeof value === 'object') {
-                this.deepFreeze(value);
+    private updateLiveReference(name: string, newData: any): void {
+        if (!this.liveConfigs.has(name)) {
+            this.liveConfigs.set(name, {});
+        }
+        const currentRef = this.liveConfigs.get(name)!;
+        this.deepMutate(currentRef, newData);
+    }
+
+    private deepMutate(target: any, source: any): void {
+        for (const key in target) {
+            if (Object.prototype.hasOwnProperty.call(target, key) && !(key in source)) {
+                delete target[key];
             }
         }
-        return Object.freeze(obj);
+        for (const key in source) {
+            if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+            
+            const sourceVal = source[key];
+            const targetVal = target[key];
+
+            if (sourceVal && typeof sourceVal === 'object' && !Array.isArray(sourceVal)) {
+                if (!targetVal || typeof targetVal !== 'object' || Array.isArray(targetVal)) {
+                    target[key] = {};
+                }
+                this.deepMutate(target[key], sourceVal);
+            } else {
+                target[key] = sourceVal;
+            }
+        }
     }
 
     public get<T = Record<string, unknown>>(name: string): Readonly<T> | null {
-        const config = this.cache.get(name);
-        if (!config) return null;
-        return config as Readonly<T>;
+        if (!this.cache.has(name)) return null;
+        if (!this.liveConfigs.has(name)) {
+            this.liveConfigs.set(name, {});
+        }
+        return this.liveConfigs.get(name) as unknown as Readonly<T>;
     }
 
     public getStrict<T = Record<string, unknown>>(name: string): Readonly<T> {
