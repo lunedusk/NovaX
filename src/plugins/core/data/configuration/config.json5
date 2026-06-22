@@ -17,30 +17,10 @@
     // Global placeholder values exposed to every builder/message path.
     // These can be referenced as %%brand_name%% or nested keys like %%support.name%%.
     "placeholders": {
-        "brand_name": "NovaX",
-        "support": {
-            "name": "NovaX Support"
-        }
     },
 
     // The list of activities to rotate through. 
     // If you only provide one, the rotation timer is automatically bypassed to save CPU.
     "activities": [
-        {
-            "name": "over the NovaX Ecosystem",
-            // Allowed Types: PLAYING, STREAMING, LISTENING, WATCHING, COMPETING, CUSTOM
-            "type": "WATCHING" 
-        },
-        {
-            "name": "Enterprise Grade TypeScript",
-            "type": "PLAYING"
-        },
-        {
-            "name": "a coding masterclass",
-            "type": "STREAMING",
-            // The 'url' field is strictly required by Discord when the type is STREAMING.
-            // It must be a valid Twitch or YouTube URL.
-            "url": "https://twitch.tv/discord" 
-        }
     ]
 }

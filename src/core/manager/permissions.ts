@@ -65,7 +65,9 @@ export class PermissionsManager {
             commandData.setDefaultMemberPermissions(bitfield);
         }
 
-        const guildOnly = Boolean(
+        const dmExplicitlyAllowed = normalized.allowInDm === true || rule?.allowInDm === true;
+
+        const hasGuildRequirements = Boolean(
             normalized.roleIds?.length ||
             normalized.userIds?.length ||
             normalized.userPermissions?.length ||
@@ -76,7 +78,7 @@ export class PermissionsManager {
             rule?.clientPermissions?.length
         );
 
-        if (guildOnly && typeof commandData?.setDMPermission === 'function') {
+        if (hasGuildRequirements && !dmExplicitlyAllowed && typeof commandData?.setDMPermission === 'function') {
             commandData.setDMPermission(false);
         }
     }
@@ -189,6 +191,28 @@ export class PermissionsManager {
     }
 
     private checkRequirements(interaction: Interaction, access: RouteAccessConfig): PermissionCheckResult {
+        const inDm = !interaction.inGuild();
+
+        if (access.allowInDm === false && inDm) {
+            return {
+                allowed: false,
+                reason: access.denyMessage ?? 'This interaction cannot be used in DMs.',
+                hideable: false
+            };
+        }
+
+        if (inDm) {
+            if (access.userIds?.length && !access.userIds.includes(interaction.user.id)) {
+                return {
+                    allowed: false,
+                    reason: access.denyMessage ?? 'You are not allowed to use this interaction.',
+                    hideable: false
+                };
+            }
+
+            return { allowed: true, reason: '', hideable: false };
+        }
+
         if (access.userPermissions?.length) {
             const memberPermissions = interaction.memberPermissions;
 
@@ -234,14 +258,6 @@ export class PermissionsManager {
         }
 
         if (access.roleIds?.length) {
-            if (!interaction.inGuild()) {
-                return {
-                    allowed: false,
-                    reason: access.denyMessage ?? 'This command can only be used in a server.',
-                    hideable: false
-                };
-            }
-
             const memberRoleIds = this.getMemberRoleIds(interaction.member);
 
             if (!memberRoleIds.some(roleId => access.roleIds!.includes(roleId))) {
@@ -257,14 +273,6 @@ export class PermissionsManager {
             return {
                 allowed: false,
                 reason: access.denyMessage ?? 'You are not allowed to use this interaction.',
-                hideable: false
-            };
-        }
-
-        if (access.allowInDm === false && !interaction.inGuild()) {
-            return {
-                allowed: false,
-                reason: access.denyMessage ?? 'This interaction cannot be used in DMs.',
                 hideable: false
             };
         }

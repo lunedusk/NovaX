@@ -1,7 +1,7 @@
-import { 
-    type Interaction, 
-    Events, 
-    MessageFlags, 
+import {
+    type Interaction,
+    Events,
+    MessageFlags,
     type InteractionReplyOptions,
     REST,
     Routes,
@@ -17,6 +17,7 @@ import { metricsManager } from '#core/manager/metrics/index.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
 import { permissionsManager, type RouteAccessConfig } from '#core/manager/permissions.js';
+import { CrossGuildResolver } from '#core/helpers/crossGuild/index.js';
 
 const log = getLogger('InteractionHandler');
 
@@ -46,11 +47,11 @@ export class InteractionHandler {
         if (!this.restClient) {
             this.restClient = new REST({ version: '10' }).setToken(secrets.get('DiscordToken'));
         }
-        
+
         try {
             const chatEntries = interactionRegistry.chat.getEntries();
             const contextEntries = interactionRegistry.context.getEntries();
-            
+
             const commandData = [
                 ...Array.from(chatEntries.values()),
                 ...Array.from(contextEntries.values())
@@ -66,12 +67,12 @@ export class InteractionHandler {
             log.info(`Synchronizing ${commandData.length} interaction commands with Discord...`);
 
             const appId = client.user.id;
-            const route = guildId 
-                ? Routes.applicationGuildCommands(appId, guildId) 
+            const route = guildId
+                ? Routes.applicationGuildCommands(appId, guildId)
                 : Routes.applicationCommands(appId);
 
             await this.restClient.put(route, { body: commandData });
-            
+
             log.info(`Successfully deployed commands ${guildId ? `to guild [${guildId}]` : 'globally'}.`);
 
         } catch (error: unknown) {
@@ -79,6 +80,14 @@ export class InteractionHandler {
             log.error(`Failed to synchronize commands with Discord API: ${err.message}`);
             throw err;
         }
+    }
+
+    public clearCrossGuildCache(): void {
+        CrossGuildResolver.clearCache();
+    }
+
+    public clearUserCrossGuildCache(userId: string): void {
+        CrossGuildResolver.clearUserCache(userId);
     }
 
     private async process(interaction: Interaction): Promise<void> {
@@ -97,7 +106,7 @@ export class InteractionHandler {
 
             const access = permissionsManager.canExecute(interaction, route.access);
             if (!access.allowed) {
-                metricsManager.interactionsTotal.inc({ type: route.category, command: route.lookupKey, status: 'error' });
+                metricsManager.interactionsTotal.inc({ type: route.category, command: route.lookupKey, status: 'denied' });
 
                 if (interaction.isAutocomplete()) {
                     await interaction.respond([]).catch(() => {});
@@ -110,7 +119,7 @@ export class InteractionHandler {
 
             if (!interaction.isAutocomplete()) {
                 const isGlobalEnabled = secrets.getBoolean('EnableGlobalRatelimit', true);
-                
+
                 if (isGlobalEnabled) {
                     const cooldown = await cooldownManager.isRateLimited('global', {
                         userId: interaction.user.id,
@@ -133,17 +142,17 @@ export class InteractionHandler {
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             log.error(`[Execution Error] Route: ${route.lookupKey} | MSG: ${err.message}`, { stack: err.stack });
-            
+
             await this.sendSystemState(interaction, 'FATAL_ERROR');
         } finally {
             const execTime = performance.now() - startTime;
-            
+
             endDurationTimer({ command: route.lookupKey });
 
-            metricsManager.interactionsTotal.inc({ 
-                type: route.category, 
-                command: route.lookupKey, 
-                status: isSuccess ? 'success' : 'error' 
+            metricsManager.interactionsTotal.inc({
+                type: route.category,
+                command: route.lookupKey,
+                status: isSuccess ? 'success' : 'error'
             });
 
             if (execTime > 1500 && !interaction.isAutocomplete()) {
@@ -156,7 +165,7 @@ export class InteractionHandler {
         if (interaction.isChatInputCommand()) {
             const resolved = interactionRegistry.chat.resolve(interaction.commandName);
             return { category: 'chat_command', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
-        } 
+        }
         if (interaction.isAutocomplete()) {
             const resolved = interactionRegistry.autocomplete.resolve(interaction.commandName);
             return { category: 'autocomplete', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
@@ -188,8 +197,8 @@ export class InteractionHandler {
         }
 
         if (interaction.isRepliable()) {
-            const payload: InteractionReplyOptions = { 
-                flags: [MessageFlags.Ephemeral] 
+            const payload: InteractionReplyOptions = {
+                flags: [MessageFlags.Ephemeral]
             };
 
             switch (state) {
