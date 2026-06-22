@@ -7,7 +7,8 @@
     "outDir": "./",
     "paths": {
       "#core/*": ["./src/core/*"],
-      "#plugins/*": ["./src/plugins/*"]
+      "#plugins/*": ["./src/plugins/*"],
+      "#scripts/*": ["./src/scripts/*"]
     },
     "types": ["node"],
     "strict": true,

@@ -1,10 +1,17 @@
 import { type IHeart } from '#core/heart/index.js';
-import type { ButtonInteraction, ModalSubmitInteraction, AnySelectMenuInteraction } from 'discord.js';
+import type { ButtonInteraction, ModalSubmitInteraction, AnySelectMenuInteraction, PermissionResolvable } from 'discord.js';
 
 export abstract class BaseEvent<TArgs extends any[] = any[]> {
     public readonly heart: IHeart;
     public abstract readonly name: string;
     public readonly once: boolean = false;
+    public readonly permissionLevel?: string;
+    public readonly roleIds?: string[];
+    public readonly userIds?: string[];
+    public readonly userPermissions?: PermissionResolvable[];
+    public readonly clientPermissions?: PermissionResolvable[];
+    public readonly allowInDm?: boolean;
+    public readonly denyMessage?: string;
     public buttons?: Map<string | RegExp, (interaction: ButtonInteraction, match?: RegExpMatchArray) => Promise<void>>;
     public modals?: Map<string | RegExp, (interaction: ModalSubmitInteraction, match?: RegExpMatchArray) => Promise<void>>;
     public selects?: Map<string | RegExp, (interaction: AnySelectMenuInteraction, match?: RegExpMatchArray) => Promise<void>>;

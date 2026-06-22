@@ -15,6 +15,8 @@ import { getLogger } from '#core/utils/logger.js';
 import { cooldownManager } from '#core/manager/cooldown.js';
 import { metricsManager } from '#core/manager/metrics/index.js';
 import { secrets } from '#core/helpers/secretManager.js';
+import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import { permissionsManager, type RouteAccessConfig } from '#core/manager/permissions.js';
 
 const log = getLogger('InteractionHandler');
 
@@ -24,6 +26,7 @@ interface ResolvedRoute {
     category: InteractionCategory;
     lookupKey: string;
     handler?: (interaction: any) => Promise<void>;
+    access?: RouteAccessConfig;
 }
 
 export class InteractionHandler {
@@ -53,7 +56,7 @@ export class InteractionHandler {
                 ...Array.from(contextEntries.values())
             ]
             .filter(entry => entry.metadata?.data?.toJSON)
-            .map(entry => entry.metadata.data.toJSON());
+            .map(entry => entry.metadata!.data!.toJSON());
 
             if (commandData.length === 0) {
                 log.warn('Command synchronization aborted: No valid command metadata found in registry.');
@@ -89,6 +92,19 @@ export class InteractionHandler {
             if (!route.handler) {
                 log.debug(`Unmapped interaction route: [${route.lookupKey}]`);
                 metricsManager.interactionsTotal.inc({ type: route.category, command: route.lookupKey, status: 'unmapped' });
+                return;
+            }
+
+            const access = permissionsManager.canExecute(interaction, route.access);
+            if (!access.allowed) {
+                metricsManager.interactionsTotal.inc({ type: route.category, command: route.lookupKey, status: 'error' });
+
+                if (interaction.isAutocomplete()) {
+                    await interaction.respond([]).catch(() => {});
+                    return;
+                }
+
+                await permissionsManager.sendDenied(interaction, access.reason);
                 return;
             }
 
@@ -138,22 +154,28 @@ export class InteractionHandler {
 
     private resolveRoute(interaction: Interaction): ResolvedRoute {
         if (interaction.isChatInputCommand()) {
-            return { category: 'chat_command', lookupKey: interaction.commandName, handler: interactionRegistry.chat.resolve(interaction.commandName) };
+            const resolved = interactionRegistry.chat.resolve(interaction.commandName);
+            return { category: 'chat_command', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
         } 
         if (interaction.isAutocomplete()) {
-            return { category: 'autocomplete', lookupKey: interaction.commandName, handler: interactionRegistry.autocomplete.resolve(interaction.commandName) };
+            const resolved = interactionRegistry.autocomplete.resolve(interaction.commandName);
+            return { category: 'autocomplete', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
         }
         if (interaction.isButton()) {
-            return { category: 'button', lookupKey: interaction.customId, handler: interactionRegistry.button.resolve(interaction.customId) };
+            const resolved = interactionRegistry.button.resolve(interaction.customId);
+            return { category: 'button', lookupKey: interaction.customId, handler: resolved?.handler, access: resolved?.metadata?.access };
         }
         if (interaction.isAnySelectMenu()) {
-            return { category: 'select_menu', lookupKey: interaction.customId, handler: interactionRegistry.select.resolve(interaction.customId) };
+            const resolved = interactionRegistry.select.resolve(interaction.customId);
+            return { category: 'select_menu', lookupKey: interaction.customId, handler: resolved?.handler, access: resolved?.metadata?.access };
         }
         if (interaction.isModalSubmit()) {
-            return { category: 'modal', lookupKey: interaction.customId, handler: interactionRegistry.modal.resolve(interaction.customId) };
+            const resolved = interactionRegistry.modal.resolve(interaction.customId);
+            return { category: 'modal', lookupKey: interaction.customId, handler: resolved?.handler, access: resolved?.metadata?.access };
         }
         if (interaction.isContextMenuCommand()) {
-            return { category: 'context_menu', lookupKey: interaction.commandName, handler: interactionRegistry.context.resolve(interaction.commandName) };
+            const resolved = interactionRegistry.context.resolve(interaction.commandName);
+            return { category: 'context_menu', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
         }
 
         return { category: 'UNKNOWN', lookupKey: 'UNKNOWN' };
@@ -172,11 +194,11 @@ export class InteractionHandler {
 
             switch (state) {
                 case 'FATAL_ERROR':
-                    payload.content = '❌ A critical internal error occurred while processing your request.';
+                    payload.content = resolveGlobalPlaceholders('%%emoji_cross%% A critical internal error occurred while processing your request.');
                     break;
                 case 'RATE_LIMIT':
                     const remainingSec = ((contextData ?? 0) / 1000).toFixed(1);
-                    payload.content = `⏳ Please wait **${remainingSec}s** before interacting again.`;
+                    payload.content = resolveGlobalPlaceholders(`%%emoji_clock%% Please wait **${remainingSec}s** before interacting again.`);
                     break;
             }
 

@@ -14,6 +14,15 @@
     // Minimum recommended is 15 seconds to avoid Discord API rate limits.
     "updateIntervalSeconds": 60,
 
+    // Global placeholder values exposed to every builder/message path.
+    // These can be referenced as %%brand_name%% or nested keys like %%support.name%%.
+    "placeholders": {
+        "brand_name": "NovaX",
+        "support": {
+            "name": "NovaX Support"
+        }
+    },
+
     // The list of activities to rotate through. 
     // If you only provide one, the rotation timer is automatically bypassed to save CPU.
     "activities": [

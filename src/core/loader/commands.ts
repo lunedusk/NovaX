@@ -9,6 +9,7 @@ import {
 import { getLogger } from '#core/utils/logger.js';
 import { type IHeart } from '#core/heart/index.js';
 import { BaseCommand } from '#core/bases/Command.js';
+import { permissionsManager } from '#core/manager/permissions.js';
 
 const log = getLogger('CommandLoader');
 
@@ -59,12 +60,16 @@ export class CommandLoader {
                 }
 
                 const commandName = instance.data.name;
+                permissionsManager.applyCommandDefaults(instance.data, instance.config);
 
                 heart.discord.interactions.chat.register(
                     commandName, 
                     (i: ChatInputCommandInteraction) => instance.execute(i),
                     pluginId,
-                    instance
+                    {
+                        data: instance.data,
+                        access: instance.config
+                    }
                 );
 
                 if (typeof instance.autocomplete === 'function') {

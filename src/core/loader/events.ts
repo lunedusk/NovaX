@@ -51,17 +51,47 @@ export class EventLoader {
                 const instance: BaseEvent = new EventClass(heart);
                 if (instance.buttons) {
                     for (const [pattern, handler] of instance.buttons.entries()) {
-                        interactionRegistry.button.register(pattern, handler as any, pluginId);
+                        interactionRegistry.button.register(pattern, handler as any, pluginId, {
+                            access: {
+                                permissionLevel: instance.permissionLevel,
+                                roleIds: instance.roleIds,
+                                userIds: instance.userIds,
+                                userPermissions: instance.userPermissions,
+                                clientPermissions: instance.clientPermissions,
+                                allowInDm: instance.allowInDm,
+                                denyMessage: instance.denyMessage
+                            }
+                        });
                     }
                 }
                 if (instance.modals) {
                     for (const [pattern, handler] of instance.modals.entries()) {
-                        interactionRegistry.modal.register(pattern, handler as any, pluginId);
+                        interactionRegistry.modal.register(pattern, handler as any, pluginId, {
+                            access: {
+                                permissionLevel: instance.permissionLevel,
+                                roleIds: instance.roleIds,
+                                userIds: instance.userIds,
+                                userPermissions: instance.userPermissions,
+                                clientPermissions: instance.clientPermissions,
+                                allowInDm: instance.allowInDm,
+                                denyMessage: instance.denyMessage
+                            }
+                        });
                     }
                 }
                 if (instance.selects) {
                     for (const [pattern, handler] of instance.selects.entries()) {
-                        interactionRegistry.select.register(pattern, handler as any, pluginId);
+                        interactionRegistry.select.register(pattern, handler as any, pluginId, {
+                            access: {
+                                permissionLevel: instance.permissionLevel,
+                                roleIds: instance.roleIds,
+                                userIds: instance.userIds,
+                                userPermissions: instance.userPermissions,
+                                clientPermissions: instance.clientPermissions,
+                                allowInDm: instance.allowInDm,
+                                denyMessage: instance.denyMessage
+                            }
+                        });
                     }
                 }
                 if (instance.name) {

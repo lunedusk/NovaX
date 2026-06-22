@@ -49,7 +49,7 @@ export interface SellAuthInvoice {
 }
 
 export default class SellAuthWebhookRoute extends BaseRoute {
-    public readonly basePath = '/webhook';
+    public readonly basePath = '/sellauth/webhook';
     
     private readonly MAX_RETRIES = 3; 
     

@@ -7,8 +7,14 @@ import type {
     ContextMenuCommandInteraction
 } from 'discord.js';
 import { getLogger } from '#core/utils/logger.js';
+import type { RouteAccessConfig } from '#core/manager/permissions.js';
 
 const log = getLogger('InteractionRegistry');
+
+export interface InteractionRouteMetadata {
+    data?: any;
+    access?: RouteAccessConfig;
+}
 
 export type Handler<T> = (interaction: T) => Promise<void>;
 
@@ -17,12 +23,17 @@ export type RegexHandler<T> = (interaction: T, match: RegExpMatchArray) => Promi
 interface RouteEntry<T> {
     handler: Handler<T> | RegexHandler<T>;
     owner?: string;
-    metadata?: any; 
+    metadata?: InteractionRouteMetadata; 
 }
 
 interface PatternRoute<T> extends RouteEntry<T> {
     pattern: RegExp;
     handler: RegexHandler<T>;
+}
+
+export interface ResolvedRoute<T> {
+    handler?: Handler<T>;
+    metadata?: InteractionRouteMetadata;
 }
 
 class RouteStore<T> {
@@ -53,16 +64,19 @@ class RouteStore<T> {
         }
     }
 
-    public resolve(id: string): Handler<T> | undefined {
+    public resolve(id: string): ResolvedRoute<T> | undefined {
         if (!id) return undefined;
 
         const exactMatch = this.exact.get(id);
-        if (exactMatch) return exactMatch.handler as Handler<T>;
+        if (exactMatch) return { handler: exactMatch.handler as Handler<T>, metadata: exactMatch.metadata };
 
         for (const route of this.patterns) {
             const match = id.match(route.pattern);
             if (match) {
-                return (interaction: T) => route.handler(interaction, match);
+                return {
+                    handler: (interaction: T) => route.handler(interaction, match),
+                    metadata: route.metadata
+                };
             }
         }
 

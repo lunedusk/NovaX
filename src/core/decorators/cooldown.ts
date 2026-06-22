@@ -11,6 +11,7 @@ import {
 import { cooldownManager } from '#core/manager/cooldown.js';
 import { getLogger } from '#core/utils/logger.js';
 import { emojis } from '#core/manager/emoji.js';
+import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
 
 const log = getLogger('CooldownDecorator');
 
@@ -61,14 +62,14 @@ export function Cooldown(slug: string, options: CooldownOptions = {}) {
                     const cooldownUI = new ContainerBuilder()
                         .setAccentColor(0xFF4444)
                         .addTextDisplayComponents(
-                            new TextDisplayBuilder().setContent(`**${emojis.get('clock') || '⏳'} Rate Limit Exceeded**`),
+                            new TextDisplayBuilder().setContent(resolveGlobalPlaceholders('**%%emoji_clock%% Rate Limit Exceeded**')),
                         )
                         .addSeparatorComponents(
                             new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true),
                         )
                         .addTextDisplayComponents(
                             new TextDisplayBuilder().setContent(
-                                `${emojis.get('cross') || '❌'} Please wait **${remainingSec}s** before using \`${propertyKey}\` again.`
+                                resolveGlobalPlaceholders(`%%emoji_cross%% Please wait **${remainingSec}s** before using \`${propertyKey}\` again.`)
                             ),
                         );
 

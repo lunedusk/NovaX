@@ -6,7 +6,8 @@
   "type": "module",
   "imports": {
     "#core/*": "./core/*",
-    "#plugins/*": "./plugins/*"
+    "#plugins/*": "./plugins/*",
+    "#scripts/*": "./scripts/*"
   },
   "engines": {
     "node": ">=20.0.0"

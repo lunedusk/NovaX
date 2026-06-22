@@ -5,12 +5,18 @@ import {
     SlashCommandBuilder,
     type PermissionResolvable
 } from 'discord.js';
+import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
 
 export interface CommandConfig {
     readonly cooldown?: number;
     readonly devOnly?: boolean;
+    readonly permissionLevel?: string;
+    readonly roleIds?: string[];
+    readonly userIds?: string[];
     readonly userPermissions?: PermissionResolvable[];
     readonly clientPermissions?: PermissionResolvable[];
+    readonly allowInDm?: boolean;
+    readonly denyMessage?: string;
     readonly autoDefer?: boolean | 'ephemeral';
 }
 
@@ -25,7 +31,7 @@ export abstract class BaseCommand {
     public async onError(error: Error, interaction: ChatInputCommandInteraction): Promise<void> {
         this.heart.log.error(`Command [${this.data.name}] failed: ${error.message}`, { stack: error.stack });
         
-        const msg = "An error occurred while executing this command.";
+        const msg = resolveGlobalPlaceholders('%%emoji_cross%% An error occurred while executing this command.');
         if (interaction.deferred || interaction.replied) {
             await interaction.followUp({ content: msg, ephemeral: true }).catch(() => {});
         } else {

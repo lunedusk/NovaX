@@ -57,7 +57,7 @@ export class RouteLoader {
                     ? instance.basePath.substring(1) 
                     : instance.basePath;
                 
-                const namespacedRoute = `/api/plugins/${pluginId}/${cleanBasePath}`;
+                const namespacedRoute = `/${cleanBasePath}`;
                 
                 heart.net.http.registerRouter(namespacedRoute, instance.router);
 
