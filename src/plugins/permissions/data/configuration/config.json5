@@ -1,0 +1,25 @@
+{
+    // ==========================================
+    // NovaX Permission Levels
+    // ==========================================
+
+    "enabled": true,
+
+    "defaultLevel": "public",
+
+    "levels": {
+        "public": {
+            "label": "Public"
+        },
+        "staff": {
+            "label": "Staff",
+            "discordPermissions": ["ManageMessages"],
+            "denyMessage": "This command is restricted to staff members."
+        },
+        "admin": {
+            "label": "Administrator",
+            "discordPermissions": ["Administrator"],
+            "denyMessage": "Administrator access is required for this command."
+        }
+    }
+}

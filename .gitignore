@@ -185,10 +185,12 @@ docker-compose.override.yml
 Icon?
 Icon*
 plugins/**
-src/plugins/**/*
 core/**
 configuration/**
 scripts/**
 .data/**
 __**
 .env.diff
+!src/plugins/core/**/*
+!src/plugins/permissions/**/*
+!src/plugins/sellauth/**/*
