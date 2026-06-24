@@ -1,26 +1,12 @@
 {
-    // ==========================================
-    // NovaCore Presence Configuration
-    // ==========================================
-
-    // Set to false to temporarily disable the presence engine without unloading the plugin.
-    "enabled": true,
-
-    // The bot's global status.
-    // Allowed values: 'online', 'idle', 'dnd', 'invisible'
-    "status": "online",
-
-    // How often (in seconds) the bot should cycle to the next activity in the list.
-    // Minimum recommended is 15 seconds to avoid Discord API rate limits.
-    "updateIntervalSeconds": 60,
-
-    // Global placeholder values exposed to every builder/message path.
-    // These can be referenced as %%brand_name%% or nested keys like %%support.name%%.
-    "placeholders": {
-    },
-
-    // The list of activities to rotate through. 
-    // If you only provide one, the rotation timer is automatically bypassed to save CPU.
-    "activities": [
+    enabled: true,
+    status: "online",
+    updateIntervalSeconds: 60,
+    placeholders: {},
+    activities: [
+        {
+            name: "Server",
+            type: "WATCHING"
+        }
     ]
 }

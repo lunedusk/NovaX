@@ -3,20 +3,40 @@ import path from 'node:path';
 import JSON5 from 'json5';
 import { FileWatcher, type WatchEvent } from '#core/watcher/index.js';
 import { getLogger } from '#core/utils/logger.js';
+import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
 
 const log = getLogger('ConfigManager');
 
 export class ConfigManager {
     private cache = new Map<string, unknown>();
-    
     private readonly liveConfigs = new Map<string, Record<string, any>>();
-    
     private readonly targetDir: string;
     private watcher: FileWatcher | null = null;
     private isReloading = false;
 
     constructor(targetDir?: string) {
         this.targetDir = targetDir ? path.resolve(targetDir) : path.join(process.cwd(), 'configuration');
+    }
+
+    private resolveObjectPlaceholders(obj: any): any {
+        if (!obj) return obj;
+        
+        if (typeof obj === 'string') {
+            return resolveGlobalPlaceholders(obj);
+        }
+        
+        if (Array.isArray(obj)) {
+            return obj.map(item => this.resolveObjectPlaceholders(item));
+        }
+        
+        if (typeof obj === 'object') {
+            for (const key in obj) {
+                if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                    obj[key] = this.resolveObjectPlaceholders(obj[key]);
+                }
+            }
+        }
+        return obj;
     }
 
     public async init(hotReload: boolean = false): Promise<void> {
@@ -66,7 +86,9 @@ export class ConfigManager {
         
         try {
             const rawContent = await fs.readFile(filePath, 'utf-8');
-            const parsed = JSON5.parse(rawContent);
+            let parsed = JSON5.parse(rawContent);
+
+            parsed = this.resolveObjectPlaceholders(parsed);
 
             this.cache.set(name, parsed);
             this.updateLiveReference(name, parsed);
@@ -100,7 +122,9 @@ export class ConfigManager {
                 const configName = entry.name.replace('.json5', '');
                 try {
                     const rawContent = await fs.readFile(path.join(this.targetDir, entry.name), 'utf-8');
-                    const parsed = JSON5.parse(rawContent);
+                    let parsed = JSON5.parse(rawContent);
+                    
+                    parsed = this.resolveObjectPlaceholders(parsed);
                     
                     newCache.set(configName, parsed);
                     this.updateLiveReference(configName, parsed);

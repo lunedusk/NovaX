@@ -16,13 +16,13 @@ interface PresenceConfig {
     activities: ActivityConfig[];
 }
 
-export default class NovaCorePresence extends BasePlugin {
+export default class NovaCorePlugin extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'core',
-        name: 'Core',
+        name: 'NovaCore',
         version: '0.1.0',
         author: 'NovaCore Development',
-        novax_version: '0.1.0'
+        novax_version: '>=0.1.6'
     };
 
     private config!: PresenceConfig;
@@ -41,10 +41,10 @@ export default class NovaCorePresence extends BasePlugin {
     public async onSetup(): Promise<void> {
         this.log.info('Fetching presence configuration...');
         
-        const rawConfig = (this as any).heart?.assets?.config?.get('core');
+        const rawConfig = this.heart.assets.config.get<PresenceConfig>('core');
         
         if (!rawConfig) {
-            this.log.warn('No presence.json5 found. The presence engine will remain disabled.');
+            this.log.warn('No core config found. The presence engine will remain disabled.');
             this.config = {
                 enabled: false,
                 updateIntervalSeconds: 0,
@@ -54,7 +54,7 @@ export default class NovaCorePresence extends BasePlugin {
             return;
         }
 
-        this.config = rawConfig as PresenceConfig;
+        this.config = rawConfig;
     }
 
     public async onEnable(): Promise<void> {
@@ -63,12 +63,10 @@ export default class NovaCorePresence extends BasePlugin {
             return;
         }
 
-        const h = this.heart as any;
-        const client = (h.client || h.discord?.client || h.baseClient || h.core) as Client<true>;
+        const client = (this.heart as any).client as Client<true>;
         
         if (!client) {
-            this.log.error(`Available Heart keys: ${Object.keys(h).join(', ')}`);
-            throw new Error('Fatal: Discord Client is not accessible. Check the logs above to see which keys are available on your Heart object.');
+            throw new Error('Fatal: Discord Client is not accessible on the Heart object.');
         }
 
         this.applyPresence(client);
@@ -94,8 +92,7 @@ export default class NovaCorePresence extends BasePlugin {
             this.log.debug('Rotation loop terminated gracefully.');
         }
 
-        const h = this.heart as any;
-        const client = (h.client || h.discord?.client || h.baseClient || h.core) as Client<true>;
+        const client = (this.heart as any).client as Client<true>;
         
         if (client && this.config?.enabled) {
             client.user.setPresence({ activities: [], status: 'online' });
@@ -119,7 +116,7 @@ export default class NovaCorePresence extends BasePlugin {
                 }]
             });
             this.log.debug(`Presence updated -> [${rawType}] ${activity.name}`);
-        } catch (error) {
+        } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             this.log.error(`Failed to update presence to Discord Gateway: ${err.message}`);
         }

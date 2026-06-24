@@ -59,12 +59,14 @@ export function resolveGlobalPlaceholders<T>(obj: T): T {
         }
 
         if (target !== null && typeof target === 'object') {
-            const res: any = {};
+            if (target.constructor !== Object) {
+                return target; 
+            }
 
+            const res: any = {};
             for (const [key, value] of Object.entries(target)) {
                 res[key] = replace(value);
             }
-
             return res;
         }
 
@@ -75,7 +77,9 @@ export function resolveGlobalPlaceholders<T>(obj: T): T {
 }
 
 export function interpolateVariables<T>(obj: T, vars?: Record<string, any>): T {
-    if (!vars || Object.keys(vars).length === 0) return obj;
+    if (!vars || Object.keys(vars).length === 0) {
+        return resolveGlobalPlaceholders(obj);
+    }
 
     const replace = (target: any): any => {
         if (typeof target === "string") {
@@ -86,16 +90,25 @@ export function interpolateVariables<T>(obj: T, vars?: Record<string, any>): T {
 
             return resolveGlobalPlaceholders(interpolated);
         }
-        if (Array.isArray(target)) return target.map(replace);
+        
+        if (Array.isArray(target)) {
+            return target.map(replace);
+        }
+        
         if (target !== null && typeof target === "object") {
+            if (target.constructor !== Object) return target;
+
             const res: any = {};
-            for (const [k, v] of Object.entries(target)) res[k] = replace(v);
+            for (const [k, v] of Object.entries(target)) {
+                res[k] = replace(v);
+            }
             return res;
         }
+        
         return target;
     };
 
-    return resolveGlobalPlaceholders(replace(obj));
+    return replace(obj);
 }
 
 export function sanitizeMarkdownString(str: string | undefined | null, maxLen: number, fallback = "\u200B"): string {

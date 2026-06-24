@@ -6,7 +6,7 @@ import { getLogger } from '#core/utils/logger.js';
 const log = getLogger('EmojiManager');
 
 export class EmojiManager {
-    private static readonly EMOJI_REGEX = /:([a-zA-Z0-9_]+):/g;
+    private static readonly EMOJI_REGEX = /%%emoji_([a-zA-Z0-9_]+)%%/g;
     private cache = new Map<string, string>();
     private readonly liveRecord: Record<string, string> = {};
     

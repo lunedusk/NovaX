@@ -16,6 +16,7 @@ import { intentBuilder } from '#core/helpers/intentsBuilder.js';
 import { getLogger, flushLogs } from '#core/utils/logger.js';
 import { pluginManager } from '#core/loader/index.js';
 import { httpServer } from '#core/manager/http/server.js';
+import { DiscordMiddleware } from '#core/manager/discordMiddleware.js';
 import { interactionHandler } from '#core/manager/interaction/handler.js';
 import { configManager } from '#core/manager/config.js';
 import { i18n } from '#core/manager/lang.js';
@@ -65,7 +66,8 @@ class NovaX {
 
         try {
             const hotReloadEnabled = secrets.getBoolean('hotReloadEnabled', false);
-            
+            this.log.info('Initializing Discord Middleware...');
+            DiscordMiddleware.apply();
             this.log.info('Preloading Plugins...');
             await pluginManager.preloadAll();
 

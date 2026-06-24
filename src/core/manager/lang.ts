@@ -4,6 +4,8 @@ import JSON5 from 'json5';
 import { FileWatcher, type WatchEvent } from '#core/watcher/index.js';
 import { getLogger } from '#core/utils/logger.js';
 import { secrets } from '#core/helpers/secretManager.js';
+import { emojis } from './emoji.js';
+import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
 
 const log = getLogger('LanguageManager');
 const SUPPORTED_LOCALES = new Set(['en', 'es', 'fr', 'de']);
@@ -160,7 +162,7 @@ export class LanguageManager {
 
     private compileString(template: string): CompiledTranslation {
         if (!template.includes('{{')) {
-            return () => template;
+            return () => resolveGlobalPlaceholders(emojis.parse(template));
         }
 
         const parts: Array<string | { varName: string }> = [];
@@ -192,7 +194,8 @@ export class LanguageManager {
                     result += val !== undefined ? String(val) : `{{${part.varName}}}`;
                 }
             }
-            return result;
+            
+            return resolveGlobalPlaceholders(emojis.parse(result));
         };
     }
 

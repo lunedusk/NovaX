@@ -1,0 +1,13 @@
+{
+    commands: {
+        reload: {
+            success: "%%emoji_tick%% Successfully reloaded **{{type}}**: `{{target}}`",
+            failed: "%%emoji_cross%% Failed to reload **{{type}}**: `{{target}}`. Check console for errors.",
+            allSuccess: "%%emoji_tick%% Successfully reloaded all **{{type}}**.",
+        },
+        cache: {
+            popped: "%%emoji_tick%% Successfully purged cache for **{{target}}**.",
+            unknown: "%%emoji_cross%% Unknown cache target: `{{target}}`."
+        }
+    }
+}

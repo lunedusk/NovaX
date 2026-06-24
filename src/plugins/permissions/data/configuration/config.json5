@@ -20,6 +20,11 @@
             "label": "Administrator",
             "discordPermissions": ["Administrator"],
             "denyMessage": "Administrator access is required for this command."
+        },
+        "owner": {
+            "label": "Owner",
+            "denyMessage": "Owner access is required for this command.",
+            "userIds": [""]
         }
     }
 }
