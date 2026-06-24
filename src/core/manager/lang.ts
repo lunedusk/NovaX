@@ -146,6 +146,16 @@ export class LanguageManager {
         }
     }
 
+    public getLoadedNamespaces(): string[] {
+        const namespaces = new Set<string>();
+        for (const localeMap of this.liveNamespaces.values()) {
+            for (const ns of localeMap.keys()) {
+                namespaces.add(ns);
+            }
+        }
+        return Array.from(namespaces);
+    }
+
     private flattenAndCompile(obj: Record<string, unknown>, prefix = '', res: Map<string, CompiledTranslation>): void {
         for (const [key, value] of Object.entries(obj)) {
             if (key === '__proto__' || key === 'constructor') continue;

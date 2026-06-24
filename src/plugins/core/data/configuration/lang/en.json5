@@ -1,13 +1,14 @@
 {
+    layouts: {
+        // The base JSON structure for our CV2 Containers. 
+        // {{title}} is handled by this.t(), and we will safely overwrite "INJECT_DETAILS" in the code.
+        containerSuccess: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#57F287", "children": [ { "type": "text", "content": "%%emoji_tick%% **{{title}}**" }, { "type": "separator", "spacing": "small" }, { "type": "text", "content": "INJECT_DETAILS" } ] } ] }',
+        containerError: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#ED4245", "children": [ { "type": "text", "content": "%%emoji_cross%% **{{title}}**" }, { "type": "separator", "spacing": "small" }, { "type": "text", "content": "INJECT_DETAILS" } ] } ] }'
+    },
     commands: {
-        reload: {
-            success: "%%emoji_tick%% Successfully reloaded **{{type}}**: `{{target}}`",
-            failed: "%%emoji_cross%% Failed to reload **{{type}}**: `{{target}}`. Check console for errors.",
-            allSuccess: "%%emoji_tick%% Successfully reloaded all **{{type}}**.",
-        },
         cache: {
-            popped: "%%emoji_tick%% Successfully purged cache for **{{target}}**.",
-            unknown: "%%emoji_cross%% Unknown cache target: `{{target}}`."
+            popped: "Successfully purged memory pool and flushed records for **{{target}}**.",
+            unknown: "Unrecognized memory cache target: `{{target}}`.\nAvailable targets: `cross-guild`"
         }
     }
 }

@@ -234,10 +234,9 @@ export class PluginManager extends EventEmitter {
                 await configLoader.syncPlugin(plugin.dir, id);
                 await langLoader.syncPlugin(plugin.dir, id);
 
-                const isDev = process.env.NODE_ENV !== 'production';
                 const entryPath = path.join(plugin.dir, 'index.js');
                 const baseUrl = pathToFileURL(entryPath).href;
-                const importUrl = isDev ? `${baseUrl}?v=${Date.now()}` : baseUrl;
+                const importUrl = `${baseUrl}?v=${Date.now()}`;
 
                 const Module = await import(importUrl).catch(err => {
                     throw new Error(`Failed to evaluate entrypoint: ${err.message}`);
@@ -342,24 +341,18 @@ export class PluginManager extends EventEmitter {
                 await this.withTimeout(plugin.onDisable(), pluginId, 'onDisable');
                 plugin._setState(PluginState.Disabled);
             }
+            const { interactionRegistry } = await import('#core/manager/interaction/registry.js');
+            interactionRegistry.unregisterPlugin(pluginId);
+            log.debug(`[${pluginId}] Purged Discord interactions.`);
 
-            const heart = (plugin as any).heart; 
+            const { eventBus } = await import('#core/manager/event.js');
+            eventBus.unregisterByOwner(pluginId);
+            log.debug(`[${pluginId}] Purged EventBus subscriptions.`);
 
-            if (heart?.discord?.interactions) {
-                heart.discord.interactions.unregisterPlugin(pluginId);
-                log.debug(`[${pluginId}] Purged Discord interactions.`);
-            }
-
-            if (heart?.system?.events) {
-                heart.system.events.unregisterByOwner(pluginId);
-                log.debug(`[${pluginId}] Purged EventBus subscriptions.`);
-            }
-
-            if (heart?.net?.http) {
-                const apiNamespace = `/api/plugins/${pluginId}`;
-                heart.net.http.unregisterRouter(apiNamespace);
-                log.debug(`[${pluginId}] Unmounted API namespace: ${apiNamespace}`);
-            }
+            const { httpServer } = await import('#core/manager/http/server.js');
+            const apiNamespace = `/api/plugins/${pluginId}`;
+            httpServer.unregisterRouter(apiNamespace);
+            log.debug(`[${pluginId}] Unmounted API namespace: ${apiNamespace}`);
 
             this.registry.delete(pluginId);
             this.bootStatuses.set(pluginId, PluginBootStatus.Pending);

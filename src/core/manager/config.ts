@@ -107,6 +107,10 @@ export class ConfigManager {
         }
     }
 
+    public getLoadedConfigs(): string[] {
+        return Array.from(this.cache.keys());
+    }
+
     private async loadAll(): Promise<boolean> {
         if (this.isReloading) return false;
         this.isReloading = true;

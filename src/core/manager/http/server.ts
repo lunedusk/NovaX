@@ -48,8 +48,35 @@ export class HttpServer {
 
     public registerRouter(basePath: string, router: Router): void {
         if (!this.app) throw new Error("HttpServer not initialized.");
+        
+        this.unregisterRouter(basePath);
+
         this.app.use(basePath, router);
+        const stack = (this.app as any)._router?.stack;
+        if (stack && stack.length > 0) {
+            stack[stack.length - 1].__novaxBasePath = basePath;
+        }
+
         log.debug(`Mounted Router: ${basePath}`);
+    }
+
+    public unregisterRouter(basePath: string): void {
+        if (!this.app || !(this.app as any)._router) return;
+
+        const stack = (this.app as any)._router.stack;
+        if (!stack) return;
+
+        let removedCount = 0;
+        for (let i = stack.length - 1; i >= 0; i--) {
+            if (stack[i].__novaxBasePath === basePath) {
+                stack.splice(i, 1);
+                removedCount++;
+            }
+        }
+        
+        if (removedCount > 0) {
+            log.debug(`Unmounted API Router: ${basePath}`);
+        }
     }
 
     public async start(port: number = parseInt(secrets.getOptional('APIPort') || '3000')): Promise<void> {

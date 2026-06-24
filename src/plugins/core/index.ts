@@ -19,7 +19,7 @@ interface PresenceConfig {
 export default class NovaCorePlugin extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'core',
-        name: 'NovaCore',
+        name: 'Core',
         version: '0.1.0',
         author: 'NovaCore Development',
         novax_version: '>=0.1.6'

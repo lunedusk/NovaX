@@ -33,12 +33,11 @@ export class EventLoader {
         if (files.length === 0) return;
 
         let loadedCount = 0;
-        const isDev = process.env.NODE_ENV !== 'production';
 
         const loadPromises = files.map(async (file) => {
             try {
                 const baseUrl = pathToFileURL(file).href;
-                const importUrl = isDev ? `${baseUrl}?v=${Date.now()}` : baseUrl;
+                const importUrl = `${baseUrl}?v=${Date.now()}`;
                 
                 const Module = await import(importUrl);
                 const EventClass = Module.default;
