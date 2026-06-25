@@ -3,6 +3,7 @@ import { SlashCommandBuilder, type ChatInputCommandInteraction, type Autocomplet
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { buildComponentsV2, type Cv2LayoutSpec } from '#core/builders/index.js';
+import { Cooldown } from '#core/decorators/cooldown.js';
 
 export default class ReloadCommand extends BaseCommand {
 
@@ -69,6 +70,38 @@ export default class ReloadCommand extends BaseCommand {
         }
     }
 
+    @Cooldown('core-reload-plugin', { limit: 1, windowMs: 30_000 })
+    private async handlePluginReload(interaction: ChatInputCommandInteraction, pluginId: string): Promise<void> {
+        const manager = (this.heart.system as any).plugins 
+            ?? ((await import('#core/loader/index.js').catch(() => null)) as any)?.pluginManager;
+
+        if (!manager) throw new Error('PluginManager is not accessible.');
+        
+        const results = await manager.reload(pluginId, interaction.client);
+        const success = results.success.includes(pluginId);
+        
+        let details = this.t('commands.reload.messages.pluginError', { pluginId });
+        
+        if (success) {
+            const plugin = manager.registry.get(pluginId);
+            if (plugin) {
+                const [cmdCount, eventCount, routeCount] = await Promise.all([
+                    this.getModuleCount(pluginId, 'commands'),
+                    this.getModuleCount(pluginId, 'events'),
+                    this.getModuleCount(pluginId, 'routes')
+                ]);
+
+                details = this.t('commands.reload.messages.pluginSuccess', {
+                    name: plugin.manifest.name,
+                    version: plugin.manifest.version,
+                    cmdCount, eventCount, routeCount
+                });
+            }
+        }
+
+        return this.replyContainer(interaction, success, 'Plugin Ecosystem', details);
+    }
+
     public async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
@@ -127,34 +160,7 @@ export default class ReloadCommand extends BaseCommand {
 
                 case 'plugin': {
                     const pluginId = interaction.options.getString('id', true);
-                    const manager = (this.heart.system as any).plugins 
-                        ?? ((await import('#core/loader/index.js').catch(() => null)) as any)?.pluginManager;
-
-                    if (!manager) throw new Error('PluginManager is not accessible.');
-                    
-                    const results = await manager.reload(pluginId, interaction.client);
-                    const success = results.success.includes(pluginId);
-                    
-                    let details = this.t('commands.reload.messages.pluginError', { pluginId });
-                    
-                    if (success) {
-                        const plugin = manager.registry.get(pluginId);
-                        if (plugin) {
-                            const [cmdCount, eventCount, routeCount] = await Promise.all([
-                                this.getModuleCount(pluginId, 'commands'),
-                                this.getModuleCount(pluginId, 'events'),
-                                this.getModuleCount(pluginId, 'routes')
-                            ]);
-
-                            details = this.t('commands.reload.messages.pluginSuccess', {
-                                name: plugin.manifest.name,
-                                version: plugin.manifest.version,
-                                cmdCount, eventCount, routeCount
-                            });
-                        }
-                    }
-
-                    return this.replyContainer(interaction, success, 'Plugin Ecosystem', details);
+                    return this.handlePluginReload(interaction, pluginId);
                 }
             }
         } catch (error: unknown) {
