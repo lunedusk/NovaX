@@ -1,5 +1,5 @@
 import { BaseCommand, type CommandConfig } from '#core/bases/Command.js';
-import { SlashCommandBuilder, type ChatInputCommandInteraction, type AutocompleteInteraction } from 'discord.js';
+import { SlashCommandBuilder, type ChatInputCommandInteraction, type AutocompleteInteraction, MessageFlags } from 'discord.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { buildComponentsV2, type Cv2LayoutSpec } from '#core/builders/index.js';
@@ -70,7 +70,7 @@ export default class ReloadCommand extends BaseCommand {
     }
 
     public async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
         const subcommand = interaction.options.getSubcommand(true);
 

@@ -1,5 +1,5 @@
 import { BaseCommand, type CommandConfig } from '#core/bases/Command.js';
-import { SlashCommandBuilder, type ChatInputCommandInteraction, type AutocompleteInteraction } from 'discord.js';
+import { SlashCommandBuilder, type ChatInputCommandInteraction, type AutocompleteInteraction, MessageFlags } from 'discord.js';
 import { CrossGuildResolver } from '#core/helpers/crossGuild/resolver.js';
 import { buildComponentsV2, type Cv2LayoutSpec } from '#core/builders/index.js';
 
@@ -30,7 +30,7 @@ export default class CacheCommand extends BaseCommand {
     ];
 
     public async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
         const target = interaction.options.getString('target', true).toLowerCase();
 
         try {
