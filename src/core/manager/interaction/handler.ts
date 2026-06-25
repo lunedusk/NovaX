@@ -155,7 +155,7 @@ export class InteractionHandler {
                 status: isSuccess ? 'success' : 'error'
             });
 
-            if (execTime > 1500 && !interaction.isAutocomplete()) {
+            if (execTime > 5000 && !interaction.isAutocomplete()) {
                 log.warn(`[Telemetry] ${route.lookupKey} exceeded performance threshold (${execTime.toFixed(2)}ms).`);
             }
         }

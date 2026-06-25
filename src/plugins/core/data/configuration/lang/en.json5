@@ -1,14 +1,43 @@
 {
     layouts: {
-        // The base JSON structure for our CV2 Containers. 
-        // {{title}} is handled by this.t(), and we will safely overwrite "INJECT_DETAILS" in the code.
         containerSuccess: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#57F287", "children": [ { "type": "text", "content": "%%emoji_tick%% **{{title}}**" }, { "type": "separator", "spacing": "small" }, { "type": "text", "content": "INJECT_DETAILS" } ] } ] }',
         containerError: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#ED4245", "children": [ { "type": "text", "content": "%%emoji_cross%% **{{title}}**" }, { "type": "separator", "spacing": "small" }, { "type": "text", "content": "INJECT_DETAILS" } ] } ] }'
     },
     commands: {
+        reload: {
+            description: "Core subsystem hot-reload utility.",
+            configDescription: "Reload a specific configuration file.",
+            langDescription: "Reload a specific language namespace.",
+            emojiDescription: "Force reload the global emoji mappings.",
+            pluginDescription: "Hot-reload a specific plugin instance.",
+            fileDescription: "The configuration filename (without extension) or 'all'",
+            namespaceDescription: "The translation namespace or 'all'",
+            idDescription: "The target plugin",
+            messages: {
+                configSuccess: "Successfully synchronized **{{count}}** configuration files.\n\n{{grid}}",
+                configError: "Failed to reload target: `{{file}}`. Check console for JSON parse errors.",
+                
+                langSuccess: "Successfully recompiled translations for **{{count}}** namespaces.\n\n{{grid}}",
+                langError: "Failed to compile language namespace: `{{namespace}}`.",
+                
+                emojiSuccess: "Global emoji map refreshed and successfully mapped to **{{count}}** assets in memory.",
+                emojiError: "Failed to read emoji data source.",
+                
+                pluginSuccess: "Successfully executed hot-reload sequence.\n\n**Manifest Identity:**\n> **Name:** {{name}}\n> **Version:** v{{version}}\n> **State:** Live\n\n**Active Modules:**\n> %%emoji_gear%% **Commands:** {{cmdCount}}\n> %%emoji_megaphone%% **Events:** {{eventCount}}\n> %%emoji_globe%% **Routes:** {{routeCount}}",
+                pluginError: "Surgical reload failed for `{{pluginId}}`.",
+                
+                fatalError: "A fatal error occurred during execution:\n```\n{{error}}\n```"
+            }
+        },
         cache: {
-            popped: "Successfully purged memory pool and flushed records for **{{target}}**.",
-            unknown: "Unrecognized memory cache target: `{{target}}`.\nAvailable targets: `cross-guild`"
+            description: "Manage internal framework caches.",
+            popDescription: "Invalidate and clear a specific memory cache pool.",
+            targetDescription: "The cache registry to drop",
+            messages: {
+                popped: "Successfully purged memory pool and flushed records for **{{target}}**.",
+                unknown: "Unrecognized memory cache target: `{{target}}`.\nAvailable targets: `cross-guild`",
+                fatalError: "A fatal error occurred while manipulating cache:\n```\n{{error}}\n```"
+            }
         }
     }
 }

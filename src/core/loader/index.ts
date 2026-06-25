@@ -413,8 +413,18 @@ export class PluginManager extends EventEmitter {
                 if (!plugin) throw new Error(`Plugin [${pluginId}] not found on disk or failed integrity checks.`);
 
                 await DependencyLoader.installFromPackageJson(plugin.dir, pluginId);
+                
                 await configLoader.syncPlugin(plugin.dir, pluginId);
                 await langLoader.syncPlugin(plugin.dir, pluginId);
+
+                try {
+                    const { configManager } = await import('#core/manager/config.js');
+                    const { i18n } = await import('#core/manager/lang.js');
+                    await configManager.reloadAll();
+                    await i18n.reloadAll();
+                } catch (e) {
+                    log.warn(`[${pluginId}] Failed to instantly refresh Config/Lang memory cache. FileWatcher will pick it up eventually.`);
+                }
 
                 const entryPath = path.join(plugin.dir, 'index.js');
                 const baseUrl = pathToFileURL(entryPath).href;
@@ -468,8 +478,13 @@ export class PluginManager extends EventEmitter {
                 
                 log.info('Resynchronizing Discord Application Commands after hot-reload...');
                 await interactionHandler.syncCommands(baseClient, secrets.getOptional('GuildID'));
+
+                if (baseClient) {
+                    log.info('Resynchronizing Emojis after hot-reload...');
+                    await emojiLoader.init(baseClient);
+                }
             } catch (syncErr) {
-                log.error(`Failed to resync commands after reload: ${(syncErr as Error).message}`);
+                log.error(`Failed to resync assets after reload: ${(syncErr as Error).message}`);
             }
         }
 
