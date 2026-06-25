@@ -99,5 +99,10 @@
   "bank": "https://s3.lunedusk.com/emojis/5bccc31a38624759.webp",
   "wallet": "https://s3.lunedusk.com/emojis/b4e8d9ee608a4482.webp",
   "trash": "https://s3.lunedusk.com/emojis/eab2fe22016c4a43.webp",
-  "checklist": "https://s3.lunedusk.com/emojis/0729d6da3daf4a15.webp"
+  "checklist": "https://s3.lunedusk.com/emojis/0729d6da3daf4a15.webp",
+  "home": "https://s3.lunedusk.com/emojis/e628c31782504cef.webp",
+  "arrow_left": "https://s3.lunedusk.com/emojis/2da54aa9102f4de3.webp",
+  "command": "https://s3.lunedusk.com/emojis/8b5f9dca48e14a0e.webp",
+  "menu": "https://s3.lunedusk.com/emojis/06ecfdb53ee842b4.webp",
+  "arrow_right": "https://s3.lunedusk.com/emojis/d8c7c8031b4545a6.webp"
 }

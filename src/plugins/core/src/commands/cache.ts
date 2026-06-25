@@ -2,6 +2,7 @@ import { BaseCommand, type CommandConfig } from '#core/bases/Command.js';
 import { SlashCommandBuilder, type ChatInputCommandInteraction, type AutocompleteInteraction, MessageFlags } from 'discord.js';
 import { CrossGuildResolver } from '#core/helpers/crossGuild/resolver.js';
 import { buildComponentsV2, type Cv2LayoutSpec } from '#core/builders/index.js';
+import { HelpUtils } from '../utils/helpUtils.js';
 
 export default class CacheCommand extends BaseCommand {
 
@@ -26,7 +27,8 @@ export default class CacheCommand extends BaseCommand {
     };
 
     private readonly KNOWN_CACHES = [
-        'cross-guild'
+        'cross-guild',
+        'help-menu' // Added to known targets
     ];
 
     public async execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -40,6 +42,11 @@ export default class CacheCommand extends BaseCommand {
             switch (target) {
                 case 'cross-guild':
                     CrossGuildResolver.clearCache();
+                    success = true;
+                    details = this.t('commands.cache.messages.popped', { target });
+                    break;
+                case 'help-menu':
+                    HelpUtils.clearCache();
                     success = true;
                     details = this.t('commands.cache.messages.popped', { target });
                     break;

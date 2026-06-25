@@ -13,6 +13,24 @@ export function resolveColor(color: number | string): number {
 }
 
 export function normalizeEmoji(emoji: EmojiResolvable): { name?: string; id?: string; animated?: boolean } {
-    if (typeof emoji === "string") return { name: emoji };
+    if (typeof emoji === "string") {
+        if (/^\d{17,20}$/.test(emoji)) {
+            return { id: emoji };
+        }
+
+        const customEmojiRegex = /^<a?:([^:]+):(\d+)>$/;
+        const match = emoji.match(customEmojiRegex);
+        
+        if (match) {
+            return {
+                animated: emoji.startsWith("<a:"),
+                name: match[1],
+                id: match[2]
+            };
+        }
+
+        return { name: emoji };
+    }
+    
     return emoji;
 }

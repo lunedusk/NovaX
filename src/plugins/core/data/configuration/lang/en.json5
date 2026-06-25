@@ -1,9 +1,51 @@
 {
     layouts: {
         containerSuccess: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#57F287", "children": [ { "type": "text", "content": "%%emoji_tick%% **{{title}}**" }, { "type": "separator", "spacing": "small" }, { "type": "text", "content": "INJECT_DETAILS" } ] } ] }',
-        containerError: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#ED4245", "children": [ { "type": "text", "content": "%%emoji_cross%% **{{title}}**" }, { "type": "separator", "spacing": "small" }, { "type": "text", "content": "INJECT_DETAILS" } ] } ] }'
+        containerError: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#ED4245", "children": [ { "type": "text", "content": "%%emoji_cross%% **{{title}}**" }, { "type": "separator", "spacing": "small" }, { "type": "text", "content": "INJECT_DETAILS" } ] } ] }',
+        helpContainer: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#5865F2", "children": [] } ] }'
     },
     commands: {
+        help: {
+            description: "View the dynamic command directory.",
+            
+            homeTitle: "Command Directory",
+            homeDesc: "Welcome to the central command registry. Please select a module below.\n\n**Ecosystem Status:**\n> {{emoji_menu}} **Active Modules:** {{plugins}}\n> {{emoji_command}} **Accessible Commands:** {{commands}}",
+            categoryTitle: "Module: {{name}}",
+            commandDetailTitle: "Command Overview",
+            noCommands: "> *No accessible commands registered in this module.*",
+            noArgs: "None",
+            cooldownFormat: "{{limit}} use(s) per {{time}}s",
+            noCooldown: "None",
+
+            pageFooter: "Page {{current}} of {{total}}",
+            pluginSelectPlaceholder: "Select a module ({{start}} - {{end}})...",
+            cmdSelectPlaceholder: "Select a command to view details...",
+            groupSelectPlaceholder: "Select a subcommand group...",
+            
+            backButton: "Back",
+
+            emojis: {
+                navLeft: "%%emoji_arrow_left%%|◀️",
+                navRight: "%%emoji_arrow_right%%|▶️",
+                navHome: "%%emoji_home%%|🏠",
+                navBack: "%%emoji_arrow_left%%|↩️",
+                menu: "%%emoji_menu%%|📖",
+                command: "%%emoji_command%%|💻",
+                args: "%%emoji_gear%%|⚙️",
+                cooldown: "%%emoji_clock%%|⏱️"
+            },
+
+            format: {
+                commandList: "> `/%s` - %s",
+                argumentList: "• `%s` %s - %s",
+                argumentInlineReq: "<%s>",
+                argumentInlineOpt: "[%s]",
+                requiredTag: "(Required)",
+                optionalTag: "(Optional)",
+                commandDetailHeader: "### `/%s`",
+                commandDetail: "**Description:**\n> %s\n\n**Base Cooldown:**\n> %s\n\n**Usage & Arguments:**\n%s"
+            }
+        },
         reload: {
             description: "Core subsystem hot-reload utility.",
             configDescription: "Reload a specific configuration file.",

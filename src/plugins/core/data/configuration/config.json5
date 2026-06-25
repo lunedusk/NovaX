@@ -8,5 +8,10 @@
             name: "Server",
             type: "WATCHING"
         }
-    ]
+    ],
+    help: {
+        filterByPermissions: true,
+        maxCharsPerPage: 3000,
+        ephemeral: true
+    }
 }

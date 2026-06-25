@@ -10,7 +10,6 @@ import {
 } from 'discord.js';
 import { cooldownManager } from '#core/manager/cooldown.js';
 import { getLogger } from '#core/utils/logger.js';
-import { emojis } from '#core/manager/emoji.js';
 import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
 
 const log = getLogger('CooldownDecorator');
@@ -22,9 +21,15 @@ export interface CooldownOptions {
     windowMs?: number;
 }
 
+export const DecoratorCooldownRegistry = new Map<string, CooldownOptions>();
+
 type RepliableContext = Message | Interaction<CacheType>;
 
 export function Cooldown(slug: string, options: CooldownOptions = {}) {
+    if (options.limit && options.windowMs) {
+        DecoratorCooldownRegistry.set(slug, options);
+    }
+
     return function <T extends (...args: any[]) => any>(
         originalMethod: T,
         context: ClassMethodDecoratorContext

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { buildComponentsV2, type Cv2LayoutSpec } from '#core/builders/index.js';
 import { Cooldown } from '#core/decorators/cooldown.js';
+import { HelpUtils } from '../utils/helpUtils.js';
 
 export default class ReloadCommand extends BaseCommand {
 
@@ -83,6 +84,7 @@ export default class ReloadCommand extends BaseCommand {
         let details = this.t('commands.reload.messages.pluginError', { pluginId });
         
         if (success) {
+            HelpUtils.clearCache(pluginId);
             const plugin = manager.registry.get(pluginId);
             if (plugin) {
                 const [cmdCount, eventCount, routeCount] = await Promise.all([

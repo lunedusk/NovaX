@@ -24,6 +24,40 @@ import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('DiscordMiddleware');
 
+function processComponentEmoji(emojiData: any): any {
+    if (!emojiData) return emojiData;
+
+    if (typeof emojiData === 'object' && emojiData.id != null) {
+        return emojiData;
+    }
+
+    let raw: string;
+    if (typeof emojiData === 'string') {
+        raw = emojiData;
+    } else if (typeof emojiData === 'object' && typeof emojiData.name === 'string') {
+        raw = emojiData.name;
+    } else {
+        return emojiData;
+    }
+
+    const resolved = resolveGlobalPlaceholders(raw).trim();
+
+    const customMatch = resolved.match(/^<(a?):([a-zA-Z0-9_]+):(\d+)>$/);
+    if (customMatch) {
+        return {
+            animated: customMatch[1] === 'a',
+            name: customMatch[2],
+            id: customMatch[3],
+        };
+    }
+
+    if (resolved.length > 0) {
+        return { name: resolved, id: null };
+    }
+
+    return null;
+}
+
 function applyMiddleware(options: any): any {
     if (!options) return options;
 
@@ -36,15 +70,16 @@ function applyMiddleware(options: any): any {
     }
 
     if (Array.isArray(options)) {
-        return options.map((opt) => {
-            if (opt && typeof opt === 'object' && opt.name != null) {
-                opt.name = resolveGlobalPlaceholders(String(opt.name));
-                if (typeof opt.value === 'string') {
-                    opt.value = resolveGlobalPlaceholders(opt.value);
+        if (options.length > 0 && options[0] != null && 'name' in options[0] && !('type' in options[0])) {
+            return options.map((opt) => {
+                if (opt && typeof opt === 'object') {
+                    if (opt.name != null) opt.name = resolveGlobalPlaceholders(String(opt.name));
+                    if (typeof opt.value === 'string') opt.value = resolveGlobalPlaceholders(opt.value);
                 }
-            }
-            return opt;
-        });
+                return opt;
+            });
+        }
+        return options.map((item) => applyMiddleware(item));
     }
 
     if (typeof options.content === 'string') {
@@ -70,35 +105,21 @@ function applyMiddleware(options: any): any {
     }
 
     if (Array.isArray(options.components)) {
-        options.components = options.components.map((row: any) => {
-            const targetRow = row?.data ?? row;
-            if (Array.isArray(targetRow?.components)) {
-                for (const comp of targetRow.components) {
-                    const c = comp?.data ?? comp;
-                    if (c.label)                         c.label       = resolveGlobalPlaceholders(c.label);
-                    if (c.placeholder)                   c.placeholder = resolveGlobalPlaceholders(c.placeholder);
-                    if (typeof c.value === 'string')     c.value       = resolveGlobalPlaceholders(c.value); // TextInput
-                    if (Array.isArray(c.options)) {
-                        for (const opt of c.options) {
-                            if (opt.label)       opt.label       = resolveGlobalPlaceholders(opt.label);
-                            if (opt.description) opt.description = resolveGlobalPlaceholders(opt.description);
-                        }
-                    }
-                }
-            }
-            return row;
-        });
+        options.components = processComponentRows(options.components);
     }
 
     if (options.data?.title != null) {
         options.data.title = resolveGlobalPlaceholders(options.data.title);
         if (Array.isArray(options.data.components)) {
-            options.data.components = applyMiddleware(options.data.components);
+            options.data.components = processComponentRows(options.data.components);
         }
     } else if (options.title != null && options.components != null) {
         options.title = resolveGlobalPlaceholders(options.title);
-        options.components = applyMiddleware(options.components);
+        if (Array.isArray(options.components)) {
+            options.components = processComponentRows(options.components);
+        }
     }
+
     if (Array.isArray(options.activities)) {
         for (const act of options.activities) {
             if (act.name)    act.name    = resolveGlobalPlaceholders(act.name);
@@ -110,11 +131,50 @@ function applyMiddleware(options: any): any {
     if (typeof options.name === 'string') {
         options.name = resolveGlobalPlaceholders(options.name);
     }
+
     if (options.message && typeof options.message === 'object') {
         options.message = applyMiddleware(options.message);
     }
 
     return options;
+}
+
+function processComponentRows(rows: any[]): any[] {
+    return rows.map((row: any) => {
+        const targetRow = row?.data ?? row;
+        if (!Array.isArray(targetRow?.components)) return row;
+
+        for (const comp of targetRow.components) {
+            const c = comp?.data ?? comp;
+
+            if (c.label != null)                        c.label       = resolveGlobalPlaceholders(String(c.label));
+            if (c.placeholder != null)                  c.placeholder = resolveGlobalPlaceholders(String(c.placeholder));
+            if (typeof c.value === 'string')            c.value       = resolveGlobalPlaceholders(c.value);
+
+            if (c.emoji !== undefined) {
+                const resolved = processComponentEmoji(c.emoji);
+                if (resolved === null) delete c.emoji;
+                else c.emoji = resolved;
+            }
+
+            if (Array.isArray(c.options)) {
+                for (const opt of c.options) {
+                    if (opt.label != null)       opt.label       = resolveGlobalPlaceholders(String(opt.label));
+                    if (opt.description != null) opt.description = resolveGlobalPlaceholders(String(opt.description));
+                    if (typeof opt.value === 'string') opt.value = resolveGlobalPlaceholders(opt.value);
+
+                    if (opt.emoji !== undefined) {
+                        const resolved = processComponentEmoji(opt.emoji);
+                        if (resolved === null) delete opt.emoji;
+                        else opt.emoji = resolved;
+                    }
+                }
+            }
+
+        
+        }
+        return row;
+    });
 }
 
 function patchMethod(proto: any, method: string): void {
@@ -126,7 +186,6 @@ function patchMethod(proto: any, method: string): void {
         return (original as Function).apply(this, args);
     };
 }
-
 export class DiscordMiddleware {
     public static apply(): void {
         log.info('Mounting Global Placeholder Middleware to all Discord.js surfaces...');
@@ -148,6 +207,7 @@ export class DiscordMiddleware {
         patchMethod(MessageComponentInteraction.prototype, 'deferUpdate');
 
         patchMethod(AutocompleteInteraction.prototype, 'respond');
+
         const sendableChannels = [
             TextChannel,
             AnnouncementChannel,
@@ -160,6 +220,7 @@ export class DiscordMiddleware {
         for (const cls of sendableChannels) {
             patchMethod(cls.prototype, 'send');
         }
+
         patchMethod(GuildForumThreadManager.prototype, 'create');
         patchMethod(GuildTextThreadManager.prototype, 'create');
         patchMethod(User.prototype, 'send');
@@ -173,6 +234,7 @@ export class DiscordMiddleware {
         patchMethod(Message.prototype, 'reply');
         patchMethod(Message.prototype, 'edit');
         patchMethod(ClientUser.prototype, 'setPresence');
+
         const originalSetActivity = ClientUser.prototype.setActivity;
         if (typeof originalSetActivity === 'function') {
             (ClientUser.prototype as any).setActivity = function (this: any, ...args: any[]) {

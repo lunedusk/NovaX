@@ -399,7 +399,7 @@ export class PluginManager extends EventEmitter {
         const results = { success: [] as string[], failed: [] as string[] };
 
         for (const pluginId of ids) {
-            log.info(`[${pluginId}] Commencing Enterprise Hot-Reload Sequence...`);
+            log.info(`[${pluginId}] Commencing Hot-Reload Sequence...`);
             
             try {
                 if (this.registry.has(pluginId)) {
