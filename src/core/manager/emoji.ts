@@ -26,7 +26,10 @@ export class EmojiManager {
             const dir = path.dirname(this.filePath);
             const fileName = path.basename(this.filePath);
             
-            this.watcher = new FileWatcher(dir, { includePatterns: [fileName] });
+            this.watcher = new FileWatcher(dir, {
+                includePatterns: [fileName],
+                ignoreDirectories: ['.git', '__pycache__', 'node_modules', '.venv', 'dist']
+            });
             
             this.watcher.on('events', async (events: WatchEvent[]) => {
                 for (const event of events) {

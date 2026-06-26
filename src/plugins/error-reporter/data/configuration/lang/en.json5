@@ -1,0 +1,45 @@
+{
+    labels: {
+        logError:  '%%emoji_error%% Logger Error',
+        unhandled: '%%emoji_fatal%% Unhandled Process Error',
+        module:    'Module',
+        origin:    'Origin',
+        errorType: 'Type',
+        message:   'Message',
+        stack:     'Stack Trace',
+        timestamp: 'Timestamp',
+        footer:    '%%plugin_name%% · NovaX Error Reporter',
+    },
+    components: {
+        logError: {
+            container: {
+                type: 'container',
+                children: [
+                    { type: 'text', content: '## %%emoji_error%% Logger Error' },
+                    { type: 'text', content: '**Module:** `{{module}}`\n**Timestamp:** {{timestamp}}' },
+                    { type: 'separator', divider: true,  spacing: 'small' },
+                    { type: 'text', content: '### %%emoji_msg%% Message\n{{message}}' },
+                    { type: 'separator', divider: false, spacing: 'small' },
+                    { type: 'text', content: '### %%emoji_stack%% Stack Trace\n{{stack}}' },
+                    { type: 'separator', divider: true,  spacing: 'small' },
+                    { type: 'text', content: '-# %%plugin_name%% · NovaX Error Reporter' },
+                ],
+            },
+        },
+        unhandled: {
+            container: {
+                type: 'container',
+                children: [
+                    { type: 'text', content: '## %%emoji_fatal%% Unhandled Process Error' },
+                    { type: 'text', content: '**Type:** `{{errorType}}`\n**Origin:** `{{origin}}`\n**Timestamp:** {{timestamp}}' },
+                    { type: 'separator', divider: true,  spacing: 'small' },
+                    { type: 'text', content: '### %%emoji_msg%% Message\n{{message}}' },
+                    { type: 'separator', divider: false, spacing: 'small' },
+                    { type: 'text', content: '### %%emoji_stack%% Stack Trace\n{{stack}}' },
+                    { type: 'separator', divider: true,  spacing: 'small' },
+                    { type: 'text', content: '-# %%plugin_name%% · NovaX Error Reporter' },
+                ],
+            },
+        },
+    },
+}

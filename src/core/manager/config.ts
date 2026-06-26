@@ -46,7 +46,7 @@ export class ConfigManager {
         await this.loadAll();
 
         if (hotReload) {
-            this.watcher = new FileWatcher(this.targetDir, { includePatterns: ['*.json5'] });
+            this.watcher = new FileWatcher(this.targetDir, { includePatterns: ['**/*.json5'] });
             
             this.watcher.on('events', (events: WatchEvent[]) => this.handleWatchEvents(events).catch(err => {
                 log.error(`Fatal error in Config Watcher: ${(err as Error).message}`);

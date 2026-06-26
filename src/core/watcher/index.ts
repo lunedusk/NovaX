@@ -53,23 +53,35 @@ export class FileWatcher extends EventEmitter {
 
         log.debug(`Starting FileWatcher on: ${this.targetPath}`);
 
-        const watchPaths = this.config.includePatterns.map(pattern => 
-            path.join(this.targetPath, pattern)
-        );
-
-        this.watcher = chokidar.watch(watchPaths, {
+        this.watcher = chokidar.watch(this.targetPath, {
             ignored: (testPath: string) => {
                 const normalized = testPath.replace(/\\/g, '/');
-                return this.config.ignoreDirectories.some(dir => normalized.includes(`/${dir}/`));
+                const resolvedTarget = this.targetPath.replace(/\\/g, '/');
+
+                if (normalized === resolvedTarget) return false;
+
+                if (this.config.ignoreDirectories.some(dir =>
+                    normalized.includes(`/${dir}/`) || normalized.endsWith(`/${dir}`)
+                )) return true;
+
+                const ext = path.extname(testPath);
+                if (ext) {
+                    return !this.config.includePatterns.some(pattern => {
+                        if (pattern.startsWith('**/*')) return testPath.endsWith(pattern.slice(4));
+                        return path.basename(testPath) === pattern;
+                    });
+                }
+
+                return false;
             },
             persistent: true,
             depth: this.config.recursive ? undefined : 0,
-            usePolling: this.config.allowPollingFallback,
+            usePolling: false,
             interval: 750,
             ignoreInitial: true,
             awaitWriteFinish: {
-                stabilityThreshold: 500,
-                pollInterval: 100
+                stabilityThreshold: 80,
+                pollInterval: 50
             }
         });
 

@@ -44,7 +44,7 @@ export class LanguageManager {
         log.info(`Language Manager initialized with ${loadedCount} namespaces.`);
 
         if (hotReload) {
-            this.watcher = new FileWatcher(this.targetDir, { includePatterns: ['*.json5'] });
+            this.watcher = new FileWatcher(this.targetDir, { includePatterns: ['**/*.json5'] });
             
             this.watcher.on('events', async (events: WatchEvent[]) => {
                 for (const event of events) {

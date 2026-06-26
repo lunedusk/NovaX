@@ -1,4 +1,5 @@
 import winston from 'winston';
+import TransportStream from 'winston-transport';
 import 'winston-daily-rotate-file';
 import util from 'util';
 import fastRedact from 'fast-redact';
@@ -9,7 +10,24 @@ export type Logger = winston.Logger & {
     fatal: winston.LeveledLogMethod;
 };
 
+export interface LogErrorPayload {
+    message: string;
+    stack?: string;
+    name: string
+    timestamp: string;
+}
+
+type ErrorEmitFn = (payload: LogErrorPayload) => void;
+
+let _errorEmitter: ErrorEmitFn | null = null;
+
+export function injectLogErrorEmitter(fn: ErrorEmitFn): void {
+    if (_errorEmitter) return;
+    _errorEmitter = fn;
+}
+
 const isProd = process.env.NODE_ENV === 'production';
+
 const getLogTz = () => {
     try {
         return secrets?.getOptional?.('LogTZ') || process.env.TZ || 'UTC';
@@ -17,13 +35,15 @@ const getLogTz = () => {
         return 'UTC';
     }
 };
+
 const getDefaultLevel = () => {
     try {
         return secrets?.getOptional?.('LogLevel') || process.env.LOG_LEVEL || (isProd ? 'info' : 'debug');
     } catch {
-        return (isProd ? 'info' : 'debug');
+        return isProd ? 'info' : 'debug';
     }
 };
+
 const SESSION_ID = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
 const CUSTOM_LEVELS = {
@@ -35,17 +55,17 @@ const CUSTOM_LEVELS = {
 };
 
 const LEVEL_COLORS: Record<string, string> = {
-    debug: "\x1b[38;2;0;255;215m",
-    info: "\x1b[38;2;135;206;250m",
-    warn: "\x1b[38;2;255;255;0m",
-    error: "\x1b[38;2;255;80;80m",
-    fatal: "\x1b[48;2;180;0;0m\x1b[38;2;255;255;255m",
+    debug:  '\x1b[38;2;0;255;215m',
+    info:   '\x1b[38;2;135;206;250m',
+    warn:   '\x1b[38;2;255;255;0m',
+    error:  '\x1b[38;2;255;80;80m',
+    fatal:  '\x1b[48;2;180;0;0m\x1b[38;2;255;255;255m',
 };
 
 const redact = fastRedact({
     paths: ['*.password', '*.token', '*.secret', '*.authorization', '*.apiKey', '*.cookie'],
     censor: '[REDACTED]',
-    serialize: false 
+    serialize: false,
 });
 
 const redactFormat = winston.format((info) => {
@@ -55,46 +75,36 @@ const redactFormat = winston.format((info) => {
 
 const humanReadableFormat = winston.format.printf((info) => {
     const { level, message, timestamp, name, stack, metadata } = info;
-
     const rawLevel = level.replace(/\u001b\[[0-9;]*m/g, '').toLowerCase();
-    
     const colorize = info.colorize === true;
-    const color = colorize ? (LEVEL_COLORS[rawLevel] || "") : "";
-    const reset = colorize ? "\x1b[0m" : "";
-    
+    const color  = colorize ? (LEVEL_COLORS[rawLevel] || '') : '';
+    const reset  = colorize ? '\x1b[0m' : '';
     const modName = name || 'app';
-    
+
     let msg = `[${timestamp}] [${color}${modName}${reset}] [${color}${level.toUpperCase()}${reset}] ${message}`;
-    
-    if (stack) {
-        msg += `\n${color}${stack}${reset}`;
-    }
+
+    if (stack) msg += `\n${color}${stack}${reset}`;
 
     if (metadata && Object.keys(metadata).length > 0) {
-        const inspected = util.inspect(metadata, { 
-            depth: 3,
-            colors: colorize,
-            compact: false,
-            breakLength: 80
-        });
+        const inspected = util.inspect(metadata, { depth: 3, colors: colorize, compact: false, breakLength: 80 });
         msg += `\n  ↳ ${inspected}`;
     }
-    
+
     return msg;
 });
 
 const sharedTransports = [
-    new winston.transports.Console({ 
+    new winston.transports.Console({
         format: winston.format.combine(
             redactFormat(),
             winston.format((info) => { info.colorize = true; return info; })(),
             humanReadableFormat
-        )
+        ),
     }),
-    
+
     new winston.transports.DailyRotateFile({
         dirname: `logs/console/session-${SESSION_ID}`,
-        filename: `%DATE%.log`,
+        filename: '%DATE%.log',
         datePattern: 'YYYY-MM-DD',
         zippedArchive: true,
         maxSize: '50m',
@@ -105,13 +115,13 @@ const sharedTransports = [
             winston.format.errors({ stack: true }),
             winston.format.uncolorize(),
             humanReadableFormat
-        )
+        ),
     }),
 
     new winston.transports.DailyRotateFile({
         level: 'error',
         dirname: `logs/console/error/session-${SESSION_ID}`,
-        filename: `%DATE%-error.log`,
+        filename: '%DATE%-error.log',
         datePattern: 'YYYY-MM-DD',
         zippedArchive: true,
         maxSize: '20m',
@@ -122,19 +132,45 @@ const sharedTransports = [
             winston.format.errors({ stack: true }),
             winston.format.uncolorize(),
             humanReadableFormat
-        )
-    })
+        ),
+    }),
 ];
+
+class ErrorInterceptTransport extends TransportStream {
+    constructor() {
+        super({ level: 'error' });
+    }
+
+    override log(info: any, callback: () => void): void {
+        setImmediate(() => {
+            if (_errorEmitter) {
+                const rawLevel = (info.level as string).replace(/\u001b\[[0-9;]*m/g, '').toLowerCase();
+                if (rawLevel === 'error' || rawLevel === 'fatal') {
+                    _errorEmitter({
+                        message:   info.message as string,
+                        stack:     info.stack as string | undefined,
+                        name:      (info.name as string) || 'unknown',
+                        timestamp: info.timestamp as string,
+                    });
+                }
+            }
+            this.emit('logged', info);
+        });
+        callback();
+    }
+}
 
 const globalLogger = winston.createLogger({
     levels: CUSTOM_LEVELS,
     level: getDefaultLevel(),
     exitOnError: false,
     format: winston.format.combine(
-        winston.format.timestamp({ format: () => format.time.toTz(new Date(), getLogTz(), 'YYYY-MM-DD HH:mm:ss.SSS Z') }),
+        winston.format.timestamp({
+            format: () => format.time.toTz(new Date(), getLogTz(), 'YYYY-MM-DD HH:mm:ss.SSS Z'),
+        }),
         winston.format.metadata({ fillExcept: ['message', 'level', 'timestamp', 'name', 'stack'] })
     ),
-    transports: sharedTransports
+    transports: [...sharedTransports, new ErrorInterceptTransport()],
 });
 
 export async function flushLogs(): Promise<void> {
@@ -142,9 +178,7 @@ export async function flushLogs(): Promise<void> {
         globalLogger.end();
         let finished = 0;
         const transports = globalLogger.transports;
-        const timer = setTimeout(() => {
-            resolve();
-        }, 1000);
+        const timer = setTimeout(() => resolve(), 1000);
 
         transports.forEach((t) => {
             t.once('finish', () => {
@@ -154,10 +188,7 @@ export async function flushLogs(): Promise<void> {
                     resolve();
                 }
             });
-            
-            if (typeof (t as any).end === 'function') {
-                (t as any).end();
-            }
+            if (typeof (t as any).end === 'function') (t as any).end();
         });
 
         if (transports.length === 0) resolve();

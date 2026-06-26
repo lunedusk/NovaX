@@ -1,0 +1,27 @@
+// data/configuration/config.json5
+// error-reporter plugin default configuration
+{
+    enabled: true,
+
+    // ── Delivery target ────────────────────────────────────────────────────────
+    // Provide EITHER channelId OR webhookUrl — webhookUrl takes priority if both set.
+    channelId: "",          // Snowflake ID of a text channel the bot can see
+    webhookUrl: "",         // Full Discord webhook URL (preferred for cross-server setups)
+
+    // ── Filters ────────────────────────────────────────────────────────────────
+    reportLogErrors: true,  // Forward log.error / log.fatal entries
+    reportUnhandled: true,  // Forward process unhandledRejection / uncaughtException
+
+    // ── Truncation ─────────────────────────────────────────────────────────────
+    maxStackLines: 15,      // Stack trace lines kept before truncation
+    maxMessageLength: 1000, // Error message chars before truncation
+
+    // ── Spam protection ────────────────────────────────────────────────────────
+    dedupWindowMs: 30000,       // Drop identical messages within this window (ms)
+    rateLimitPerMinute: 10,     // Max deliveries per 60s sliding window
+
+    // ── Appearance — decimal integer colours for container accent bars ─────────
+    // #FF4444 = 16728132  |  #FF8800 = 16746496
+    logErrorAccentColor: 16728132,   // Red — logger errors
+    unhandledAccentColor: 16746496,  // Orange — unhandled process errors
+}

@@ -25,6 +25,7 @@ import { eventManager } from '#core/manager/events/Manager.js';
 import { initAllDatabases } from '#core/database.js';
 import { globalCatcher } from '#core/error/index.js';
 import { emojis } from '#core/manager/emoji.js';
+import { wireErrorBridge } from '#core/bootstrap/errorBridge.js';
 
 class NovaX {
     private readonly log = getLogger('Bootstrap');
@@ -44,6 +45,7 @@ class NovaX {
         eventManager.bindNativeEvents(this.client);
         
         globalCatcher.init();
+        wireErrorBridge();
         globalCatcher.registerTeardown(async () => await this.cleanupResources());
 
         this.setupProcessSignals();
