@@ -28,7 +28,7 @@ export default class CacheCommand extends BaseCommand {
 
     private readonly KNOWN_CACHES = [
         'cross-guild',
-        'help-menu' // Added to known targets
+        'help-menu'
     ];
 
     public async execute(interaction: ChatInputCommandInteraction): Promise<void> {

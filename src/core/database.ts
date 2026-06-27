@@ -1,4 +1,4 @@
-import { DatabaseManager, type DbConfig, novaDB } from '#core/database/index.js'; // Added novaDB import
+import { DatabaseManager, type DbConfig, novaDB } from '#core/database/index.js';
 import { secrets } from './helpers/secretManager.js';
 import { getLogger } from '#core/utils/logger.js';
 
@@ -41,7 +41,6 @@ function loadDbConfigsFromEnv(): DbConfig[] {
         }
 
         const engine = value.engine as DbConfig['engine'] | undefined;
-
         const poolSize = parseIntOrNull(value.poolSize);
         const maxRetries = parseIntOrNull(value.maxRetries);
 
@@ -81,16 +80,20 @@ export async function initAllDatabases(): Promise<void> {
         const activeNovaDBs = await novaDB.pingAll();
         
         if (!activeNovaDBs['main']) {
-            log.warn('No "main" NovaDB instance detected in configuration. Provisioning default local instance...');
+            const disableDefaultNovaDB = secrets.getBoolean('DisableDefaultNovaDB', false);
             
-            await DatabaseManager.init({
-                alias: 'main',
-                uri: 'novadb://local',
-                engine: 'native-novadb',
-                maxRetries: 3
-            });
-            
-            log.info('Default "main" NovaDB instance fallback completed successfully.');
+            if (disableDefaultNovaDB) {
+                log.warn('DisableDefaultNovaDB is set to true. Skipping Default "main" NovaDB Instance, this may cause core plugins to fail, it is recommended to configure a "main" NovaDB instance in the Database env variable or turn DisableDefaultNovaDB to false or null.');
+            } else {
+                await DatabaseManager.init({
+                    alias: 'main',
+                    uri: 'novadb://local',
+                    engine: 'native-novadb',
+                    maxRetries: 3
+                });
+                
+                log.info('Default "main" NovaDB instance fallback completed successfully.');
+            }
         }
     } catch (error) {
         const err = error as Error;
