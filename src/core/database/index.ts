@@ -4,16 +4,18 @@ import { ormDB } from './typeorm.js';
 import { mongoDB } from './mongo.js';
 import { pgDB } from './postgres.js';
 import { sqliteDB } from './sqlite.js';
+import { novaDB } from './nova.js';
 
 const log = getLogger('DBManager');
 
 export interface DbConfig {
     alias: string;
     uri: string;
-    engine?: 'native-pg' | 'native-sqlite' | 'typeorm' | 'redis' | 'mongo'; 
+    engine?: 'native-pg' | 'native-sqlite' | 'native-novadb' | 'typeorm' | 'redis' | 'mongo'; 
     entities?: any[];
     poolSize?: number;
     maxRetries?: number;
+    novaConfig?: any;
 }
 
 export class DatabaseManager {
@@ -47,9 +49,14 @@ export class DatabaseManager {
 
             const isNativeSqlite = config.engine === 'native-sqlite' || 
                 (protocol === 'sqlite' && !hasEntities && config.engine !== 'typeorm');
-
             if (isNativeSqlite) {
                 sqliteDB.connect(config.alias, config.uri);
+                return;
+            }
+
+            const isNativeNova = config.engine === 'native-novadb' || protocol === 'novadb';
+            if (isNativeNova) {
+                await novaDB.connect(config.alias, config.uri, config.novaConfig);
                 return;
             }
 
@@ -88,6 +95,7 @@ export class DatabaseManager {
         Object.assign(status, await mongoDB.pingAll());
         Object.assign(status, await ormDB.pingAll());
         Object.assign(status, await sqliteDB.pingAll());
+        Object.assign(status, await novaDB.pingAll());
 
         return status;
     }
@@ -100,7 +108,8 @@ export class DatabaseManager {
                 ormDB.disconnectAll(),
                 mongoDB.disconnectAll(),
                 pgDB.disconnectAll(),
-                sqliteDB.disconnectAll()
+                sqliteDB.disconnectAll(),
+                novaDB.disconnectAll()
             ]);
             log.info('All databases closed safely.');
         } catch (error) {
@@ -109,5 +118,4 @@ export class DatabaseManager {
         }
     }
 }
-
-export { redisDB, ormDB, mongoDB, pgDB, sqliteDB };
+export { redisDB, ormDB, mongoDB, pgDB, sqliteDB, novaDB };

@@ -1,4 +1,4 @@
-import { DatabaseManager, type DbConfig } from '#core/database/index.js';
+import { DatabaseManager, type DbConfig, novaDB } from '#core/database/index.js'; // Added novaDB import
 import { secrets } from './helpers/secretManager.js';
 import { getLogger } from '#core/utils/logger.js';
 
@@ -63,8 +63,7 @@ export async function initAllDatabases(): Promise<void> {
     const configs = loadDbConfigsFromEnv();
 
     if (!configs.length) {
-        log.warn('No database configurations found in env variable "Database".');
-        return;
+        log.warn('No database configurations found in env variable "Database". Proceeding to verify defaults...');
     }
 
     for (const cfg of configs) {
@@ -76,5 +75,26 @@ export async function initAllDatabases(): Promise<void> {
             const err = error as Error;
             log.error(`Failed to initialize database [${cfg.alias}]: ${err.message}`, { stack: err.stack });
         }
+    }
+
+    try {
+        const activeNovaDBs = await novaDB.pingAll();
+        
+        if (!activeNovaDBs['main']) {
+            log.warn('No "main" NovaDB instance detected in configuration. Provisioning default local instance...');
+            
+            await DatabaseManager.init({
+                alias: 'main',
+                uri: 'novadb://local',
+                engine: 'native-novadb',
+                maxRetries: 3
+            });
+            
+            log.info('Default "main" NovaDB instance fallback completed successfully.');
+        }
+    } catch (error) {
+        const err = error as Error;
+        log.error(`CRITICAL: Failed to provision default fallback NovaDB: ${err.message}`, { stack: err.stack });
+        throw err;
     }
 }

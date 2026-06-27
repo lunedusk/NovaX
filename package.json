@@ -7,7 +7,8 @@
   "imports": {
     "#core/*": "./core/*",
     "#plugins/*": "./plugins/*",
-    "#scripts/*": "./scripts/*"
+    "#scripts/*": "./scripts/*",
+    "#database/*": "./database/*"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -48,7 +49,9 @@
     "typeorm": "^0.3.20",
     "winston": "^3.12.0",
     "winston-daily-rotate-file": "^5.0.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "msgpackr": "^1.11.0",
+    "murmurhash3js": "^3.0.1"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",
@@ -68,6 +71,7 @@
     "tsc-alias": "^1.8.8",
     "tsx": "^4.7.1",
     "typedoc": "^0.28.18",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "@types/murmurhash3js": "^3.0.3"
   }
 }
