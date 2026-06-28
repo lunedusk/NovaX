@@ -20,6 +20,8 @@ import { emojiLoader } from './emoji.js';
 import { EventLoader } from './events.js';
 import { langLoader } from './lang.js';
 import { RouteLoader } from './routes.js';
+import { HandlerLoader } from './handler.js';
+import { handlerRegistry } from '#core/manager/handler/registry.js';
 
 const log = getLogger('PluginManager');
 
@@ -297,6 +299,7 @@ export class PluginManager extends EventEmitter {
                 await EventLoader.loadForPlugin(dir, id, scopedHeart);
                 await CommandLoader.loadForPlugin(dir, id, scopedHeart);
                 await RouteLoader.loadForPlugin(dir, id, scopedHeart);
+                await HandlerLoader.loadForPlugin(dir, id, scopedHeart);
 
                 instance._setState(PluginState.Enabled);
                 await this.withTimeout(instance.onEnable(), id, 'onEnable()');
@@ -353,6 +356,8 @@ export class PluginManager extends EventEmitter {
             const apiNamespace = `/api/plugins/${pluginId}`;
             httpServer.unregisterRouter(apiNamespace);
             log.debug(`[${pluginId}] Unmounted API namespace: ${apiNamespace}`);
+            await handlerRegistry.unregisterPlugin(pluginId);
+            log.debug(`[${pluginId}] Purged handler registrations.`);
 
             this.registry.delete(pluginId);
             this.bootStatuses.set(pluginId, PluginBootStatus.Pending);
@@ -387,6 +392,10 @@ export class PluginManager extends EventEmitter {
                 const err = error instanceof Error ? error : new Error(String(error));
                 log.error(`[${plugin.manifest.id}] Error during shutdown: ${err.message}`);
             }
+        }
+        const activeIds = Array.from(this.registry.keys()).reverse();
+        for (const id of activeIds) {
+            await handlerRegistry.unregisterPlugin(id);
         }
         
         this.registry.clear();
@@ -451,6 +460,7 @@ export class PluginManager extends EventEmitter {
                 await EventLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
                 await CommandLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
                 await RouteLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+                await HandlerLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
 
                 instance._setState(PluginState.Enabled);
                 await this.withTimeout(instance.onEnable(), pluginId, 'onEnable()');

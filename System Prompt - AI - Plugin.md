@@ -20,13 +20,92 @@ import { BaseCommand } from '#core/bases/Command';
 ### 2. Path Alias Mapping — Absolute Only
 Always resolve core structures via these explicit sub-directory aliases:
 
-| Alias | Resolves To | Contains |
-|---|---|---|
-| `#core/bases/*` | Base schemas | `Command.js`, `Event.js`, `Plugin.js`, `Route.js` |
-| `#core/utils/*` | Toolbelt | `logger.js`, `format.js`, `random.js`, `nodever.js` |
-| `#core/helpers/*` | Subsystems | `secretManager.js`, `enclave.js`, `cache.js`, `bloom.js` |
-| `#core/decorators/*` | Decorators | `Cooldown.js` |
-| `#core/builders/*` | UI Engines | `EmbedEngine.js`, `ComponentEngine.js` |
+|
+ Alias 
+|
+ Resolves To 
+|
+ Contains 
+|
+|
+---
+|
+---
+|
+---
+|
+|
+`#core/bases/*`
+|
+ Base schemas 
+|
+`Command.js`
+, 
+`Event.js`
+, 
+`Plugin.js`
+, 
+`Route.js`
+, 
+`Handler.js`
+|
+|
+`#core/utils/*`
+|
+ Toolbelt 
+|
+`logger.js`
+, 
+`format.js`
+, 
+`random.js`
+, 
+`nodever.js`
+|
+|
+`#core/helpers/*`
+|
+ Subsystems 
+|
+`secretManager.js`
+, 
+`enclave.js`
+, 
+`cache.js`
+, 
+`bloom.js`
+, 
+`crossGuild/index.js`
+|
+|
+`#core/decorators/*`
+|
+ Decorators 
+|
+`Cooldown.js`
+|
+|
+`#core/builders/*`
+|
+ UI Engines 
+|
+`EmbedEngine.js`
+, 
+`ComponentEngine.js`
+|
+|
+`#database/nova.js`
+|
+ NovaDB types 
+|
+`NovaCollection`
+, 
+`InProcessTransport`
+, 
+`TCPReplicaServer`
+, 
+`TCPReplicaClient`
+|
 
 ### 3. Immutable Context Access — `IHeart`
 Plugin components **never** import or instantiate framework singletons directly. They receive a frozen, scoped `IHeart` instance injected by the framework at load time. All subsystem access must go through this context object exclusively.
@@ -36,12 +115,14 @@ Plugin components **never** import or instantiate framework singletons directly.
 this.heart.assets.config
 this.heart.assets.lang
 this.heart.assets.secrets
+this.heart.assets.emoji
 
 this.heart.db.mongo
-this.heart.db.redis
+this.heart.db.redis          // gives {main, pub, sub} triad per alias
 this.heart.db.postgres
 this.heart.db.orm
 this.heart.db.sqlite
+this.heart.db.nova           // NovaRegistry — this.heart.db.nova.get('main').collection('name')
 
 this.heart.discord.interactions
 
@@ -51,9 +132,19 @@ this.heart.net.metrics
 this.heart.system.events
 this.heart.system.scheduler
 this.heart.system.cooldowns
+this.heart.system.handler..    // Cached Proxy — dot-notation handler access
+this.heart.system.handler.$has(...)            // Handler/plugin existence check
+this.heart.system.handler.$get(...)            // Typed string-based fallback lookup
+this.heart.system.handler.$list()              // All registered handlers
+this.heart.system.handler.$listDetailed()      // Full introspection with version + description
 
 this.heart.toolbox.utils.random
 this.heart.toolbox.utils.format
+this.heart.toolbox.data.codec
+this.heart.toolbox.data.Cache
+this.heart.toolbox.data.BloomFilter
+this.heart.toolbox.security.SecureVault
+this.heart.toolbox.security.HybridVault
 
 this.heart.log.info(...)
 this.heart.log.warn(...)
@@ -83,8 +174,10 @@ plugins/<plugin_id>/
 │   │   └── ping.ts
 │   ├── events/                     ← Gateway events + component handlers (auto-discovered)
 │   │   └── interactionCreate.ts
-│   └── routes/                     ← Express REST endpoints (auto-discovered)
-│       └── webhooks.ts
+│   ├── routes/                     ← Express REST endpoints (auto-discovered)
+│   │   └── webhooks.ts
+│   └── handlers/                   ← Inter-plugin API handlers (auto-discovered)
+│       └── manager.ts
 │
 └── data/
     ├── configuration/
@@ -123,16 +216,15 @@ export default class MyPlugin extends BasePlugin {
      * Use for: database schema setup, config validation, pre-checks.
      * DO NOT register commands or listen for events here — loaders haven't run yet.
      */
-    public async onSetup(): Promise<void> {
+    public async onSetup(): Promise {
         this.log.info('Setting up...');
-        // await this.heart.db.mongo.connect();
     }
 
     /**
      * onEnable() fires AFTER all loaders have run (commands, events, routes registered).
      * Use for: starting schedulers, emitting startup events, post-load logic.
      */
-    public async onEnable(): Promise<void> {
+    public async onEnable(): Promise {
         this.log.info('Plugin is now live.');
     }
 
@@ -140,13 +232,13 @@ export default class MyPlugin extends BasePlugin {
      * onDisable() fires during graceful shutdown or hot-reload teardown.
      * Use for: clearing intervals, closing connections, cleanup.
      */
-    public async onDisable(): Promise<void> {
+    public async onDisable(): Promise {
         this.log.info('Shutting down...');
     }
 }
 ```
 
-> **Lifecycle order:** `onSetup()` → loaders run (commands/events/routes) → `onEnable()`
+> **Lifecycle order:** `onSetup()` → loaders run (commands/events/routes/handlers) → `onEnable()`
 > **Timeout:** Each lifecycle hook has a 15-second timeout. Avoid blocking async operations without a guard.
 
 ---
@@ -223,6 +315,8 @@ Translations are nested JSON5 objects. Keys are dot-notation paths used in `this
 - `%%emoji_key%%` — replaced with the resolved Discord emoji string from the emoji registry
 - `%%placeholder_key%%` — replaced with global system placeholder strings
 
+The middleware (`DiscordMiddleware`) automatically resolves all `%%...%%` placeholders across every Discord.js send surface (replies, edits, followUps, channel sends, webhook messages, presence activities, and more) — you never need to call `resolveGlobalPlaceholders()` manually in plugin code.
+
 ---
 
 ## 💬 SLASH COMMANDS — `src/commands/*.ts`
@@ -246,13 +340,13 @@ export default class PingCommand extends BaseCommand {
         permissionLevel: 'user',            // Custom ACL level string
         userPermissions: [],                // Required member Discord permissions
         clientPermissions: [],              // Required bot Discord permissions
-        roleIds: [],                        // Require one of these role snowflakes
+        roleIds: [],                        // Require one of these role snowflakes (OR check)
         userIds: [],                        // Whitelist specific user snowflakes
         allowInDm: false,                   // Allow in DMs
         denyMessage: 'You cannot do this.', // Custom rejection message
     };
 
-    public async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+    public async execute(interaction: ChatInputCommandInteraction): Promise {
         const latency = interaction.client.ws.ping;
         await interaction.editReply(
             this.t('commands.ping.reply', { latency })
@@ -282,12 +376,12 @@ export default class SearchCommand extends BaseCommand {
 
     public readonly config: CommandConfig = { autoDefer: 'ephemeral' };
 
-    public async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+    public async execute(interaction: ChatInputCommandInteraction): Promise {
         const query = interaction.options.getString('query', true);
         await interaction.editReply(`You searched: ${query}`);
     }
 
-    public async autocomplete(interaction: AutocompleteInteraction): Promise<void> {
+    public async autocomplete(interaction: AutocompleteInteraction): Promise {
         const focused = interaction.options.getFocused().toLowerCase();
         const choices = ['apple', 'banana', 'cherry']
             .filter(c => c.includes(focused))
@@ -305,7 +399,7 @@ import { createServerAutocomplete } from '#core/helpers/crossGuild/index.js';
 import { PermissionFlagsBits } from 'discord.js';
 
 // In the command class:
-public async autocomplete(interaction: AutocompleteInteraction): Promise<void> {
+public async autocomplete(interaction: AutocompleteInteraction): Promise {
     const handler = createServerAutocomplete({
         userPermissions: [PermissionFlagsBits.ManageGuild],
         clientPermissions: [PermissionFlagsBits.SendMessages],
@@ -331,7 +425,7 @@ import {
     type AnySelectMenuInteraction,
 } from 'discord.js';
 
-export default class InteractionCreateEvent extends BaseEvent<[Interaction]> {
+export default class InteractionCreateEvent extends BaseEvent {
 
     public readonly name = 'interactionCreate'; // Any valid discord.js ClientEvents key
     public readonly once = false;               // true = listen once then remove
@@ -339,7 +433,7 @@ export default class InteractionCreateEvent extends BaseEvent<[Interaction]> {
     // --- Optional: inline component handler maps ---
 
     // String ID = exact match; RegExp = pattern match (match array passed to handler)
-    public readonly buttons = new Map<string | RegExp, (i: ButtonInteraction, match?: RegExpMatchArray) => Promise<void>>([
+    public readonly buttons = new Map<string | RegExp, (i: ButtonInteraction, match?: RegExpMatchArray) => Promise>([
         ['confirm-action', async (i) => {
             await i.update({ content: 'Confirmed!', components: [] });
         }],
@@ -349,21 +443,20 @@ export default class InteractionCreateEvent extends BaseEvent<[Interaction]> {
         }],
     ]);
 
-    public readonly modals = new Map<string | RegExp, (i: ModalSubmitInteraction, match?: RegExpMatchArray) => Promise<void>>([
+    public readonly modals = new Map<string | RegExp, (i: ModalSubmitInteraction, match?: RegExpMatchArray) => Promise>([
         ['submit-form', async (i) => {
             const value = i.fields.getTextInputValue('field-id');
             await i.reply({ content: `Got: ${value}`, ephemeral: true });
         }],
     ]);
 
-    public readonly selects = new Map<string | RegExp, (i: AnySelectMenuInteraction, match?: RegExpMatchArray) => Promise<void>>([
+    public readonly selects = new Map<string | RegExp, (i: AnySelectMenuInteraction, match?: RegExpMatchArray) => Promise>([
         ['pick-role', async (i) => {
             await i.reply({ content: `Selected: ${i.values.join(', ')}`, ephemeral: true });
         }],
     ]);
 
-    public async execute(interaction: Interaction): Promise<void> {
-        // Main event logic (if any; component routing is handled by the loader)
+    public async execute(interaction: Interaction): Promise {
         if (!interaction.isChatInputCommand()) return;
         this.heart.log.debug(`Command received: ${interaction.commandName}`);
     }
@@ -376,7 +469,7 @@ export default class InteractionCreateEvent extends BaseEvent<[Interaction]> {
 Apply per-component permission constraints by setting top-level fields on the event class. These are read by the loader and attached to all component registrations in that file:
 
 ```ts
-export default class AdminPanelEvent extends BaseEvent<[Interaction]> {
+export default class AdminPanelEvent extends BaseEvent {
     public readonly name = 'interactionCreate';
     public readonly once = false;
 
@@ -389,9 +482,11 @@ export default class AdminPanelEvent extends BaseEvent<[Interaction]> {
         ['admin-action', async (i: ButtonInteraction) => { /* ... */ }],
     ]);
 
-    public async execute(): Promise<void> {}
+    public async execute(): Promise {}
 }
 ```
+
+> There is no way to set different access rules per individual button within the same file. If two buttons need different permission gates, put them in separate event files.
 
 ---
 
@@ -412,14 +507,13 @@ export default class WebhookRoute extends BaseRoute {
         this.router.get('/status', this.asyncHandler(this.handleStatus.bind(this)));
     }
 
-    private async handleGithub(req: Request, res: Response): Promise<void> {
+    private async handleGithub(req: Request, res: Response): Promise {
         const payload = req.body;
         this.log.info(`Received GitHub webhook: ${payload?.action}`);
-        // Access config via this.heart if needed
         res.json({ ok: true });
     }
 
-    private async handleStatus(_req: Request, res: Response): Promise<void> {
+    private async handleStatus(_req: Request, res: Response): Promise {
         res.json({ status: 'ok', plugin: 'my-plugin' });
     }
 }
@@ -429,21 +523,282 @@ export default class WebhookRoute extends BaseRoute {
 
 ---
 
+## 🔧 CUSTOM HANDLERS — `src/handlers/*.ts`
+
+Handlers are the **inter-plugin API surface**. They expose callable services that other plugins can discover and invoke through the shared `IHeart` context via `this.heart.system.handler`, a cached Proxy supporting dot-notation plugin namespace access and `$`-prefixed utility methods. The `HandlerLoader` auto-discovers all `.js` files recursively under `src/handlers/` and registers them with the global `HandlerRegistry` before `onEnable()` fires.
+
+Extend `BaseHandler`. Each file must have a default export of a class extending `BaseHandler`.
+
+```ts
+import { BaseHandler } from '#core/bases/Handler.js';
+
+export default class EconomyManager extends BaseHandler {
+
+    public readonly name = 'manager';              // REQUIRED — camelCase JS identifier
+    public readonly version = '1.0.0';             // Optional — semver string
+    public readonly description = 'Manages virtual currency and transactions'; // Optional
+
+    private readonly cache = new Map();
+
+    /**
+     * onInitialize() fires after registration, before onEnable() runs on any plugin.
+     * Use for: cache warming, schema checks, establishing internal state.
+     * Has a 15-second timeout. If it throws or times out, the handler is unregistered
+     * and will NOT be discoverable by other plugins.
+     */
+    public async onInitialize(): Promise {
+        this.log.info('Economy manager initialized.');
+    }
+
+    /**
+     * onTeardown() fires during plugin disable or hot-reload.
+     * Use for: clearing caches, releasing resources, flushing pending writes.
+     * Has a 15-second timeout. Errors are caught and logged — teardown of other
+     * handlers in the same plugin continues regardless.
+     * IMPORTANT: Must not assume sibling handlers from other plugins are still alive
+     * during a full shutdown (all onDisable() hooks complete before any onTeardown() fires).
+     */
+    public async onTeardown(): Promise {
+        this.cache.clear();
+        this.log.info('Economy manager torn down.');
+    }
+
+    // --- Public API — other plugins access these via dot notation ---
+
+    public async getBalance(userId: string): Promise {
+        return this.cache.get(userId) ?? 0;
+    }
+
+    public async addBalance(userId: string, amount: number): Promise {
+        const current = await this.getBalance(userId);
+        const updated = current + amount;
+        this.cache.set(userId, updated);
+        return updated;
+    }
+
+    public async transfer(from: string, to: string, amount: number): Promise {
+        const balance = await this.getBalance(from);
+        if (balance < amount) return false;
+        await this.addBalance(from, -amount);
+        await this.addBalance(to, amount);
+        this.events.emit('economy:transfer', { from, to, amount });
+        return true;
+    }
+}
+```
+
+### BaseHandler API Reference
+
+|
+ Member 
+|
+ Type 
+|
+ Required 
+|
+ Description 
+|
+|
+---
+|
+---
+|
+---
+|
+---
+|
+|
+`name`
+|
+`string`
+ (abstract) 
+|
+ ✅ 
+|
+ Handler name within the plugin. Must be a valid JS identifier (camelCase). Accessed as 
+`handler.<pluginId>.<name>`
+|
+|
+`version`
+|
+`string`
+|
+ — 
+|
+ Optional semver string for introspection 
+|
+|
+`description`
+|
+`string`
+|
+ — 
+|
+ Optional human-readable description for admin/debug listing 
+|
+|
+`onInitialize()`
+|
+`async`
+ lifecycle 
+|
+ — 
+|
+ Called after registration, before plugin 
+`onEnable()`
+. 15-second timeout. Failure = unregistered. 
+|
+|
+`onTeardown()`
+|
+`async`
+ lifecycle 
+|
+ — 
+|
+ Called on disable or hot-reload. 15-second timeout. Errors are isolated. 
+|
+|
+`this.heart`
+|
+ getter → 
+`IHeart`
+|
+ — 
+|
+ Full framework context. Backed by a private field (
+`#heart`
+) set at construction; accessed via a 
+`protected get`
+ accessor. 
+|
+|
+`this.log`
+|
+ getter → 
+`Logger`
+|
+ — 
+|
+ Scoped logger (
+`Handler:<ClassName>`
+). 
+**
+Lazily initialized
+**
+ — created on first access, not at construction. 
+|
+|
+`this.config`
+|
+ getter 
+|
+ — 
+|
+ Shorthand for 
+`this.heart.assets.config`
+|
+|
+`this.events`
+|
+ getter 
+|
+ — 
+|
+ Shorthand for 
+`this.heart.system.events`
+|
+
+### Naming Convention
+The `name` property must be a **valid JavaScript identifier** in camelCase. The framework throws a hard error at boot if `name` fails the regex check (`/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`).
+
+```ts
+// ✅ Correct
+public readonly name = 'manager';
+public readonly name = 'balanceTracker';
+
+// ❌ Wrong
+public readonly name = 'balance-tracker';  // hyphens not allowed
+public readonly name = '123handler';       // cannot start with a digit
+```
+
+### Consuming Handlers from Another Plugin
+Always use optional chaining (`?.`) and guard with a null check. Use a **type-only import** for the class type — erased at compile time:
+
+```ts
+import type EconomyManager from '../../../economy/src/handlers/economy-manager.js';
+
+const economy = this.heart.system.handler.economy?.manager as EconomyManager | undefined;
+
+if (!economy) {
+    await interaction.editReply('Economy system is currently unavailable.');
+    return;
+}
+
+const success = await economy.transfer(interaction.user.id, 'VAULT', 100);
+```
+
+### Registry Introspection
+
+```ts
+// Dot-notation access (preferred):
+this.heart.system.handler.economy?.manager          // BaseHandler | undefined
+
+// $-prefixed utility methods:
+this.heart.system.handler.$has('economy', 'manager')   // → boolean
+this.heart.system.handler.$has('economy')               // → boolean (any handlers?)
+this.heart.system.handler.$get('economy', 'manager')
+this.heart.system.handler.$list()                       // → Array
+this.heart.system.handler.$listDetailed()               // → Array
+```
+
+### Handler Lifecycle — Full Picture
+
+**Boot / hot-reload:**
+```
+onSetup()
+  → EventLoader, CommandLoader, RouteLoader, HandlerLoader
+      → handler: new HandlerClass(heart)
+      → handler: onInitialize()   ← 15s timeout; failure unregisters the handler
+  → onEnable()                    ← safe to use this.heart.system.handler here
+```
+
+**Single-plugin disable / hot-reload teardown:**
+```
+onDisable()                        ← handlers are still registered here
+  → interactionRegistry purged
+  → eventBus subscriptions purged
+  → HTTP namespace unmounted
+  → handlerRegistry.unregisterPlugin(pluginId)
+      → handler: onTeardown()     ← 15s timeout per handler; errors are isolated
+```
+
+**Full shutdown:**
+```
+Phase 1 — all plugins, reverse boot order:
+  → onDisable()                   ← ALL handlers still registered during this entire phase
+
+Phase 2 — all plugins, reverse boot order:
+  → handler: onTeardown()         ← must NOT assume any other plugin's handlers are alive
+```
+
+---
+
 ## ⏱️ RATE LIMITING — `@Cooldown`
 
-Decorate any `async` method that handles user-repliable interactions (`Message` or `Interaction`). The engine automatically returns a localized ephemeral warning if the user exceeds the threshold.
+Decorate any `async` method that handles user-repliable interactions. The engine automatically returns a localized ephemeral warning if the user exceeds the threshold.
 
 ```ts
 import { Cooldown } from '#core/decorators/Cooldown.js';
 import { BaseEvent } from '#core/bases/Event.js';
 import { type ButtonInteraction } from 'discord.js';
 
-export default class ExampleEvent extends BaseEvent<[any]> {
+export default class ExampleEvent extends BaseEvent {
     public readonly name = 'interactionCreate';
     public readonly once = false;
 
     @Cooldown('claim-button', { limit: 1, windowMs: 60_000 }) // 1 use per 60s per user
-    private async handleClaim(i: ButtonInteraction): Promise<void> {
+    private async handleClaim(i: ButtonInteraction): Promise {
         await i.reply({ content: 'Claimed!', ephemeral: true });
     }
 
@@ -451,7 +806,7 @@ export default class ExampleEvent extends BaseEvent<[any]> {
         ['claim', (i: ButtonInteraction) => this.handleClaim(i)],
     ]);
 
-    public async execute(): Promise<void> {}
+    public async execute(): Promise {}
 }
 ```
 
@@ -466,7 +821,6 @@ export default class ExampleEvent extends BaseEvent<[any]> {
 ```ts
 import { EmbedEngine } from '#core/builders/EmbedEngine.js';
 
-// Inside a command or event handler:
 const embed = new EmbedEngine(this.heart)
     .setTitle('%%emoji_star%% Server Report for {{guildName}}', { guildName: guild.name })
     .setDescription('Here is your daily summary.')
@@ -488,7 +842,9 @@ await interaction.editReply({ embeds: [embed.build()] });
 - Timestamps: `'now'`, Unix seconds (number), or `Date` object
 - Long field lists automatically split across continuation embed objects if they overflow Discord's limits
 
-### ComponentEngine
+### ComponentEngine (Legacy v1 — Simple Wrappers)
+
+For quick component assembly using the high-level builder API:
 
 ```ts
 import { ComponentEngine } from '#core/builders/ComponentEngine.js';
@@ -516,121 +872,122 @@ const components = new ComponentEngine()
 await interaction.editReply({ components: components.build() });
 ```
 
+### ComponentsV2 Engine (Advanced — Discord Components V2)
+
+For structured, rich Discord Components V2 layouts (containers, sections, media galleries, separators, thumbnails, files, and all select variants). Import via the builder index or use the singleton `ComponentEngine`:
+
+```ts
+import { ComponentEngine } from '#core/builders/index.js';
+// OR for one-off builds:
+import { buildComponentsV2, buildComponentsV2AutoWrap } from '#core/builders/ComponentEngine.js';
+```
+
+**`LayoutSpec` structure (version: 1):**
+
+```ts
+const spec = {
+    version: 1,
+    components: [
+        {
+            type: 'container',
+            accentColor: '#E74C3C',    // hex string or integer 0x000000–0xffffff
+            spoiler: false,
+            children: [
+                { type: 'text', content: '### Section Title' },
+                { type: 'separator', divider: true, spacing: 'small' },  // 'small' | 'large'
+                {
+                    type: 'section',
+                    texts: [
+                        { type: 'text', content: 'Primary content line.' },
+                        { type: 'text', content: 'Secondary detail line.' },
+                    ],
+                    accessory: {
+                        kind: 'thumbnail',   // 'thumbnail' | 'button'
+                        data: { url: 'https://cdn.example.com/icon.png', description: 'Icon' },
+                    },
+                },
+                {
+                    type: 'mediaGallery',
+                    items: [
+                        { url: 'https://cdn.example.com/img1.png', description: 'Image 1' },
+                        { url: 'https://cdn.example.com/img2.png', spoiler: true },
+                    ],
+                },
+                { type: 'button', label: 'Approve', style: 'success', customId: 'approve_action' },
+                { type: 'button', label: 'Deny',    style: 'danger',  customId: 'deny_action' },
+                {
+                    type: 'selectMenu',
+                    kind: 'string',       // 'string' | 'channel' | 'user' | 'role' | 'mentionable'
+                    customId: 'pick_option',
+                    placeholder: 'Choose an option...',
+                    options: [
+                        { label: 'Option A', value: 'a' },
+                        { label: 'Option B', value: 'b', description: 'Extra detail', default: false },
+                    ],
+                },
+            ],
+        },
+    ],
+};
+
+// Build using the global singleton (autoWrapInteractives: true by default)
+const result = ComponentEngine.build(spec, { variables: { /* ... */ } });
+// result.components — array of built component JSON
+// result.files      — attachment files (if any attachment:// URLs used)
+// result.flags      — MessageFlags.IsComponentsV2
+
+await interaction.editReply({ ...result });
+```
+
+**`buildComponentsV2` function variants:**
+- `buildComponentsV2(spec, context?, options?)` — fresh engine, full control
+- `buildComponentsV2AutoWrap(spec, context?)` — forces `autoWrapInteractives: true`
+- `buildComponentsV2Strict(spec, context?)` — forces `autoWrapInteractives: false` (you manage ActionRows manually)
+
+**`BuildContext` fields:**
+- `variables?: Record<string, any>` — resolved via `{{variable}}` syntax in text content
+- `attachments?: Record<string, AttachmentBuilder>` — pre-resolved `attachment://` URL map
+- `disableAll?: boolean` — disables all interactive components
+- `assetManager?: AssetManager` — custom asset manager instance
+
+**`BuildOptions` fields:**
+- `autoWrapInteractives?: boolean` — when `true`, loose `button` and `selectMenu` children are automatically grouped into `actionRow` wrappers
+
+**Supported top-level component types:** `text`, `separator`, `section`, `mediaGallery`, `file`, `actionRow`, `container`
+
+**Component payload hydration:** `customId` and `payload` are combined at build time: `${customId}:${payload.join(':')}`. The hydrated ID must not exceed 100 characters.
+
+**Limits enforced at build time:**
+- Max total components: 40
+- Max total text characters: 4000
+- Max components per ActionRow: 5
+- Max media gallery items: 10
+- Max select options: 25
+- Max label length: 80
+- Max description length: 100
+- Max customId length: 100
+
+**String placeholders** in `LayoutSpec` text content are resolved via `interpolateVariables()` automatically — `{{variable}}` from `context.variables` and `%%placeholder_key%%` from global placeholders.
+
 ---
 
 ## 🔐 PERMISSION SYSTEM
 
-The `PermissionsManager` is the framework's unified access control layer. It runs **automatically** on every interaction before your handler is called — you never invoke it yourself. You control it entirely through the `config` field on commands, or the top-level access fields on events.
-
-### How It Works
-
-Every interaction routed through the registry passes through `permissionsManager.canExecute()`. It evaluates two layers in order:
-
-1. **Inline access config** — the `config` object on `BaseCommand`, or the class-level fields on `BaseEvent`. Checked first, always active.
-2. **Named permission levels** — if `permissionLevel` is set, the manager looks up that level in the global `configuration/permissions.json5` file, then checks those additional rules. If the level doesn't exist in that file, access is **denied**.
-
-If either layer denies access, the framework automatically sends an ephemeral styled rejection card to the user. You do not handle this — just configure the rules.
+The `PermissionsManager` runs **automatically** on every interaction before your handler is called — you never invoke it yourself. You control it entirely through the `config` field on commands, or the top-level access fields on events.
 
 ### `RouteAccessConfig` — Field Reference
 
-This is the shape used in both `CommandConfig` (on commands) and the loader-read fields on event classes:
-
 ```ts
 interface RouteAccessConfig {
-    permissionLevel?: string;         // Named level from permissions.json5 (e.g. 'admin', 'moderator')
-    roleIds?: string[];               // User must have AT LEAST ONE of these role snowflakes
-    userIds?: string[];               // Whitelist: only these user snowflakes may execute
-    userPermissions?: PermissionResolvable[];   // User must have ALL of these Discord permissions
-    clientPermissions?: PermissionResolvable[]; // Bot must have ALL of these in the channel
-    allowInDm?: boolean;              // Explicitly allow (true) or block (false) DM execution
-    denyMessage?: string;             // Custom text shown in the rejection card
+    permissionLevel?: string;                       // Named level from permissions.json5
+    roleIds?: string[];                             // User must have AT LEAST ONE (OR check)
+    userIds?: string[];                             // Whitelist: only these user snowflakes
+    userPermissions?: PermissionResolvable[];        // User must have ALL (AND check)
+    clientPermissions?: PermissionResolvable[];      // Bot must have ALL in the channel
+    allowInDm?: boolean;                            // Explicitly allow/block DM execution
+    denyMessage?: string;                           // Custom text shown in rejection card
 }
 ```
-
-### Inline Config Examples
-
-**Restrict a command to specific roles:**
-```ts
-public readonly config: CommandConfig = {
-    autoDefer: true,
-    roleIds: ['111222333444555666', '999888777666555444'], // user needs ONE of these
-    denyMessage: 'You must be a Staff or Admin to use this command.',
-};
-```
-
-**Restrict to specific users only:**
-```ts
-public readonly config: CommandConfig = {
-    userIds: ['123456789012345678'],
-    denyMessage: 'This command is restricted to the bot owner.',
-};
-```
-
-**Require Discord permissions:**
-```ts
-import { PermissionFlagsBits } from 'discord.js';
-
-public readonly config: CommandConfig = {
-    userPermissions: [PermissionFlagsBits.ManageMessages, PermissionFlagsBits.KickMembers],
-    clientPermissions: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks],
-    allowInDm: false,
-};
-```
-
-**Use a named permission level:**
-```ts
-public readonly config: CommandConfig = {
-    permissionLevel: 'moderator', // Must exist in configuration/permissions.json5
-    autoDefer: 'ephemeral',
-};
-```
-
-**Combine role gate with Discord permissions:**
-```ts
-public readonly config: CommandConfig = {
-    roleIds: ['987654321098765432'],       // Must have the staff role
-    userPermissions: [PermissionFlagsBits.ManageGuild], // AND have ManageGuild
-    clientPermissions: [PermissionFlagsBits.ManageRoles],
-    allowInDm: false,
-    denyMessage: 'This is a staff-only server management command.',
-    autoDefer: true,
-};
-```
-
-### Named Permission Levels — `configuration/permissions.json5`
-
-Named levels are defined globally by the server admin, not by the plugin. If your plugin requires a specific level, document it in your plugin's README. You can still **reference** a level — the framework will deny with a clear message if it isn't configured.
-
-The shape each level supports mirrors `RouteAccessConfig`:
-
-```json5
-// configuration/permissions.json5
-{
-    enabled: true,
-    defaultLevel: "public",  // Level used when no permissionLevel is specified
-    levels: {
-        public: {},           // No restrictions (default)
-        moderator: {
-            roleIds: ["111222333444555666"],
-            discordPermissions: ["ManageMessages"],
-            denyMessage: "%%emoji_lock%% You must be a Moderator.",
-        },
-        admin: {
-            roleIds: ["999888777666555444"],
-            discordPermissions: ["Administrator"],
-            denyMessage: "%%emoji_lock%% Admins only.",
-        },
-        owner: {
-            userIds: ["123456789012345678"],
-            denyMessage: "%%emoji_lock%% Owner only.",
-        },
-    },
-}
-```
-
-> **Level field names in `permissions.json5`:** `discordPermissions` (not `userPermissions`), `clientPermissions`, `roleIds`, `userIds`, `allowInDm`, `denyMessage`.
-> **Level field names in plugin config/code:** `userPermissions` (not `discordPermissions`), `clientPermissions`, `roleIds`, `userIds`, `allowInDm`, `denyMessage`.
-> These are different field names — the global config uses `discordPermissions`, plugin code uses `userPermissions`.
 
 ### Permission Check Execution Order
 
@@ -650,47 +1007,40 @@ Interaction arrives
     └─→ [4] Execute handler
 ```
 
-### DM Behaviour
+### Named Permission Levels — `configuration/permissions.json5`
 
-- If `allowInDm` is not set (undefined), DMs are **allowed** unless guild-specific requirements exist (`roleIds`, `userPermissions`, `clientPermissions`) — in that case, the framework automatically blocks DMs because those checks are impossible in a DM context.
-- Set `allowInDm: false` to explicitly block DMs regardless of other settings.
-- Set `allowInDm: true` to explicitly allow DMs even when other guild requirements are present (use only if your handler works without a guild context).
+> **Field name difference:** Inside `permissions.json5`, use `discordPermissions` (not `userPermissions`). In plugin code, use `userPermissions`.
 
-### Component-Level Guards (Events)
-
-When registering button/modal/select handlers via Maps on a `BaseEvent`, set the access fields on the event class itself. They apply to **all** components registered by that file:
-
-```ts
-export default class StaffPanelEvent extends BaseEvent<[Interaction]> {
-    public readonly name = 'interactionCreate';
-    public readonly once = false;
-
-    // These apply to every button/modal/select in this file
-    public readonly roleIds = ['111222333444555666'];
-    public readonly userPermissions = [PermissionFlagsBits.ManageMessages];
-    public readonly allowInDm = false;
-    public readonly denyMessage = 'Staff panel is restricted to staff members.';
-
-    public readonly buttons = new Map([
-        ['staff-warn', async (i: ButtonInteraction) => {
-            await i.reply({ content: 'Warning issued.', ephemeral: true });
-        }],
-        ['staff-mute', async (i: ButtonInteraction) => {
-            await i.reply({ content: 'Mute applied.', ephemeral: true });
-        }],
-    ]);
-
-    public async execute(): Promise<void> {}
+```json5
+{
+    enabled: true,
+    defaultLevel: "public",
+    levels: {
+        public: {},
+        moderator: {
+            roleIds: ["111222333444555666"],
+            discordPermissions: ["ManageMessages"],
+            denyMessage: "%%emoji_lock%% You must be a Moderator.",
+        },
+        admin: {
+            roleIds: ["999888777666555444"],
+            discordPermissions: ["Administrator"],
+            denyMessage: "%%emoji_lock%% Admins only.",
+        },
+    },
 }
 ```
 
-> There is no way to set different access rules per individual button within the same file. If two buttons need different permission gates, put them in separate event files.
+### DM Behaviour
+- `allowInDm` not set: DMs are allowed **unless** guild-specific requirements exist (`roleIds`, `userPermissions`, `clientPermissions`) — in that case, DMs are automatically blocked.
+- `allowInDm: false`: explicitly block DMs regardless.
+- `allowInDm: true`: explicitly allow DMs even when guild requirements are present (only safe if your handler works without a guild context).
 
 ---
 
 ## 🖱️ CONTEXT MENU COMMANDS — `src/commands/*.ts`
 
-Context menu commands (right-click on user or message) follow the same file conventions as slash commands. Use `ContextMenuCommandBuilder` instead of `SlashCommandBuilder`. The loader registers them the same way — `Module.default` must extend `BaseCommand`.
+Use `ContextMenuCommandBuilder` instead of `SlashCommandBuilder`. The loader registers them the same way.
 
 ```ts
 import { BaseCommand, type CommandConfig } from '#core/bases/Command.js';
@@ -704,16 +1054,14 @@ export default class InspectUserCommand extends BaseCommand {
 
     public readonly data = new ContextMenuCommandBuilder()
         .setName('Inspect User')
-        .setType(ApplicationCommandType.User); // or ApplicationCommandType.Message
+        .setType(ApplicationCommandType.User);
 
     public readonly config: CommandConfig = {
         permissionLevel: 'moderator',
         allowInDm: false,
     };
 
-    // Context menu commands use UserContextMenuCommandInteraction or
-    // MessageContextMenuCommandInteraction — cast as needed
-    public async execute(interaction: UserContextMenuCommandInteraction): Promise<void> {
+    public async execute(interaction: UserContextMenuCommandInteraction): Promise {
         const target = interaction.targetUser;
         await interaction.reply({
             content: `Inspecting ${target.username} (${target.id})`,
@@ -723,39 +1071,285 @@ export default class InspectUserCommand extends BaseCommand {
 }
 ```
 
-> Context menu commands are registered in `interactionRegistry.context` (separate from `interactionRegistry.chat`) and synced to Discord alongside slash commands during `syncCommands()`.
+---
+
+## 🗄️ DATABASE ACCESS — `this.heart.db`
+
+### NovaDB (Built-in — `this.heart.db.nova`)
+
+NovaDB is NovaX's embedded document store — a full LSM-tree database written in TypeScript that lives on disk alongside your bot. No external server required. Collections are created on demand, documents are stored as MessagePack blobs, and every write is WAL-protected.
+
+**Getting a collection:**
+```ts
+const users = await this.heart.db.nova.get('main').collection('users');
+// 'main' is auto-provisioned if not configured in .env
+// Collections are cached — calling .collection('users') multiple times returns the same object
+```
+
+**Documents extend `NovaDocument`:**
+```ts
+interface NovaDocument {
+    _id?: string;           // Primary key. Auto-generated UUID if omitted.
+    __deleted__?: boolean;  // Internal tombstone — do not set manually.
+    __txnId__?: bigint;     // Internal MVCC version — do not set manually.
+    [key: string]: unknown;
+}
+```
+- `_id` must be a string if supplied. Keep it URL-safe.
+- Fields prefixed with `__` are reserved for NovaDB internals.
+- Values can be anything MessagePack can encode. `undefined` is stripped.
+
+**Core CRUD:**
+```ts
+// Upsert (insert or full replace — no partial patch; always send the full document)
+const id = await users.upsert({ _id: `user_${userId}`, username: 'dev', xp: 0 });
+
+// Read (returns document or null)
+const user = await users.get(`user_${userId}`);
+
+// Delete (writes tombstone; always returns true)
+await users.delete(`user_${userId}`);
+
+// Update pattern — fetch, merge, write back
+const existing = await users.get(`user_${userId}`);
+await users.upsert({ ...existing, xp: (existing?.xp ?? 0) + 50 });
+```
+
+**Range scan (async iterator):**
+```ts
+// Scan everything
+for await (const doc of users.scan('', '\uffff')) { ... }
+
+// Prefix scan (embed partition key in _id for cheap range scans)
+const prefix = `warn_${guildId}_`;
+for await (const doc of warnings.scan(prefix, prefix + '\uffff')) { ... }
+
+// Paginate — IDs starting after a cursor
+for await (const doc of economy.scan(lastSeenId + '\x00', '\uffff')) { ... }
+```
+
+> **Key design tip:** Embed sortable prefixes into `_id` values: `warn_{guildId}_{userId}_{timestamp}` → fast prefix scans. Random UUIDs as `_id` make prefix scans useless.
+
+**Transactions (atomic multi-write):**
+```ts
+const txn = collection.beginTransaction();
+collection.stageWrite(txn, { _id: 'doc_a', value: 1 });
+collection.stageWrite(txn, { _id: 'doc_b', value: 2 });
+collection.stageDelete(txn, 'doc_old');
+await collection.commit(txn);   // all-or-nothing WAL write
+// OR:
+collection.rollback(txn);       // discard all staged writes, no I/O
+```
+
+**Snapshots (point-in-time consistent reads):**
+```ts
+const snap = collection.openSnapshot();
+try {
+    const doc = await collection.get(someId, snap);
+    for await (const d of collection.scan('', '\uffff', snap)) { ... }
+} finally {
+    collection.closeSnapshot(snap); // ALWAYS close — holds back MVCC GC
+}
+```
+
+**Secondary indexes (equality lookups):**
+```ts
+// Create once at boot (e.g. in onSetup or handler onInitialize)
+await users.createIndex('guildId');
+
+// Fast equality lookup — no full scan
+const guildMembers = await users.findBy('guildId', interaction.guildId!);
+```
+
+**Replication:**
+```ts
+// In-process (same bot process)
+import { InProcessTransport } from '#database/nova.js';
+const transport = new InProcessTransport();
+await replica.openAsReplica(transport);
+await primary.addReplica(transport);
+
+// TCP (cross-process or cross-machine)
+import { TCPReplicaServer, TCPReplicaClient } from '#database/nova.js';
+// Primary:
+const server = new TCPReplicaServer(9000);
+await server.listen();
+await primaryCollection.addReplica(server);
+// Replica:
+const client = new TCPReplicaClient('primary-host', 9000);
+await client.connect();
+await replicaCollection.openAsReplica(client);
+```
+
+Replica collections are **read-only** — `upsert`, `delete`, and `commit` on a replica throw.
+
+In NovaX plugins you generally don't call `close()` manually — `DatabaseManager.closeAll()` is called during bot shutdown.
+
+### Other Database Engines (`this.heart.db.*`)
+
+Configured via `Database` key in `.env` as a JSON object. The framework auto-provisions a `native-novadb` instance as `'main'` if no `"main"` key is defined.
+
+```env
+# Multi-database example
+Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}, "cache": {"uri": "redis://localhost:6379", "engine": "redis"}, "analytics": {"uri": "postgresql://user:pass@remote:5432/stats", "engine": "native-pg", "poolSize": 5}}
+```
+
+|
+ Engine key 
+|
+`this.heart.db`
+ accessor 
+|
+ Notes 
+|
+|
+---
+|
+---
+|
+---
+|
+|
+`native-novadb`
+|
+`this.heart.db.nova.get('alias')`
+|
+ Built-in embedded LSM store. Auto-managed path under 
+`.data/database/{alias}/`
+|
+|
+`mongo`
+|
+`this.heart.db.mongo.get('alias')`
+|
+ Mongoose driver. Supports 
+`poolSize`
+, 
+`maxRetries`
+|
+|
+`redis`
+|
+`this.heart.db.redis.get('alias')`
+|
+ Spins up 
+`{main, pub, sub}`
+ triad automatically for caching + Pub/Sub 
+|
+|
+`native-pg`
+|
+`this.heart.db.postgres.get('alias')`
+|
+`pg`
+ driver with idle timeouts and connection pooling 
+|
+|
+`native-sqlite`
+|
+`this.heart.db.sqlite.get('alias')`
+|
+`better-sqlite3`
+, WAL mode auto-applied 
+|
+|
+`typeorm`
+|
+`this.heart.db.orm.get('alias')`
+|
+ Supports 
+`postgres`
+, 
+`mysql`
+, 
+`mariadb`
+, 
+`sqlite`
+. Auto-syncs in non-prod 
+|
+
+**Common config properties:**
+
+|
+ Property 
+|
+ Type 
+|
+ Default 
+|
+ Description 
+|
+|
+---
+|
+---
+|
+---
+|
+---
+|
+|
+`uri`
+|
+ string 
+|
+ — 
+|
+ Connection string (required) 
+|
+|
+`engine`
+|
+ string 
+|
+ auto-detected 
+|
+ Driver to use 
+|
+|
+`poolSize`
+|
+ number 
+|
+ 10 
+|
+ Max simultaneous connections 
+|
+|
+`maxRetries`
+|
+ number 
+|
+ 5 
+|
+ Reconnect attempts on startup failure 
+|
 
 ---
 
 ## 🌍 CROSS-GUILD RESOLVER (Advanced Utility)
 
-For plugins that need to operate across multiple guilds the bot shares with a user, use the `CrossGuildResolver` from `#core/helpers/crossGuild/index.js`.
-
 ```ts
 import { CrossGuildResolver, type EligibilityFilter } from '#core/helpers/crossGuild/index.js';
 import { PermissionFlagsBits } from 'discord.js';
 
-// In a command execute():
 const filter: EligibilityFilter = {
     userPermissions: [PermissionFlagsBits.ManageGuild],
     clientPermissions: [PermissionFlagsBits.SendMessages],
-    roleIds: ['123456789012345678'], // Optional: require one of these roles
+    roleIds: ['123456789012345678'],
 };
 
 const resolver = new CrossGuildResolver(interaction.client);
 const eligibleGuilds = await resolver.getEligibleGuilds(interaction.user.id, filter);
+// Returns: Array
 
-// Returns: Array<{ guild: Guild, member: GuildMember, botMember: GuildMember }>
-
-// For a simple yes/no check:
 const hasAny = await resolver.hasAnyEligibleGuild(interaction.user.id, filter);
 
-// Cache management:
-CrossGuildResolver.clearUserCache(interaction.user.id); // Clear one user's cache
-CrossGuildResolver.clearCache();                         // Clear entire cache
+CrossGuildResolver.clearUserCache(interaction.user.id);
+CrossGuildResolver.clearCache();
 ```
 
-> Results are cached per `(userId + filter)` for 120 seconds with a max of 512 entries. Entries survive across command invocations within that window.
+> Results are cached per `(userId + filter)` for 120 seconds with a max of 512 entries.
 
 ---
 
@@ -764,40 +1358,15 @@ CrossGuildResolver.clearCache();                         // Clear entire cache
 Resolves a dot-notation key from the plugin's active locale translation file with optional variable interpolation.
 
 ```ts
-// Signature:
-this.t(key: string, vars?: Record<string, string | number>, locale?: string): string
+// Signature (BaseCommand only):
+this.t(key: string, vars?: Record, locale?: string): string
 
-// Basic usage:
 this.t('commands.ping.reply')
-
-// With variables:
 this.t('commands.ping.reply', { latency: 42 })
-
-// With explicit locale (falls back to guild/user locale then default):
 this.t('errors.noPermission', {}, 'es')
 ```
 
 > `this.t()` is only available in `BaseCommand` subclasses. In events or routes, use `this.heart.assets.lang.get(this.heart.id, 'key', vars, locale)` directly.
-
----
-
-## 📦 EXTERNAL DEPENDENCIES — `package.json`
-
-If your plugin requires npm packages not provided by the core framework, declare them in a `package.json` at the plugin root. The `DependencyLoader` will automatically run `npm install --no-save` in a sandboxed directory on boot.
-
-```json
-{
-    "name": "my-plugin",
-    "version": "1.0.0",
-    "type": "module",
-    "dependencies": {
-        "axios": "^1.6.0",
-        "zod": "^3.22.0"
-    }
-}
-```
-
-> Only `dependencies` is read. `devDependencies` and `peerDependencies` are ignored. Keep the dependency count minimal — each dep increases boot time for every reload.
 
 ---
 
@@ -814,7 +1383,7 @@ data/emoji/
 ```
 
 ### Remote URL map
-Alternatively, provide `data/emoji.json` with a name-to-URL map:
+Alternatively, provide `data/emoji.json`:
 
 ```json
 {
@@ -827,9 +1396,25 @@ Alternatively, provide `data/emoji.json` with a name-to-URL map:
 
 ---
 
-## ✅ COMPLETE PLUGIN EXAMPLE
+## 📦 EXTERNAL DEPENDENCIES — `package.json`
 
-Below is a minimal but complete plugin demonstrating every major piece working together.
+```json
+{
+    "name": "my-plugin",
+    "version": "1.0.0",
+    "type": "module",
+    "dependencies": {
+        "axios": "^1.6.0",
+        "zod": "^3.22.0"
+    }
+}
+```
+
+> Only `dependencies` is read. `devDependencies` and `peerDependencies` are ignored. The `DependencyLoader` runs `npm install --no-save` in a sandboxed directory on boot. Keep the dependency count minimal — each dep increases boot time for every reload.
+
+---
+
+## ✅ COMPLETE PLUGIN EXAMPLE
 
 ### `plugins/greeter/manifest.json`
 ```json
@@ -853,15 +1438,15 @@ export default class GreeterPlugin extends BasePlugin {
         version: '1.0.0',
     };
 
-    public async onSetup(): Promise<void> {
+    public async onSetup(): Promise {
         this.log.info('Greeter config validated.');
     }
 
-    public async onEnable(): Promise<void> {
+    public async onEnable(): Promise {
         this.log.info('Greeter is live.');
     }
 
-    public async onDisable(): Promise<void> {
+    public async onDisable(): Promise {
         this.log.info('Greeter shutting down.');
     }
 }
@@ -887,7 +1472,7 @@ export default class GreetCommand extends BaseCommand {
         autoDefer: true,
     };
 
-    public async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+    public async execute(interaction: ChatInputCommandInteraction): Promise {
         const target = interaction.options.getUser('user', true);
         await interaction.editReply(
             this.t('commands.greet.message', { username: target.username })
@@ -901,12 +1486,12 @@ export default class GreetCommand extends BaseCommand {
 import { BaseEvent } from '#core/bases/Event.js';
 import { type GuildMember } from 'discord.js';
 
-export default class GuildMemberAddEvent extends BaseEvent<[GuildMember]> {
+export default class GuildMemberAddEvent extends BaseEvent {
     public readonly name = 'guildMemberAdd';
     public readonly once = false;
 
-    public async execute(member: GuildMember): Promise<void> {
-        const channelId = this.heart.assets.config.get<string>('greeter.welcomeChannelId');
+    public async execute(member: GuildMember): Promise {
+        const channelId = this.heart.assets.config.get('greeter.welcomeChannelId');
         if (!channelId) return;
 
         const channel = member.guild.channels.cache.get(channelId);
@@ -959,8 +1544,18 @@ export default class GuildMemberAddEvent extends BaseEvent<[GuildMember]> {
 6. Place files in their correct directories per the layout above — the loaders are path-sensitive.
 7. When generating a full plugin, always produce: `manifest.json`, `index.ts`, and all component files. Always produce the matching `data/configuration/lang/en.json5` and `data/configuration/config.json5` for any keys referenced in the code.
 8. `this.t()` is only valid in `BaseCommand`. Use `this.heart.assets.lang.get(...)` in events and routes.
-9. **Never call `permissionsManager` directly** in plugin code. Access control is entirely declarative — set `config` fields on commands or class-level fields on events. The framework evaluates them automatically before your handler runs.
-10. **`roleIds` is an OR check** — the user needs ANY ONE of the listed role IDs, not all of them.
+9. **Never call `permissionsManager` directly** in plugin code. Access control is entirely declarative — set `config` fields on commands or class-level fields on events.
+10. **`roleIds` is an OR check** — the user needs ANY ONE of the listed role IDs.
 11. **`userPermissions` is an AND check** — the user must have ALL listed Discord permissions.
-12. When a `permissionLevel` string is used, it must exist in the server's `configuration/permissions.json5` or the interaction will be denied. Never assume a level exists — document required levels in plugin output.
-13. Do not set both `allowInDm: true` and `roleIds`/`userPermissions` simultaneously unless you explicitly handle the DM case in your handler — role and permission checks are skipped in DMs, making the gate ineffective.
+12. When a `permissionLevel` string is used, it must exist in the server's `configuration/permissions.json5` or the interaction will be denied. Document required levels in plugin output.
+13. Do not set both `allowInDm: true` and `roleIds`/`userPermissions` simultaneously unless you explicitly handle the DM case in your handler.
+14. Handler `name` must be a valid camelCase JavaScript identifier (regex: `/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`). The framework throws a hard error at boot if this check fails.
+15. Always use `?.` when accessing a handler from another plugin — never assume it is present.
+16. `onDisable()` always fires while handlers are still registered — it is safe to call other handlers there. `onTeardown()` must not assume sibling handlers are still alive during a full shutdown.
+17. **NovaDB `upsert` is a full replace** — there is no partial patch. Always fetch, spread, and write back when updating.
+18. **Always close NovaDB snapshots** in a `finally` block — open snapshots prevent MVCC garbage collection and will grow disk usage unboundedly if forgotten.
+19. Design NovaDB `_id` values with sortable prefixes (e.g. `warn_{guildId}_{userId}_{timestamp}`) to enable efficient prefix range scans. Random UUIDs as `_id` make prefix scans useless.
+20. Create NovaDB secondary indexes once at boot (e.g. in `onSetup()` or handler `onInitialize()`), not on every request.
+21. For ComponentsV2 layouts: all `%%...%%` placeholder resolution is handled automatically by the string interpolation pipeline at build time — do not call `resolveGlobalPlaceholders()` manually.
+22. The global `DiscordMiddleware` automatically resolves `%%...%%` placeholders across **all** Discord.js send surfaces (replies, edits, followUps, channel sends, webhook messages, presence, etc.). You never need to call `resolveGlobalPlaceholders()` in plugin code for Discord-bound strings.
+23. Do not use `buildComponentsV2` / `buildComponentsV2AutoWrap` / `buildComponentsV2Strict` and the `ComponentEngine` singleton interchangeably without understanding that each call to `buildComponentsV2` creates a fresh engine with no shared state, while `ComponentEngine` (the singleton) retains a global context that can be configured once via `ComponentEngine.configure(...)`.
