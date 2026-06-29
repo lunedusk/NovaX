@@ -194,3 +194,5 @@ __**
 !src/plugins/core/**/*
 !src/plugins/permissions/**/*
 !src/plugins/sellauth/**/*
+!dashboard/**/lib/
+!src/plugins/**/lib/

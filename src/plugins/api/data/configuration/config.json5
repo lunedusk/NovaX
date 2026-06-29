@@ -1,0 +1,25 @@
+{
+    cors: {
+        allowedOrigins: ["http://localhost:3000"],
+        allowedMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
+        exposedHeaders: ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-Request-ID"],
+        credentials: false,
+        maxAge: 600,
+    },
+
+    auth: {
+        enabled: true,
+        publicPaths: [
+            "/api/health",
+            "/api/openapi.json",
+        ],
+        keys: [
+            {
+                key: "REPLACE_ME_WITH_A_STRONG_SECRET",
+                label: "default",
+                enabled: true,
+            },
+        ],
+    },
+}

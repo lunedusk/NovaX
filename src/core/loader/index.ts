@@ -107,18 +107,25 @@ export class PluginManager extends EventEmitter {
             sorted.push(plugin);
         };
 
-        for (const pluginId of plugins.keys()) {
+        const orderedKeys = [...plugins.keys()].sort((a, b) => {
+            const pa = plugins.get(a)!.manifest.priority ?? 0;
+            const pb = plugins.get(b)!.manifest.priority ?? 0;
+            return pa - pb;
+        });
+
+        for (const pluginId of orderedKeys) {
             try {
                 visit(pluginId);
             } catch (error: unknown) {
                 const err = error instanceof Error ? error : new Error(String(error));
                 log.error(`Dependency resolution failed for '${pluginId}': ${err.message}. Plugin will not load.`);
-                plugins.delete(pluginId); 
+                plugins.delete(pluginId);
             }
         }
 
         return sorted;
     }
+
 
     private async discoverPlugins(): Promise<Map<string, DiscoveredPlugin>> {
         const discovered = new Map<string, DiscoveredPlugin>();
@@ -298,8 +305,9 @@ export class PluginManager extends EventEmitter {
                 
                 await EventLoader.loadForPlugin(dir, id, scopedHeart);
                 await CommandLoader.loadForPlugin(dir, id, scopedHeart);
-                await RouteLoader.loadForPlugin(dir, id, scopedHeart);
                 await HandlerLoader.loadForPlugin(dir, id, scopedHeart);
+                await RouteLoader.loadForPlugin(dir, id, scopedHeart);
+                
 
                 instance._setState(PluginState.Enabled);
                 await this.withTimeout(instance.onEnable(), id, 'onEnable()');
@@ -459,8 +467,9 @@ export class PluginManager extends EventEmitter {
                 
                 await EventLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
                 await CommandLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
-                await RouteLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
                 await HandlerLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+                await RouteLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+                
 
                 instance._setState(PluginState.Enabled);
                 await this.withTimeout(instance.onEnable(), pluginId, 'onEnable()');

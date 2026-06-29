@@ -20,92 +20,14 @@ import { BaseCommand } from '#core/bases/Command';
 ### 2. Path Alias Mapping — Absolute Only
 Always resolve core structures via these explicit sub-directory aliases:
 
-|
- Alias 
-|
- Resolves To 
-|
- Contains 
-|
-|
----
-|
----
-|
----
-|
-|
-`#core/bases/*`
-|
- Base schemas 
-|
-`Command.js`
-, 
-`Event.js`
-, 
-`Plugin.js`
-, 
-`Route.js`
-, 
-`Handler.js`
-|
-|
-`#core/utils/*`
-|
- Toolbelt 
-|
-`logger.js`
-, 
-`format.js`
-, 
-`random.js`
-, 
-`nodever.js`
-|
-|
-`#core/helpers/*`
-|
- Subsystems 
-|
-`secretManager.js`
-, 
-`enclave.js`
-, 
-`cache.js`
-, 
-`bloom.js`
-, 
-`crossGuild/index.js`
-|
-|
-`#core/decorators/*`
-|
- Decorators 
-|
-`Cooldown.js`
-|
-|
-`#core/builders/*`
-|
- UI Engines 
-|
-`EmbedEngine.js`
-, 
-`ComponentEngine.js`
-|
-|
-`#database/nova.js`
-|
- NovaDB types 
-|
-`NovaCollection`
-, 
-`InProcessTransport`
-, 
-`TCPReplicaServer`
-, 
-`TCPReplicaClient`
-|
+| Alias | Resolves To | Contains |
+|---|---|---|
+| `#core/bases/*` | Base schemas | `Command.js`, `Event.js`, `Plugin.js`, `Route.js`, `Handler.js` |
+| `#core/utils/*` | Toolbelt | `logger.js`, `format.js`, `random.js`, `nodever.js` |
+| `#core/helpers/*` | Subsystems | `secretManager.js`, `enclave.js`, `cache.js`, `bloom.js`, `crossGuild/index.js` |
+| `#core/decorators/*` | Decorators | `Cooldown.js` |
+| `#core/builders/*` | UI Engines | `EmbedEngine.js`, `ComponentEngine.js` |
+| `#database/nova.js` | NovaDB types | `NovaCollection`, `InProcessTransport`, `TCPReplicaServer`, `TCPReplicaClient` |
 
 ### 3. Immutable Context Access — `IHeart`
 Plugin components **never** import or instantiate framework singletons directly. They receive a frozen, scoped `IHeart` instance injected by the framework at load time. All subsystem access must go through this context object exclusively.
@@ -209,6 +131,7 @@ export default class MyPlugin extends BasePlugin {
         dependencies: [],            // Optional: IDs of plugins that must load first
         novax_version: '>=0.1.6',    // Optional: semver range constraint
         node_version: '>=20',        // Optional: node version constraint
+        priority: 0,                 // Optional: boot order (lower = loads first, default 0)
     };
 
     /**
@@ -216,7 +139,7 @@ export default class MyPlugin extends BasePlugin {
      * Use for: database schema setup, config validation, pre-checks.
      * DO NOT register commands or listen for events here — loaders haven't run yet.
      */
-    public async onSetup(): Promise {
+    public async onSetup(): Promise<void> {
         this.log.info('Setting up...');
     }
 
@@ -224,7 +147,7 @@ export default class MyPlugin extends BasePlugin {
      * onEnable() fires AFTER all loaders have run (commands, events, routes registered).
      * Use for: starting schedulers, emitting startup events, post-load logic.
      */
-    public async onEnable(): Promise {
+    public async onEnable(): Promise<void> {
         this.log.info('Plugin is now live.');
     }
 
@@ -232,13 +155,14 @@ export default class MyPlugin extends BasePlugin {
      * onDisable() fires during graceful shutdown or hot-reload teardown.
      * Use for: clearing intervals, closing connections, cleanup.
      */
-    public async onDisable(): Promise {
+    public async onDisable(): Promise<void> {
         this.log.info('Shutting down...');
     }
 }
 ```
 
-> **Lifecycle order:** `onSetup()` → loaders run (commands/events/routes/handlers) → `onEnable()`
+> **Lifecycle order:** `onSetup()` → loaders run (events/commands/handlers/routes) → `onEnable()`
+> **Loader order:** Handlers load **before** routes within the same plugin. Routes can safely access their own plugin's handlers via `this.heart.system.handler.$get()` during `register()`.
 > **Timeout:** Each lifecycle hook has a 15-second timeout. Avoid blocking async operations without a guard.
 
 ---
@@ -256,11 +180,14 @@ Used as the unsigned fallback when no `manifest.nvx` is present. Must contain at
     "author": "AuthorName",
     "dependencies": [],
     "novax_version": ">=0.1.6",
-    "node_version": ">=20"
+    "node_version": ">=20",
+    "priority": 0
 }
 ```
 
 > The `id` field is the **canonical plugin identifier**. It must be unique across all plugins and match the directory name. Mismatching this will silently break config file naming, lang key resolution, and registry lookups.
+>
+> `priority` controls boot order among independent plugins. Lower values load first (default `0`). Dependencies always override priority — if plugin B depends on A, A loads first regardless of their priority values.
 
 ---
 
@@ -346,7 +273,7 @@ export default class PingCommand extends BaseCommand {
         denyMessage: 'You cannot do this.', // Custom rejection message
     };
 
-    public async execute(interaction: ChatInputCommandInteraction): Promise {
+    public async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         const latency = interaction.client.ws.ping;
         await interaction.editReply(
             this.t('commands.ping.reply', { latency })
@@ -376,12 +303,12 @@ export default class SearchCommand extends BaseCommand {
 
     public readonly config: CommandConfig = { autoDefer: 'ephemeral' };
 
-    public async execute(interaction: ChatInputCommandInteraction): Promise {
+    public async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         const query = interaction.options.getString('query', true);
         await interaction.editReply(`You searched: ${query}`);
     }
 
-    public async autocomplete(interaction: AutocompleteInteraction): Promise {
+    public async autocomplete(interaction: AutocompleteInteraction): Promise<void> {
         const focused = interaction.options.getFocused().toLowerCase();
         const choices = ['apple', 'banana', 'cherry']
             .filter(c => c.includes(focused))
@@ -399,7 +326,7 @@ import { createServerAutocomplete } from '#core/helpers/crossGuild/index.js';
 import { PermissionFlagsBits } from 'discord.js';
 
 // In the command class:
-public async autocomplete(interaction: AutocompleteInteraction): Promise {
+public async autocomplete(interaction: AutocompleteInteraction): Promise<void> {
     const handler = createServerAutocomplete({
         userPermissions: [PermissionFlagsBits.ManageGuild],
         clientPermissions: [PermissionFlagsBits.SendMessages],
@@ -425,7 +352,7 @@ import {
     type AnySelectMenuInteraction,
 } from 'discord.js';
 
-export default class InteractionCreateEvent extends BaseEvent {
+export default class InteractionCreateEvent extends BaseEvent<[Interaction]> {
 
     public readonly name = 'interactionCreate'; // Any valid discord.js ClientEvents key
     public readonly once = false;               // true = listen once then remove
@@ -433,7 +360,7 @@ export default class InteractionCreateEvent extends BaseEvent {
     // --- Optional: inline component handler maps ---
 
     // String ID = exact match; RegExp = pattern match (match array passed to handler)
-    public readonly buttons = new Map<string | RegExp, (i: ButtonInteraction, match?: RegExpMatchArray) => Promise>([
+    public readonly buttons = new Map<string | RegExp, (i: ButtonInteraction, match?: RegExpMatchArray) => Promise<void>>([
         ['confirm-action', async (i) => {
             await i.update({ content: 'Confirmed!', components: [] });
         }],
@@ -443,20 +370,20 @@ export default class InteractionCreateEvent extends BaseEvent {
         }],
     ]);
 
-    public readonly modals = new Map<string | RegExp, (i: ModalSubmitInteraction, match?: RegExpMatchArray) => Promise>([
+    public readonly modals = new Map<string | RegExp, (i: ModalSubmitInteraction, match?: RegExpMatchArray) => Promise<void>>([
         ['submit-form', async (i) => {
             const value = i.fields.getTextInputValue('field-id');
             await i.reply({ content: `Got: ${value}`, ephemeral: true });
         }],
     ]);
 
-    public readonly selects = new Map<string | RegExp, (i: AnySelectMenuInteraction, match?: RegExpMatchArray) => Promise>([
+    public readonly selects = new Map<string | RegExp, (i: AnySelectMenuInteraction, match?: RegExpMatchArray) => Promise<void>>([
         ['pick-role', async (i) => {
             await i.reply({ content: `Selected: ${i.values.join(', ')}`, ephemeral: true });
         }],
     ]);
 
-    public async execute(interaction: Interaction): Promise {
+    public async execute(interaction: Interaction): Promise<void> {
         if (!interaction.isChatInputCommand()) return;
         this.heart.log.debug(`Command received: ${interaction.commandName}`);
     }
@@ -469,7 +396,7 @@ export default class InteractionCreateEvent extends BaseEvent {
 Apply per-component permission constraints by setting top-level fields on the event class. These are read by the loader and attached to all component registrations in that file:
 
 ```ts
-export default class AdminPanelEvent extends BaseEvent {
+export default class AdminPanelEvent extends BaseEvent<[Interaction]> {
     public readonly name = 'interactionCreate';
     public readonly once = false;
 
@@ -482,7 +409,7 @@ export default class AdminPanelEvent extends BaseEvent {
         ['admin-action', async (i: ButtonInteraction) => { /* ... */ }],
     ]);
 
-    public async execute(): Promise {}
+    public async execute(): Promise<void> {}
 }
 ```
 
@@ -507,19 +434,133 @@ export default class WebhookRoute extends BaseRoute {
         this.router.get('/status', this.asyncHandler(this.handleStatus.bind(this)));
     }
 
-    private async handleGithub(req: Request, res: Response): Promise {
+    private async handleGithub(req: Request, res: Response): Promise<void> {
         const payload = req.body;
         this.log.info(`Received GitHub webhook: ${payload?.action}`);
         res.json({ ok: true });
     }
 
-    private async handleStatus(_req: Request, res: Response): Promise {
+    private async handleStatus(_req: Request, res: Response): Promise<void> {
         res.json({ status: 'ok', plugin: 'my-plugin' });
     }
 }
 ```
 
 > The HTTP server is accessed internally — do not use `this.heart.net.http` to build responses. Use it only to register routers (`registerRouter`) or query server status.
+
+---
+
+## 🛡️ API GATEWAY PLUGIN (`api`) — Integration Guide
+
+The `api` plugin provides a centralized REST API infrastructure layer: CORS, bearer token authentication, security headers, and auto-generated OpenAPI documentation via `swagger-jsdoc`. Other plugins consume it entirely through the handler system — no direct file imports needed.
+
+### Declaring the dependency
+
+In your plugin's `manifest.json`:
+
+```json
+{
+    "id": "shop",
+    "dependencies": ["api"]
+}
+```
+
+This guarantees the `api` plugin boots first and its handler is registered before your plugin's loaders run.
+
+### Applying the middleware stack
+
+In any route file, access the API handler and apply its full middleware stack (security headers + CORS + bearer auth) in one call:
+
+```ts
+import { BaseRoute } from '#core/bases/Route.js';
+import { type Request, type Response } from 'express';
+import type GatewayManager from '../../../api/src/handlers/manager.js';
+
+export default class ShopRoute extends BaseRoute {
+
+    public readonly basePath = '/api/shop';
+
+    private get api(): GatewayManager | undefined {
+        return this.heart.system.handler.$get('api', 'manager') as GatewayManager | undefined;
+    }
+
+    protected register(): void {
+        this.api?.applyMiddleware(this.router);
+
+        this.router.get('/products', this.asyncHandler(this.handleList.bind(this)));
+        this.router.post('/purchase', this.asyncHandler(this.handlePurchase.bind(this)));
+    }
+
+    private async handleList(_req: Request, res: Response): Promise<void> {
+        res.status(200).json({ products: [] });
+    }
+
+    private async handlePurchase(req: Request, res: Response): Promise<void> {
+        res.status(201).json({ purchased: true, data: req.body });
+    }
+}
+```
+
+### Auto-documenting endpoints with `@openapi`
+
+Add `@openapi` JSDoc annotations to your route files. The `api` plugin's `swagger-jsdoc` setup scans all route files and merges their annotations into the OpenAPI spec served at `/api/openapi.json`.
+
+```ts
+/**
+ * @openapi
+ * /api/shop/products:
+ *   get:
+ *     tags: [Shop]
+ *     summary: List all products
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       '200':
+ *         description: Array of products
+ *       '401':
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+```
+
+`@openapi` annotations are scanned from `.ts` and `.js` files in the `api` plugin's `src/routes/` directory. For routes in other plugins, extend the spec via the handler's `buildOpenApiSpec()` method or add their paths to a shared YAML definition.
+
+### Available handler methods
+
+All accessed via `this.heart.system.handler.$get('api', 'manager')`:
+
+| Method | Returns | Description |
+|---|---|---|
+| `applyMiddleware(router)` | `void` | Applies security headers + CORS + bearer auth to a router |
+| `buildOpenApiSpec(baseUrl)` | `object` | Returns the cached OpenAPI 3.1 spec with the given server URL |
+| `getCorsConfig()` | `object` | Read-only snapshot of current CORS settings |
+| `isOriginAllowed(origin)` | `boolean` | Regex-aware origin check against the CORS allowlist |
+| `getAuthStatus()` | `object` | Sanitised auth status (key count, public paths — keys never exposed) |
+| `validateKey(key)` | `boolean` | Timing-safe API key validation |
+
+### Making routes public
+
+Add the route's full path to `publicPaths` in `configuration/api.json5`:
+
+```json5
+{
+    auth: {
+        publicPaths: [
+            "/api/health",
+            "/api/openapi.json",
+            "/api/shop/products",    // public, no auth required
+        ],
+    },
+}
+```
+
+### Client authentication
+
+All non-public endpoints require the `Authorization` header with a bearer token:
+
+```
+GET /api/shop/products
+Authorization: Bearer sk_prod_your_key_here
+```
 
 ---
 
@@ -538,7 +579,7 @@ export default class EconomyManager extends BaseHandler {
     public readonly version = '1.0.0';             // Optional — semver string
     public readonly description = 'Manages virtual currency and transactions'; // Optional
 
-    private readonly cache = new Map();
+    private readonly cache = new Map<string, number>();
 
     /**
      * onInitialize() fires after registration, before onEnable() runs on any plugin.
@@ -546,7 +587,7 @@ export default class EconomyManager extends BaseHandler {
      * Has a 15-second timeout. If it throws or times out, the handler is unregistered
      * and will NOT be discoverable by other plugins.
      */
-    public async onInitialize(): Promise {
+    public async onInitialize(): Promise<void> {
         this.log.info('Economy manager initialized.');
     }
 
@@ -558,25 +599,25 @@ export default class EconomyManager extends BaseHandler {
      * IMPORTANT: Must not assume sibling handlers from other plugins are still alive
      * during a full shutdown (all onDisable() hooks complete before any onTeardown() fires).
      */
-    public async onTeardown(): Promise {
+    public async onTeardown(): Promise<void> {
         this.cache.clear();
         this.log.info('Economy manager torn down.');
     }
 
     // --- Public API — other plugins access these via dot notation ---
 
-    public async getBalance(userId: string): Promise {
+    public async getBalance(userId: string): Promise<number> {
         return this.cache.get(userId) ?? 0;
     }
 
-    public async addBalance(userId: string, amount: number): Promise {
+    public async addBalance(userId: string, amount: number): Promise<number> {
         const current = await this.getBalance(userId);
         const updated = current + amount;
         this.cache.set(userId, updated);
         return updated;
     }
 
-    public async transfer(from: string, to: string, amount: number): Promise {
+    public async transfer(from: string, to: string, amount: number): Promise<boolean> {
         const balance = await this.getBalance(from);
         if (balance < amount) return false;
         await this.addBalance(from, -amount);
@@ -589,125 +630,17 @@ export default class EconomyManager extends BaseHandler {
 
 ### BaseHandler API Reference
 
-|
- Member 
-|
- Type 
-|
- Required 
-|
- Description 
-|
-|
----
-|
----
-|
----
-|
----
-|
-|
-`name`
-|
-`string`
- (abstract) 
-|
- ✅ 
-|
- Handler name within the plugin. Must be a valid JS identifier (camelCase). Accessed as 
-`handler.<pluginId>.<name>`
-|
-|
-`version`
-|
-`string`
-|
- — 
-|
- Optional semver string for introspection 
-|
-|
-`description`
-|
-`string`
-|
- — 
-|
- Optional human-readable description for admin/debug listing 
-|
-|
-`onInitialize()`
-|
-`async`
- lifecycle 
-|
- — 
-|
- Called after registration, before plugin 
-`onEnable()`
-. 15-second timeout. Failure = unregistered. 
-|
-|
-`onTeardown()`
-|
-`async`
- lifecycle 
-|
- — 
-|
- Called on disable or hot-reload. 15-second timeout. Errors are isolated. 
-|
-|
-`this.heart`
-|
- getter → 
-`IHeart`
-|
- — 
-|
- Full framework context. Backed by a private field (
-`#heart`
-) set at construction; accessed via a 
-`protected get`
- accessor. 
-|
-|
-`this.log`
-|
- getter → 
-`Logger`
-|
- — 
-|
- Scoped logger (
-`Handler:<ClassName>`
-). 
-**
-Lazily initialized
-**
- — created on first access, not at construction. 
-|
-|
-`this.config`
-|
- getter 
-|
- — 
-|
- Shorthand for 
-`this.heart.assets.config`
-|
-|
-`this.events`
-|
- getter 
-|
- — 
-|
- Shorthand for 
-`this.heart.system.events`
-|
+| Member | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` (abstract) | ✅ | Handler name within the plugin. Must be a valid JS identifier (camelCase). Accessed as `handler.<pluginId>.<name>` |
+| `version` | `string` | — | Optional semver string for introspection |
+| `description` | `string` | — | Optional human-readable description for admin/debug listing |
+| `onInitialize()` | `async` lifecycle | — | Called after registration, before plugin `onEnable()`. 15-second timeout. Failure = unregistered. |
+| `onTeardown()` | `async` lifecycle | — | Called on disable or hot-reload. 15-second timeout. Errors are isolated. |
+| `this.heart` | getter → `IHeart` | — | Full framework context. Backed by a private field (`#heart`) set at construction; accessed via a `protected get` accessor. |
+| `this.log` | getter → `Logger` | — | Scoped logger (`Handler:<ClassName>`). **Lazily initialized** — created on first access, not at construction. |
+| `this.config` | getter | — | Shorthand for `this.heart.assets.config` |
+| `this.events` | getter | — | Shorthand for `this.heart.system.events` |
 
 ### Naming Convention
 The `name` property must be a **valid JavaScript identifier** in camelCase. The framework throws a hard error at boot if `name` fails the regex check (`/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`).
@@ -748,8 +681,8 @@ this.heart.system.handler.economy?.manager          // BaseHandler | undefined
 this.heart.system.handler.$has('economy', 'manager')   // → boolean
 this.heart.system.handler.$has('economy')               // → boolean (any handlers?)
 this.heart.system.handler.$get('economy', 'manager')
-this.heart.system.handler.$list()                       // → Array
-this.heart.system.handler.$listDetailed()               // → Array
+this.heart.system.handler.$list()                       // → Array<string>
+this.heart.system.handler.$listDetailed()               // → Array<HandlerDetail>
 ```
 
 ### Handler Lifecycle — Full Picture
@@ -757,9 +690,11 @@ this.heart.system.handler.$listDetailed()               // → Array
 **Boot / hot-reload:**
 ```
 onSetup()
-  → EventLoader, CommandLoader, RouteLoader, HandlerLoader
+  → EventLoader, CommandLoader, HandlerLoader, RouteLoader
       → handler: new HandlerClass(heart)
       → handler: onInitialize()   ← 15s timeout; failure unregisters the handler
+      → route: new RouteClass(heart)
+      → route: register()         ← handlers are available via $get() here
   → onEnable()                    ← safe to use this.heart.system.handler here
 ```
 
@@ -793,12 +728,12 @@ import { Cooldown } from '#core/decorators/Cooldown.js';
 import { BaseEvent } from '#core/bases/Event.js';
 import { type ButtonInteraction } from 'discord.js';
 
-export default class ExampleEvent extends BaseEvent {
+export default class ExampleEvent extends BaseEvent<[Interaction]> {
     public readonly name = 'interactionCreate';
     public readonly once = false;
 
     @Cooldown('claim-button', { limit: 1, windowMs: 60_000 }) // 1 use per 60s per user
-    private async handleClaim(i: ButtonInteraction): Promise {
+    private async handleClaim(i: ButtonInteraction): Promise<void> {
         await i.reply({ content: 'Claimed!', ephemeral: true });
     }
 
@@ -806,7 +741,7 @@ export default class ExampleEvent extends BaseEvent {
         ['claim', (i: ButtonInteraction) => this.handleClaim(i)],
     ]);
 
-    public async execute(): Promise {}
+    public async execute(): Promise<void> {}
 }
 ```
 
@@ -1061,7 +996,7 @@ export default class InspectUserCommand extends BaseCommand {
         allowInDm: false,
     };
 
-    public async execute(interaction: UserContextMenuCommandInteraction): Promise {
+    public async execute(interaction: UserContextMenuCommandInteraction): Promise<void> {
         const target = interaction.targetUser;
         await interaction.reply({
             content: `Inspecting ${target.username} (${target.id})`,
@@ -1194,136 +1129,23 @@ Configured via `Database` key in `.env` as a JSON object. The framework auto-pro
 Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}, "cache": {"uri": "redis://localhost:6379", "engine": "redis"}, "analytics": {"uri": "postgresql://user:pass@remote:5432/stats", "engine": "native-pg", "poolSize": 5}}
 ```
 
-|
- Engine key 
-|
-`this.heart.db`
- accessor 
-|
- Notes 
-|
-|
----
-|
----
-|
----
-|
-|
-`native-novadb`
-|
-`this.heart.db.nova.get('alias')`
-|
- Built-in embedded LSM store. Auto-managed path under 
-`.data/database/{alias}/`
-|
-|
-`mongo`
-|
-`this.heart.db.mongo.get('alias')`
-|
- Mongoose driver. Supports 
-`poolSize`
-, 
-`maxRetries`
-|
-|
-`redis`
-|
-`this.heart.db.redis.get('alias')`
-|
- Spins up 
-`{main, pub, sub}`
- triad automatically for caching + Pub/Sub 
-|
-|
-`native-pg`
-|
-`this.heart.db.postgres.get('alias')`
-|
-`pg`
- driver with idle timeouts and connection pooling 
-|
-|
-`native-sqlite`
-|
-`this.heart.db.sqlite.get('alias')`
-|
-`better-sqlite3`
-, WAL mode auto-applied 
-|
-|
-`typeorm`
-|
-`this.heart.db.orm.get('alias')`
-|
- Supports 
-`postgres`
-, 
-`mysql`
-, 
-`mariadb`
-, 
-`sqlite`
-. Auto-syncs in non-prod 
-|
+| Engine key | `this.heart.db` accessor | Notes |
+|---|---|---|
+| `native-novadb` | `this.heart.db.nova.get('alias')` | Built-in embedded LSM store. Auto-managed path under `.data/database/{alias}/` |
+| `mongo` | `this.heart.db.mongo.get('alias')` | Mongoose driver. Supports `poolSize`, `maxRetries` |
+| `redis` | `this.heart.db.redis.get('alias')` | Spins up `{main, pub, sub}` triad automatically for caching + Pub/Sub |
+| `native-pg` | `this.heart.db.postgres.get('alias')` | `pg` driver with idle timeouts and connection pooling |
+| `native-sqlite` | `this.heart.db.sqlite.get('alias')` | `better-sqlite3`, WAL mode auto-applied |
+| `typeorm` | `this.heart.db.orm.get('alias')` | Supports `postgres`, `mysql`, `mariadb`, `sqlite`. Auto-syncs in non-prod |
 
 **Common config properties:**
 
-|
- Property 
-|
- Type 
-|
- Default 
-|
- Description 
-|
-|
----
-|
----
-|
----
-|
----
-|
-|
-`uri`
-|
- string 
-|
- — 
-|
- Connection string (required) 
-|
-|
-`engine`
-|
- string 
-|
- auto-detected 
-|
- Driver to use 
-|
-|
-`poolSize`
-|
- number 
-|
- 10 
-|
- Max simultaneous connections 
-|
-|
-`maxRetries`
-|
- number 
-|
- 5 
-|
- Reconnect attempts on startup failure 
-|
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `uri` | string | — | Connection string (required) |
+| `engine` | string | auto-detected | Driver to use |
+| `poolSize` | number | 10 | Max simultaneous connections |
+| `maxRetries` | number | 5 | Reconnect attempts on startup failure |
 
 ---
 
@@ -1341,7 +1163,7 @@ const filter: EligibilityFilter = {
 
 const resolver = new CrossGuildResolver(interaction.client);
 const eligibleGuilds = await resolver.getEligibleGuilds(interaction.user.id, filter);
-// Returns: Array
+// Returns: Array<Guild>
 
 const hasAny = await resolver.hasAnyEligibleGuild(interaction.user.id, filter);
 
@@ -1359,7 +1181,7 @@ Resolves a dot-notation key from the plugin's active locale translation file wit
 
 ```ts
 // Signature (BaseCommand only):
-this.t(key: string, vars?: Record, locale?: string): string
+this.t(key: string, vars?: Record<string, unknown>, locale?: string): string
 
 this.t('commands.ping.reply')
 this.t('commands.ping.reply', { latency: 42 })
@@ -1438,15 +1260,15 @@ export default class GreeterPlugin extends BasePlugin {
         version: '1.0.0',
     };
 
-    public async onSetup(): Promise {
+    public async onSetup(): Promise<void> {
         this.log.info('Greeter config validated.');
     }
 
-    public async onEnable(): Promise {
+    public async onEnable(): Promise<void> {
         this.log.info('Greeter is live.');
     }
 
-    public async onDisable(): Promise {
+    public async onDisable(): Promise<void> {
         this.log.info('Greeter shutting down.');
     }
 }
@@ -1472,7 +1294,7 @@ export default class GreetCommand extends BaseCommand {
         autoDefer: true,
     };
 
-    public async execute(interaction: ChatInputCommandInteraction): Promise {
+    public async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         const target = interaction.options.getUser('user', true);
         await interaction.editReply(
             this.t('commands.greet.message', { username: target.username })
@@ -1486,11 +1308,11 @@ export default class GreetCommand extends BaseCommand {
 import { BaseEvent } from '#core/bases/Event.js';
 import { type GuildMember } from 'discord.js';
 
-export default class GuildMemberAddEvent extends BaseEvent {
+export default class GuildMemberAddEvent extends BaseEvent<[GuildMember]> {
     public readonly name = 'guildMemberAdd';
     public readonly once = false;
 
-    public async execute(member: GuildMember): Promise {
+    public async execute(member: GuildMember): Promise<void> {
         const channelId = this.heart.assets.config.get('greeter.welcomeChannelId');
         if (!channelId) return;
 
@@ -1559,3 +1381,6 @@ export default class GuildMemberAddEvent extends BaseEvent {
 21. For ComponentsV2 layouts: all `%%...%%` placeholder resolution is handled automatically by the string interpolation pipeline at build time — do not call `resolveGlobalPlaceholders()` manually.
 22. The global `DiscordMiddleware` automatically resolves `%%...%%` placeholders across **all** Discord.js send surfaces (replies, edits, followUps, channel sends, webhook messages, presence, etc.). You never need to call `resolveGlobalPlaceholders()` in plugin code for Discord-bound strings.
 23. Do not use `buildComponentsV2` / `buildComponentsV2AutoWrap` / `buildComponentsV2Strict` and the `ComponentEngine` singleton interchangeably without understanding that each call to `buildComponentsV2` creates a fresh engine with no shared state, while `ComponentEngine` (the singleton) retains a global context that can be configured once via `ComponentEngine.configure(...)`.
+24. **Loader execution order is: EventLoader → CommandLoader → HandlerLoader → RouteLoader.** Handlers are available to routes within the same plugin during `register()`. Access them via `this.heart.system.handler.$get(pluginId, handlerName)` with a type-only import for the handler class.
+25. **Plugin boot priority** is controlled by `manifest.priority` (default `0`, lower loads first). Dependencies always override priority — a dependent plugin always loads after its dependencies regardless of priority values.
+26. When a plugin needs REST API infrastructure (CORS, auth, security headers), declare `"dependencies": ["api"]` and use the API handler: `this.heart.system.handler.$get('api', 'manager')?.applyMiddleware(this.router)`. Never import middleware functions directly from another plugin's `src/lib/` directory.

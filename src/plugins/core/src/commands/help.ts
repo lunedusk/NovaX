@@ -78,7 +78,7 @@ export default class HelpCommand extends BaseCommand {
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             this.log.error(`Help Command Exception: ${err.message}`);
-            await interaction.editReply({ content: '%%emoji_cross%% Failed to generate the enterprise directory.' });
+            await interaction.editReply({ content: '%%emoji_cross%% Failed to generate the directory.' });
         }
     }
 }
