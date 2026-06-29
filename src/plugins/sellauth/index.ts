@@ -22,7 +22,7 @@ export default class SellauthPlugin extends BasePlugin {
         id: 'sellauth',
         name: 'SellAuth',
         version: '0.1.0',
-        author: 'NovaCore Development',
+        author: 'Lunedusk',
         novax_version: '>=0.1.0',
         node_version: '>=18.20.8',
         dependencies: ['core']

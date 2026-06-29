@@ -16,12 +16,12 @@ interface PresenceConfig {
     activities: ActivityConfig[];
 }
 
-export default class NovaCorePlugin extends BasePlugin {
+export default class Core extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'core',
         name: 'Core',
         version: '0.1.0',
-        author: 'NovaCore Development',
+        author: 'Lunedusk',
         novax_version: '>=0.1.6'
     };
 

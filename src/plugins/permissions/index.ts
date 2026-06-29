@@ -5,7 +5,7 @@ export default class PermissionsPlugin extends BasePlugin {
         id: 'permissions',
         name: 'Permissions',
         version: '0.1.0',
-        author: 'NovaCore Development',
+        author: 'Lunedusk',
         novax_version: '>=0.1.0'
     };
 

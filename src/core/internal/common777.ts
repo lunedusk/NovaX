@@ -99,8 +99,8 @@ class Common777 {
             process.exit(1);
         }
 
-        if (info.__author__ !== 'NovaCore') {
-            log.error(`__info__.__author__ must be exactly "NovaCore", got "${info.__author__}"`);
+        if (info.__author__ !== 'Lunedusk') {
+            log.error(`__info__.__author__ must be exactly "Lunedusk", got "${info.__author__}"`);
             process.exit(1);
         }
 
@@ -122,7 +122,7 @@ class Common777 {
                 log.warn('common.json not found. Skipping ENVSettings handling, using in-memory defaults.');
                 const defaults: CommonConfig = {
                     __info__: {
-                        __author__: 'NovaCore',
+                        __author__: 'Lunedusk',
                         version: pkgVersion
                     }
                 };
@@ -135,7 +135,7 @@ class Common777 {
 
             if (!this.data.__info__) {
                 this.data.__info__ = {
-                    __author__: 'NovaCore',
+                    __author__: 'Lunedusk',
                     version: pkgVersion
                 };
             }
