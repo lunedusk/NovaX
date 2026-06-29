@@ -1,9 +1,0 @@
-{   
-    "id": "sellauth",
-    "name": "Sellauth",
-    "version": "0.1.0",
-    "author": "Lunedusk",
-    "dependencies": ["core"],
-    "node_version": ">=18.20.8",
-    "novax_version": ">=0.1.3"
-}
