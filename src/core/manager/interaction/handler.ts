@@ -104,7 +104,7 @@ export class InteractionHandler {
                 return;
             }
 
-            const access = permissionsManager.canExecute(interaction, route.access);
+            const access = await permissionsManager!.canExecute(interaction, route.access);
             if (!access.allowed) {
                 metricsManager.interactionsTotal.inc({ type: route.category, command: route.lookupKey, status: 'denied' });
 
@@ -113,7 +113,7 @@ export class InteractionHandler {
                     return;
                 }
 
-                await permissionsManager.sendDenied(interaction, access.reason);
+                await permissionsManager!.sendDenied(interaction, access.reason);
                 return;
             }
 

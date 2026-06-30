@@ -181,7 +181,7 @@ export class HelpUtils {
 
             for (const cmd of cachedGroup.commands) {
                 if (filterEnabled && cmd.access) {
-                    const accessCheck = permissionsManager.canExecute(interaction as any, cmd.access);
+                    const accessCheck = await permissionsManager!.canExecute(interaction as any, cmd.access);
                     if (!accessCheck.allowed) continue;
                 }
                 userGroup.commands.push(cmd);

@@ -47,6 +47,7 @@ NovaX/
 │       │   ├── commands/        # Core slash commands extending abstract BaseCommand
 │       │   ├── events/          # Gateway observers and interactive mappings extending BaseEvent
 │       │   └── routes/          # Express network API interfaces extending BaseRoute
+│       │   └── handlers/        # Inter Plugin Handlers
 │       ├── manifest.json        # Manifest sheet indicating identifiers, author metadata, and requirements
 │       └── package.json         # Container configuration mapping sandbox-isolated dependencies
 ├── src/                         # Internal framework master development directory

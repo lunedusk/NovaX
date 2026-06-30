@@ -26,6 +26,8 @@ import { initAllDatabases } from '#core/database.js';
 import { globalCatcher } from '#core/error/index.js';
 import { emojis } from '#core/manager/emoji.js';
 import { wireErrorBridge } from '#core/bootstrap/errorBridge.js';
+import { createPermissionsManager } from '#core/manager/permissions.js';
+import { createPermissionCache } from '#core/manager/permissionCache.js';
 
 class NovaX {
     private readonly log = getLogger('Bootstrap');
@@ -81,9 +83,17 @@ class NovaX {
             
             this.log.info('Initializing Databases...');
             await initAllDatabases();
-            
+
+            this.log.info('Initializing Permission System...');
+            const permMgr = createPermissionsManager();
+            await permMgr.init();
+            const permCache = createPermissionCache(permMgr);
+            await permCache.init();
+            permMgr.setCache(permCache);
+
             this.log.info('Initializing Interaction Handler...');
             interactionHandler.init();
+
             
             await this.login();
             

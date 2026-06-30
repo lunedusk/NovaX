@@ -1,7 +1,7 @@
 # NovaX — Environment Variable Reference
 
-> **Framework Version:** NovaX v0.1.6  
-> **Last Updated:** 2026  
+> **Framework Version:** NovaX v0.1.6
+> **Last Updated:** 2026
 > **Node.js Requirement:** ≥ 20
 
 This document is the complete reference for every environment variable recognized by the NovaX framework. Variables are read from your `.env` file at startup via `dotenv` and managed through the internal `secretManager`. Once the application boots, the secret store is locked — changes to `.env` require a full restart to take effect.
@@ -22,8 +22,9 @@ This document is the complete reference for every environment variable recognize
 10. [Internationalisation](#10-internationalisation)
 11. [Rate Limiting](#11-rate-limiting)
 12. [Hot Reload](#12-hot-reload)
-13. [Full `.env` Template](#13-full-env-template)
-14. [Quick-Reference Table](#14-quick-reference-table)
+13. [Authentication & Tokens](#13-authentication--tokens)
+14. [Full `.env` Template](#14-full-env-template)
+15. [Quick-Reference Table](#15-quick-reference-table)
 
 ---
 
@@ -203,6 +204,30 @@ The display name of the bot used in internal logs, panel status messages, and an
 
 ```env
 BotName=MyBot
+```
+
+---
+
+### `BotOwnerIds`
+
+A comma-separated list of Discord user Snowflake IDs that are treated as **bot owners**. Bot owners bypass all permission checks — they receive every permission bit automatically and are never denied by `canExecute()`.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | *(empty — no one is treated as a bot owner)* |
+| **Safe to Change** | Yes (requires restart) |
+| **Breaking Risk** | **HIGH** — adding an incorrect user ID grants that person full, unrestricted control over every command and API endpoint. Removing a valid owner ID locks them out of owner-only commands instantly. |
+| **Recommended Action** | Set this to your own Discord user ID. Add additional trusted admins only when necessary. Never include IDs of users you do not fully trust — bot owners can manage roles, revoke tokens, and access all admin commands. |
+
+To find your Discord user ID: enable Developer Mode in Discord settings, then right-click your username and select "Copy User ID".
+
+```env
+# Single owner
+BotOwnerIds=123456789012345678
+
+# Multiple owners
+BotOwnerIds=123456789012345678,987654321098765432
 ```
 
 ---
@@ -587,6 +612,24 @@ DisableDefaultNovaDB=false
 
 ---
 
+### `DisableDefaultSqlite`
+
+When `true`, suppresses the automatic provisioning of a fallback `main` SQLite instance at `.data/database-sqlite/main.db`. Normally, if no SQLite `"main"` database exists after all configured databases are initialized, the framework creates one automatically for use by the permission system and other core features.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `false` |
+| **Safe to Change** | Yes (requires restart) |
+| **Breaking Risk** | **HIGH** — the permission system (`PermissionsManager`, `PermissionCache`) and token system (`SqliteTokenStore`) depend on a SQLite `main` instance. Disabling it without providing an alternative SQLite database in your `Database` config will cause these core systems to crash at boot. |
+| **Recommended Action** | **Leave at `false`.** Only set to `true` if you have explicitly configured a `"main"` SQLite database in your `Database` env variable using the `native-sqlite` engine. |
+
+```env
+DisableDefaultSqlite=false
+```
+
+---
+
 ## 9. Plugins
 
 ### `allowUnCertifiedPlugins`
@@ -697,7 +740,107 @@ hotReloadEnabled=false
 
 ---
 
-## 13. Full `.env` Template
+## 13. Authentication & Tokens
+
+### `TokenMasterSecret`
+
+The master secret used to derive per-user HMAC-SHA256 signing keys for bearer tokens issued by the Token Manager. All token signatures depend on this value — changing it invalidates every existing token instantly.
+
+| | |
+|---|---|
+| **Required** | **Yes — if the `token` plugin is loaded** |
+| **Default** | *(none — the token handler will refuse to initialize without it)* |
+| **Safe to Change** | Only with full token revocation first |
+| **Breaking Risk** | **CRITICAL** — changing this value silently invalidates all active tokens. Users with existing tokens will receive `INVALID_SIGNATURE` errors and must re-authenticate. There is no migration path — old tokens cannot be verified against a new secret. |
+| **Recommended Action** | Generate a strong random string of at least 32 characters and set it once. Treat it like a database password — persistent across restarts, never committed to source control. To rotate, first call `revokeAll` for each active user via the API, then swap the secret and restart. |
+
+Generate a secure value:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+```env
+TokenMasterSecret=k7Bz9xQ2mR4nW8pL1vY6dF3hJ5tA0uC9wE2sG4kM7bN1xR8qT6yP3
+```
+
+> 🔒 **Security Notice:** This secret is the root of trust for your entire token authentication system. Anyone with this value can forge valid tokens for any user with any permission bits. Store it in a secrets vault or a protected `.env` file, never in source control or a client-accessible config.
+
+---
+
+### `TokenTTL`
+
+The default time-to-live (in seconds) for newly issued tokens. After this duration, the token expires and the client must refresh or re-authenticate.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `900` (15 minutes) |
+| **Safe to Change** | Yes (requires restart) |
+| **Breaking Risk** | Low — only affects newly issued tokens; existing tokens keep their original expiry |
+| **Recommended Action** | 900 seconds (15 minutes) is a good balance between security and UX. Increase for low-risk dashboards; decrease for sensitive admin panels. |
+
+```env
+TokenTTL=900
+```
+
+---
+
+### `TokenMaxTTL`
+
+The absolute maximum TTL (in seconds) that can be requested when issuing a token. Even if a caller requests a longer TTL via the API, the Token Manager clamps it to this value.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `86400` (24 hours) |
+| **Safe to Change** | Yes (requires restart) |
+| **Breaking Risk** | None |
+| **Recommended Action** | Leave at 24 hours unless you have a specific reason to allow longer-lived tokens. Longer tokens mean longer windows of exposure if a token is stolen. |
+
+```env
+TokenMaxTTL=86400
+```
+
+---
+
+### `TokenIssuer`
+
+The `iss` (issuer) claim embedded in every token. On verification, the Token Manager rejects tokens whose issuer doesn't match this value. Useful for distinguishing tokens from different environments (staging vs production).
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `novax` |
+| **Safe to Change** | Yes — but invalidates all existing tokens (they'll fail the issuer check) |
+| **Breaking Risk** | Medium — changing this is effectively a soft revocation of all tokens |
+| **Recommended Action** | Leave as `novax` unless you run multiple NovaX instances and need to prevent tokens from one environment being used in another. |
+
+```env
+TokenIssuer=novax
+```
+
+---
+
+### `TokenAudience`
+
+The `aud` (audience) claim embedded in every token. On verification, the Token Manager rejects tokens whose audience doesn't match. Used to scope tokens to a specific consumer (e.g. `dashboard`, `mobile`, `api`).
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `dashboard` |
+| **Safe to Change** | Yes — but invalidates all existing tokens (they'll fail the audience check) |
+| **Breaking Risk** | Medium — same as `TokenIssuer` |
+| **Recommended Action** | Leave as `dashboard` for single-audience setups. If you have multiple clients consuming tokens, consider issuing tokens with different audiences per client via the API's `TokenIssueOptions`. |
+
+```env
+TokenAudience=dashboard
+```
+
+---
+
+## 14. Full `.env` Template
 
 Copy this template as your starting point. Required variables are marked. All others have safe defaults.
 
@@ -709,6 +852,10 @@ Copy this template as your starting point. Required variables are marked. All ot
 # ── RUNTIME ─────────────────────────────────────────────────
 NODE_ENV=production
 BotName=MyBot
+
+# ── BOT OWNERS ─────────────────────────────────────────────
+# Comma-separated Discord user IDs with full admin bypass
+# BotOwnerIds=123456789012345678
 
 # ── DISCORD ─────────────────────────────────────────────────
 # REQUIRED
@@ -739,6 +886,10 @@ Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}}
 # and explicitly do not want the automatic fallback
 DisableDefaultNovaDB=false
 
+# Set to true ONLY if you have manually defined a "main" SQLite database
+# and do not want the automatic fallback
+DisableDefaultSqlite=false
+
 # ── PLUGIN INTEGRITY ────────────────────────────────────────
 # Default is the Lunedusk developer key — leave unchanged to run official plugins
 PublicKey=MCowBQYDK2VwAyEAxGjGVv/sK86Px3N7hLY1x1QxS5bugvrqPlo8MW95BwQ=
@@ -760,16 +911,31 @@ EnableGlobalRatelimit=true
 
 # ── HOT RELOAD ──────────────────────────────────────────────
 hotReloadEnabled=false
+
+# ── AUTHENTICATION & TOKENS ────────────────────────────────
+# REQUIRED if using the token plugin — must be 32+ characters, persistent
+# TokenMasterSecret=your_generated_secret_here
+
+# Token TTL in seconds (default: 900 = 15 minutes)
+# TokenTTL=900
+
+# Max TTL cap in seconds (default: 86400 = 24 hours)
+# TokenMaxTTL=86400
+
+# Issuer and audience claims (change only if running multiple environments)
+# TokenIssuer=novax
+# TokenAudience=dashboard
 ```
 
 ---
 
-## 14. Quick-Reference Table
+## 15. Quick-Reference Table
 
 | Variable | Required | Default | Safe to Change | Breaking Risk |
 |---|---|---|---|---|
 | `NODE_ENV` | No | `production` | Yes | Low |
 | `BotName` | No | *(none)* | Yes | None |
+| `BotOwnerIds` | No | *(empty)* | Yes | **High** |
 | `DiscordToken` | **YES** | *(none)* | Yes | Critical if leaked |
 | `DiscordIntents` | No | All unprivileged (warns if unset) | Yes | Medium |
 | `GuildID` | No | *(global sync)* | Yes | Low |
@@ -779,6 +945,7 @@ hotReloadEnabled=false
 | `APIPort` | No | `3000` | Yes | Low |
 | `Database` | No | `{}` + auto NovaDB | Yes | **High** |
 | `DisableDefaultNovaDB` | No | `false` | Yes | **High** |
+| `DisableDefaultSqlite` | No | `false` | Yes | **High** |
 | `PublicKey` | No | Lunedusk dev key | Only with `PrivateKey` | **High** |
 | `PrivateKey` | No | *(none)* | Only with `PublicKey` | Critical — keep secret |
 | `allowUnCertifiedPlugins` | No | `false` | Yes | Security risk |
@@ -786,6 +953,11 @@ hotReloadEnabled=false
 | `DefaultLocale` | No | `en` | Yes | Low |
 | `EnableGlobalRatelimit` | No | `true` | Yes | Low |
 | `hotReloadEnabled` | No | `false` | Yes | Low |
+| `TokenMasterSecret` | If token plugin loaded | *(none)* | Only with revocation | **Critical** |
+| `TokenTTL` | No | `900` | Yes | Low |
+| `TokenMaxTTL` | No | `86400` | Yes | None |
+| `TokenIssuer` | No | `novax` | Yes (invalidates tokens) | Medium |
+| `TokenAudience` | No | `dashboard` | Yes (invalidates tokens) | Medium |
 
 ### `common.json` Field Reference
 

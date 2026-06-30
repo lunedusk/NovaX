@@ -5,5 +5,6 @@
     "description": "API Gateway — CORS, bearer auth, security headers, and OpenAPI spec.",
     "author": "Lunedusk",
     "novax_version": ">=0.1.8",
-    "node_version": ">=20"
+    "node_version": ">=20",
+    "priority": -11
 }

@@ -28,6 +28,8 @@ Always resolve core structures via these explicit sub-directory aliases:
 | `#core/decorators/*` | Decorators | `Cooldown.js` |
 | `#core/builders/*` | UI Engines | `EmbedEngine.js`, `ComponentEngine.js` |
 | `#database/nova.js` | NovaDB types | `NovaCollection`, `InProcessTransport`, `TCPReplicaServer`, `TCPReplicaClient` |
+| `#core/manager/*` | Core Managers | `permissions.js`, `permissionCache.js`, `token.js`, `cooldown.js`, `metrics/index.js`, `event.js` |
+| `#core/types/*` | Type Definitions | `permissions.js` |
 
 ### 3. Immutable Context Access — `IHeart`
 Plugin components **never** import or instantiate framework singletons directly. They receive a frozen, scoped `IHeart` instance injected by the framework at load time. All subsystem access must go through this context object exclusively.
@@ -908,19 +910,129 @@ await interaction.editReply({ ...result });
 
 ## 🔐 PERMISSION SYSTEM
 
-The `PermissionsManager` runs **automatically** on every interaction before your handler is called — you never invoke it yourself. You control it entirely through the `config` field on commands, or the top-level access fields on events.
+NovaX includes a multi-layered permission system built on **permission bits**, **roles**, and a **SQLite-backed cache**. The system operates automatically on every interaction — you never call it directly from plugin code.
+
+### Architecture Overview
+
+```
+                    ┌─────────────────────┐
+                    │  InteractionHandler  │
+                    │    canExecute()      │
+                    └─────────┬───────────┘
+                              │ calls
+                    ┌─────────▼───────────┐
+                    │ PermissionsManager   │
+                    │   cachedResolve()    │
+                    └─────────┬───────────┘
+                              │ delegates
+                    ┌─────────▼───────────┐
+                    │  PermissionCache     │
+                    │   cachedResolve()    │  ← cache hit → return
+                    └─────────┬───────────┘
+                              │ cache miss
+                    ┌─────────▼───────────┐
+                    │ PermissionsManager   │
+                    │     resolve()        │  ← reads roles from SQLite
+                    └─────────────────────┘
+```
+
+### Core Files
+
+| File | Purpose |
+|---|---|
+| `src/core/types/permissions.ts` | All permission type definitions, error class, and built-in bit seeds |
+| `src/core/manager/permissions.ts` | `PermissionsManager` — role CRUD, bit catalogue, resolution, access checks |
+| `src/core/manager/permissionCache.ts` | `PermissionCache` — TTL-based SQLite cache for resolved permissions |
+
+### Singleton Access
+
+Both managers export a singleton variable set during framework boot:
+
+```ts
+// In core boot sequence:
+import { createPermissionsManager, permissionsManager } from '#core/manager/permissions.js';
+import { createPermissionCache, permissionCache } from '#core/manager/permissionCache.js';
+
+const mgr = createPermissionsManager(heart);
+await mgr.init();
+
+const cache = createPermissionCache(heart, mgr);
+await cache.init();
+
+mgr.setCache(cache);
+```
+
+After boot, `permissionsManager` and `permissionCache` are live-binding module exports accessible from any core import. **Core plugins** (shipped with the framework) may import these singletons directly. Third-party plugins must use the `permissions` plugin handler via `this.heart.system.handler.permissions?.manager`.
+
+### Permission Bits (`src/core/types/permissions.ts`)
+
+Bits are dot-notation strings that represent individual capabilities. They fall into three scopes:
+
+| Scope | Prefix | Description |
+|---|---|---|
+| `bot` | `bot.*` | Bot-wide capabilities (e.g. `bot.roles.manage`, `bot.servers.ban`) |
+| `server` | `server.*` | Per-guild capabilities (e.g. `server.config.manage`, `server.members.kick`) |
+| `plugin` | `plugin.*` | Custom bits registered by plugins |
+
+Built-in bits are seeded on boot from the `BUILT_IN_BITS` array. Plugins can register custom bits via `PermissionsManager.registerBit()`.
+
+Two synthetic bits exist:
+- `bot.owner` — auto-granted to users listed in `BotOwnerIds` env var. Never stored in roles.
+- `server.owner` — auto-granted to the Discord guild owner during resolution. Never stored in roles.
+
+### Roles
+
+**Bot-Wide Roles** (`perm_bwroles`) — apply across all servers. Can contain any bit.
+
+**Server Roles** (`perm_sroles`) — scoped to a single guild. Can only contain `server.*` and `plugin.*` bits.
+
+Both role types store assigned user IDs as a JSON array. Resolution scans all roles and collects bits for the user.
+
+### PermissionCache (`src/core/manager/permissionCache.ts`)
+
+The cache sits between the interaction handler and the resolver. It stores resolved permissions in the `perm_users` SQLite table with a configurable TTL (default: 300 seconds).
+
+```ts
+export class PermissionCache {
+    constructor(heart: IHeart, permissionsManager: PermissionsManager, ttlSeconds?: number);
+    async init(): Promise<void>;
+    async cachedResolve(userId: string, guildId?: string, discordGuildOwnerId?: string): Promise<ResolvedPermissions>;
+    async invalidate(userId: string, guildId?: string): Promise<void>;
+    async invalidateGuild(guildId: string): Promise<void>;
+    async clearAll(): Promise<void>;
+}
+```
+
+The cache table includes a `botOwner` column so the full `ResolvedPermissions` object is preserved across cache hits — including the owner bypass flag.
+
+**Cache invalidation** happens automatically when roles are assigned, revoked, or deleted. The `PermissionsManager` delegates all invalidation to the cache when one is wired via `setCache()`.
+
+### PermissionsManager Key Methods
+
+| Method | Description |
+|---|---|
+| `resolve(userId, guildId?, discordGuildOwnerId?)` | Full live resolution — scans all roles, returns `ResolvedPermissions` |
+| `cachedResolve(userId, guildId?, discordGuildOwnerId?)` | Delegates to cache if set, falls back to `resolve()` |
+| `canExecute(interaction, access?)` | Full access check used by the interaction handler |
+| `hasBit(userId, bit, guildId?)` | Single-bit check (cached) |
+| `hasAllBits(userId, bits, guildId?)` | AND check (cached) |
+| `hasAnyBit(userId, bits, guildId?)` | OR check (cached) |
+| `requireBit(userId, bit, guildId?)` | Throws `PermissionError` if bit is missing |
+| `setCache(cache)` | Wires the cache layer for all subsequent resolve calls |
+| `invalidateUserCache(userId, guildId?)` | Delegates to cache |
+| `invalidateGuildCache(guildId)` | Delegates to cache |
 
 ### `RouteAccessConfig` — Field Reference
 
 ```ts
 interface RouteAccessConfig {
-    permissionLevel?: string;                       // Named level from permissions.json5
-    roleIds?: string[];                             // User must have AT LEAST ONE (OR check)
-    userIds?: string[];                             // Whitelist: only these user snowflakes
-    userPermissions?: PermissionResolvable[];        // User must have ALL (AND check)
-    clientPermissions?: PermissionResolvable[];      // Bot must have ALL in the channel
-    allowInDm?: boolean;                            // Explicitly allow/block DM execution
-    denyMessage?: string;                           // Custom text shown in rejection card
+    permissionLevel?: string;
+    roleIds?: string[];
+    userIds?: string[];
+    userPermissions?: PermissionResolvable[];
+    clientPermissions?: PermissionResolvable[];
+    allowInDm?: boolean;
+    denyMessage?: string;
 }
 ```
 
@@ -967,9 +1079,110 @@ Interaction arrives
 ```
 
 ### DM Behaviour
-- `allowInDm` not set: DMs are allowed **unless** guild-specific requirements exist (`roleIds`, `userPermissions`, `clientPermissions`) — in that case, DMs are automatically blocked.
+- `allowInDm` not set: DMs are allowed **unless** guild-specific requirements exist — in that case, DMs are automatically blocked.
 - `allowInDm: false`: explicitly block DMs regardless.
-- `allowInDm: true`: explicitly allow DMs even when guild requirements are present (only safe if your handler works without a guild context).
+- `allowInDm: true`: explicitly allow DMs even when guild requirements are present.
+
+### Permissions Plugin — `/permissions` Command
+
+The built-in `permissions` plugin provides Discord commands for managing the entire system:
+
+| Subcommand | Options | Required Bit |
+|---|---|---|
+| `roles list` | `scope` (bot\|server) | `bot.roles.manage` or `server.roles.manage` |
+| `roles create` | `scope`, `name`, `color`, `bits` | same |
+| `roles delete` | `scope`, `role` (autocomplete) | same |
+| `roles edit` | `scope`, `role`, `name?`, `color?`, `bits?` | same |
+| `roles assign` | `scope`, `role`, `user` | same |
+| `roles revoke` | `scope`, `role`, `user` | same |
+| `bits list` | `scope?` | `bot.roles.manage` |
+| `bits register` | `bit`, `description` | `bot.roles.manage` |
+| `resolve` | `user?` | self: none / others: `bot.members.view` |
+| `cache clear` | `target` (user\|guild\|all), `user?` | `bot.roles.manage` |
+
+Other plugins can access the permissions handler:
+
+```ts
+import type PermissionsHandler from '../../permissions/src/handlers/manager.js';
+
+const perms = this.heart.system.handler.permissions?.manager as PermissionsHandler | undefined;
+if (!perms) return;
+
+const resolved = await perms.resolve(userId, guildId);
+const canManage = await perms.hasBit(userId, 'server.config.manage', guildId);
+await perms.clearCache();
+```
+---
+## 🔑 TOKEN MANAGER (`src/core/manager/token.ts`)
+
+The token manager provides HMAC-SHA256 signed bearer tokens for API authentication. Tokens encode a user's permission bits, device identity, and version counters for revocation.
+
+### Token Format
+
+```
+R<base64url(userId)>_<base64url(JSON payload)>.<HMAC signature>
+```
+
+Tokens are **not JWTs** — they use a custom compact format with timing-safe signature verification and per-user signing keys derived from a master secret.
+
+### Core Classes
+
+| Class | Purpose |
+|---|---|
+| `TokenManager` | Issue, verify, refresh, and revoke tokens |
+| `SqliteTokenStore` | SQLite-backed storage for version counters and device metadata |
+| `InMemoryTokenStore` | In-memory store for testing |
+
+### Setup
+
+```ts
+import { TokenManager, SqliteTokenStore } from '#core/manager/token.js';
+
+const store = new SqliteTokenStore(heart.db.sqlite.get('main'));
+const tokenManager = new TokenManager(masterSecret, store, {
+    ttlSeconds: 900,
+    maxTtlSeconds: 86_400,
+    issuer: 'novax',
+    audience: 'dashboard',
+    bitAllowlist: new Set([...allValidBits]),
+    onAudit: (event) => log.info(`Token event: ${event.type}`),
+});
+```
+
+### Key Methods
+
+| Method | Description |
+|---|---|
+| `issue(userId, options?)` | Create a signed token with embedded bits and device info |
+| `verify(token)` | Validate signature, expiry, version, and rotation — returns `VerifiedToken` |
+| `refresh(token, options?)` | Verify + re-issue with fresh expiry and optionally updated bits |
+| `revokeAll(userId)` | Increment global version — invalidates ALL tokens for the user |
+| `revokeDevice(userId, deviceId, guildId?)` | Increment device version — invalidates tokens for one device |
+| `hasBit(verified, bit)` | Check if a verified token contains a specific bit |
+| `requireBit(verified, bit)` | Throws `TokenError` if bit is missing |
+
+### Rotation Attack Detection
+
+Each token carries a unique `jti`. On verify, if the `jti` doesn't match the last-known `jti` for that device, the system increments the device version (revoking all its tokens), emits a `token.rotation_attack` audit event, and rejects the token.
+
+### Express Middleware
+
+```ts
+import { requireAuth } from '#core/manager/token.js';
+
+router.get('/protected', requireAuth(tokenManager, { bits: ['bot.servers.view'] }), handler);
+```
+
+### Convenience BitSets
+
+```ts
+import { BitSets } from '#core/manager/token.js';
+
+BitSets.SERVER_READONLY   // ['server.config.view', 'server.members.view']
+BitSets.SERVER_MANAGER    // All server.* bits
+BitSets.BOT_READONLY      // ['bot.servers.view', 'bot.plugins.view', 'bot.logs.view']
+BitSets.BOT_ADMIN         // All bot.* bits
+```
 
 ---
 
@@ -1360,13 +1573,13 @@ export default class GuildMemberAddEvent extends BaseEvent<[GuildMember]> {
 
 1. Return **pure, type-safe, production-ready TypeScript**. Do not add markdown intro text, tutorial prose, or conversational filler. Begin directly with code.
 2. All files are **default exports** (for components) or named barrel exports (for `index.ts`).
-3. Never import or instantiate framework singletons. Always use `this.heart.*`.
+3. Never import or instantiate framework singletons in third-party plugin code. Always use `this.heart.*`. Core plugins (per rule 27) are exempt.
 4. Never use CommonJS. Always use `.js` extensions on imports.
 5. Always include the `manifest` property on the plugin entrypoint class.
 6. Place files in their correct directories per the layout above — the loaders are path-sensitive.
 7. When generating a full plugin, always produce: `manifest.json`, `index.ts`, and all component files. Always produce the matching `data/configuration/lang/en.json5` and `data/configuration/config.json5` for any keys referenced in the code.
 8. `this.t()` is only valid in `BaseCommand`. Use `this.heart.assets.lang.get(...)` in events and routes.
-9. **Never call `permissionsManager` directly** in plugin code. Access control is entirely declarative — set `config` fields on commands or class-level fields on events.
+9. **Never call `permissionsManager` directly** in third-party plugin code. Access control is entirely declarative — set `config` fields on commands or class-level fields on events. For programmatic checks, use the permissions handler via `this.heart.system.handler.permissions?.manager`. Core plugins are exempt per rule 27.
 10. **`roleIds` is an OR check** — the user needs ANY ONE of the listed role IDs.
 11. **`userPermissions` is an AND check** — the user must have ALL listed Discord permissions.
 12. When a `permissionLevel` string is used, it must exist in the server's `configuration/permissions.json5` or the interaction will be denied. Document required levels in plugin output.
@@ -1384,3 +1597,7 @@ export default class GuildMemberAddEvent extends BaseEvent<[GuildMember]> {
 24. **Loader execution order is: EventLoader → CommandLoader → HandlerLoader → RouteLoader.** Handlers are available to routes within the same plugin during `register()`. Access them via `this.heart.system.handler.$get(pluginId, handlerName)` with a type-only import for the handler class.
 25. **Plugin boot priority** is controlled by `manifest.priority` (default `0`, lower loads first). Dependencies always override priority — a dependent plugin always loads after its dependencies regardless of priority values.
 26. When a plugin needs REST API infrastructure (CORS, auth, security headers), declare `"dependencies": ["api"]` and use the API handler: `this.heart.system.handler.$get('api', 'manager')?.applyMiddleware(this.router)`. Never import middleware functions directly from another plugin's `src/lib/` directory.
+27. **Core plugins** (those shipped in the framework's `plugins/` directory, such as `permissions` and `api`) may import core manager singletons directly. Third-party plugins must access core systems through handler APIs.
+28. **Always wire the `PermissionCache` to the `PermissionsManager`** via `manager.setCache(cache)` during boot. Without this, all permission checks hit the database on every interaction.
+29. **Token manager master secret** must be at least 32 characters. Store it in env vars, never in code.
+30. When issuing tokens, use `BitSets` constants for standard role presets rather than hand-assembling bit arrays.

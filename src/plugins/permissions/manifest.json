@@ -1,7 +1,11 @@
 {
     "id": "permissions",
-    "name": "Permissions",
-    "version": "0.1.0",
-    "author": "Lunedusk",
-    "novax_version": ">=0.1.0"
+    "name": "Permissions Manager",
+    "version": "1.0.0",
+    "description": "Admin commands and REST API for managing the bot permission system.",
+    "author": "NovaX Core",
+    "dependencies": ["api"],
+    "novax_version": ">=0.1.8",
+    "node_version": ">=20",
+    "priority": -10
 }

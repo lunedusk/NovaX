@@ -58,7 +58,7 @@ export class RouteLoader {
                 
                 const namespacedRoute = `/${cleanBasePath}`;
                 
-                heart.net.http.registerRouter(namespacedRoute, instance.router);
+                heart.net.http.registerRouter(namespacedRoute, instance._buildRouter());
 
                 loadedCount++;
             } catch (error: unknown) {

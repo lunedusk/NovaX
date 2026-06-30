@@ -1,30 +1,17 @@
 {
-    // ==========================================
-    // NovaX Permission Levels
-    // ==========================================
-
-    "enabled": true,
-
-    "defaultLevel": "public",
-
-    "levels": {
-        "public": {
-            "label": "Public"
+    enabled: true,
+    defaultLevel: "public",
+    levels: {
+        public: {},
+        moderator: {
+            roleIds: [],
+            discordPermissions: ["ManageMessages"],
+            denyMessage: "%%emoji_cross%% You must be a Moderator to use this.",
         },
-        "staff": {
-            "label": "Staff",
-            "discordPermissions": ["ManageMessages"],
-            "denyMessage": "This command is restricted to staff members."
+        admin: {
+            roleIds: [],
+            discordPermissions: ["Administrator"],
+            denyMessage: "%%emoji_cross%% This action is restricted to Administrators.",
         },
-        "admin": {
-            "label": "Administrator",
-            "discordPermissions": ["Administrator"],
-            "denyMessage": "Administrator access is required for this command."
-        },
-        "owner": {
-            "label": "Owner",
-            "denyMessage": "Owner access is required for this command.",
-            "userIds": [""]
-        }
-    }
+    },
 }

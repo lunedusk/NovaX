@@ -1,6 +1,9 @@
 import { DatabaseManager, type DbConfig, novaDB } from '#core/database/index.js';
 import { secrets } from './helpers/secretManager.js';
 import { getLogger } from '#core/utils/logger.js';
+import path from 'node:path';
+import fs from 'node:fs';
+import { sqliteDB } from '#core/database/sqlite.js';  
 
 const log = getLogger('DatabaseBootstrap');
 
@@ -78,10 +81,10 @@ export async function initAllDatabases(): Promise<void> {
 
     try {
         const activeNovaDBs = await novaDB.pingAll();
-        
+
         if (!activeNovaDBs['main']) {
             const disableDefaultNovaDB = secrets.getBoolean('DisableDefaultNovaDB', false);
-            
+
             if (disableDefaultNovaDB) {
                 log.warn('DisableDefaultNovaDB is set to true. Skipping Default "main" NovaDB Instance, this may cause core plugins to fail, it is recommended to configure a "main" NovaDB instance in the Database env variable or turn DisableDefaultNovaDB to false or null.');
             } else {
@@ -91,7 +94,7 @@ export async function initAllDatabases(): Promise<void> {
                     engine: 'native-novadb',
                     maxRetries: 3
                 });
-                
+
                 log.info('Default "main" NovaDB instance fallback completed successfully.');
             }
         }
@@ -100,4 +103,27 @@ export async function initAllDatabases(): Promise<void> {
         log.error(`CRITICAL: Failed to provision default fallback NovaDB: ${err.message}`, { stack: err.stack });
         throw err;
     }
+
+    const hasSqliteMain = (() => {
+        try { sqliteDB.get('main'); return true; } catch { return false; }
+    })();
+
+    if (!hasSqliteMain) {
+        const disableDefaultSqlite = secrets.getBoolean('DisableDefaultSqlite', false);
+
+        if (disableDefaultSqlite) {
+            log.warn('DisableDefaultSqlite is set to true. Skipping default "main" SQLite instance. The permission system and other core features that depend on SQLite will not function.');
+        } else {
+            const sqliteDir = path.join(process.cwd(), '.data', 'database-sqlite');
+            if (!fs.existsSync(sqliteDir)) {
+                fs.mkdirSync(sqliteDir, { recursive: true });
+            }
+
+            const sqlitePath = path.join(sqliteDir, 'main.db');
+            sqliteDB.connect('main', sqlitePath);
+
+            log.info('Default "main" SQLite instance provisioned at .data/database-sqlite/main.db');
+        }
+    }
+
 }

@@ -1,0 +1,97 @@
+{
+    commands: {
+        permissions: {
+            description: "Manage the bot permission system.",
+            rolesGroupDesc: "Manage permission roles.",
+            bitsGroupDesc: "Manage permission bits.",
+            cacheGroupDesc: "Manage the permission cache.",
+            scopeDesc: "Role scope (bot-wide or server)",
+
+            titles: {
+                roles: "Permission Roles",
+                botRoles: "Bot-Wide Roles",
+                serverRoles: "Server Roles",
+                bits: "Permission Bits",
+                resolve: "Resolved Permissions",
+                cache: "Permission Cache",
+                denied: "Access Denied",
+                system: "System Error",
+            },
+
+            no_permission: "%%emoji_cross%% You lack the required permission: `{{bit}}`.",
+            not_in_guild: "%%emoji_cross%% This action can only be performed in a server.",
+            handler_unavailable: "%%emoji_caution%% The permission system is not available. Ensure the handler is initialized.",
+
+            errors: {
+                invalidBit: "%%emoji_cross%% One or more permission bits do not exist in the catalogue.",
+                invalidScope: "%%emoji_cross%% Server roles cannot contain bot-scoped bits.",
+                fatal: "%%emoji_caution%% A critical error occurred while processing your request.\n```{{error}}```",
+            },
+
+            messages: {
+                rolesEmpty: "%%emoji_info%% *No roles found for this scope.*",
+                roleEntry: "%%emoji_shield%% **{{name}}** (`{{id}}`)\n{{bits}}\n> %%emoji_user%% Assigned: **{{count}}** user(s)",
+                roleCreated: "%%emoji_tick%% Role **{{name}}** created successfully.\n> ID: `{{id}}`\n{{bits}}",
+                roleDeleted: "%%emoji_trash%% Role `{{roleId}}` has been deleted.",
+                roleEdited: "%%emoji_tick%% Role `{{roleId}}` has been updated.",
+                roleAssigned: "%%emoji_tick%% <@{{userId}}> has been assigned to role `{{roleId}}`.",
+                roleRevoked: "%%emoji_tick%% <@{{userId}}> has been removed from role `{{roleId}}`.",
+                noChanges: "%%emoji_caution%% Provide at least one field to update — `name`, `color`, or `bits`.",
+
+                bitsEmpty: "%%emoji_info%% *No permission bits found.*",
+                bitRegistered: "%%emoji_tick%% Bit `{{bit}}` registered successfully.",
+
+                resolveOwner: "%%emoji_crown%% <@{{userId}}> is a **Bot Owner** — all permissions are granted.",
+                resolveResult: "%%emoji_user%% <@{{userId}}> — **{{count}}** effective bit(s):\n{{bits}}",
+                resolveBitsNone: "> %%emoji_info%% *No permission bits resolved.*",
+
+                cacheUserRequired: "%%emoji_cross%% You must select a user when clearing by user.",
+                cacheClearedUser: "%%emoji_tick%% Cache cleared for <@{{userId}}>.",
+                cacheClearedGuild: "%%emoji_tick%% Cache cleared for this guild.",
+                cacheClearedAll: "%%emoji_tick%% Entire permission cache has been flushed.",
+            },
+
+            roles: {
+                listDesc: "List all roles.",
+                createDesc: "Create a new role.",
+                deleteDesc: "Delete a role.",
+                editDesc: "Edit an existing role.",
+                assignDesc: "Assign a user to a role.",
+                revokeDesc: "Revoke a user from a role.",
+                nameDesc: "Role name",
+                colorDesc: "Hex color (e.g. #FF0000)",
+                bitsDesc: "Comma-separated permission bits",
+                roleDesc: "Role to target",
+                userDesc: "Target user",
+                newNameDesc: "New role name",
+                newColorDesc: "New hex color",
+                newBitsDesc: "New comma-separated bits (replaces existing)",
+            },
+
+            bits: {
+                listDesc: "List registered permission bits.",
+                registerDesc: "Register a custom permission bit.",
+                scopeFilterDesc: "Filter by scope",
+                bitDesc: "Bit identifier (e.g. plugin.myfeature.use)",
+                descriptionDesc: "Human-readable description",
+            },
+
+            cache: {
+                clearDesc: "Clear cached permission data.",
+                targetDesc: "What to clear",
+                userDesc: "User to clear (required for specific user)",
+            },
+
+            resolve: {
+                desc: "Show a user's effective permissions.",
+                userDesc: "User to resolve (defaults to yourself)",
+            },
+        },
+    },
+
+    layouts: {
+        containerSuccess: "{\"version\":1,\"components\":[{\"type\":\"container\",\"accentColor\":\"#57F287\",\"children\":[{\"type\":\"text\",\"content\":\"%%emoji_tick%% **{{title}}**\"},{\"type\":\"separator\",\"spacing\":\"small\"},{\"type\":\"text\",\"content\":\"\"}]}]}",
+        containerError: "{\"version\":1,\"components\":[{\"type\":\"container\",\"accentColor\":\"#ED4245\",\"children\":[{\"type\":\"text\",\"content\":\"%%emoji_cross%% **{{title}}**\"},{\"type\":\"separator\",\"spacing\":\"small\"},{\"type\":\"text\",\"content\":\"\"}]}]}",
+        containerInfo: "{\"version\":1,\"components\":[{\"type\":\"container\",\"accentColor\":\"#5865F2\",\"children\":[{\"type\":\"text\",\"content\":\"%%emoji_shield%% **{{title}}**\"},{\"type\":\"separator\",\"spacing\":\"small\"},{\"type\":\"text\",\"content\":\"\"}]}]}",
+    },
+}
