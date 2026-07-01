@@ -37,7 +37,7 @@ export interface AuthConfig {
 }
 
 export interface GatewayPluginConfig {
-    publicBaseUrl: string;
+    publicBaseUrl?: string;
     cors: CorsConfig;
     auth: AuthConfig;
 }
@@ -71,10 +71,6 @@ export class GatewayConfigManager {
             }
         }
 
-        if (!this._config.publicBaseUrl) {
-            throw new Error('Gateway config requires publicBaseUrl for canonical OpenAPI generation.');
-        }
-
         log.info('Gateway config loaded from framework ConfigManager.');
     }
 
@@ -82,7 +78,17 @@ export class GatewayConfigManager {
 
     public get cors(): Readonly<CorsConfig> { return this._config.cors; }
     public get auth(): Readonly<AuthConfig> { return this._config.auth; }
-    public get publicBaseUrl(): string { return this._config.publicBaseUrl; }
+    public get publicBaseUrl(): string {
+        const configured = this._config.publicBaseUrl?.trim();
+        if (configured) return configured.replace(/\/$/, '');
+
+        const port = secrets.getOptional('APIPort', '3000') ?? '3000';
+        const normalizedPort = String(port).trim() || '3000';
+        const fallback = `http://localhost:${normalizedPort}`;
+
+        log.warn(`Gateway publicBaseUrl is not configured. Falling back to ${fallback}.`);
+        return fallback;
+    }
 
     // ─── Middleware stack ─────────────────────────────────────────────────────
 
