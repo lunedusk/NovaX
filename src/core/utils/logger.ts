@@ -63,7 +63,8 @@ const LEVEL_COLORS: Record<string, string> = {
 };
 
 const redactFormat = winston.format((info) => {
-    return redactSensitiveData(info as Record<string, unknown>) as Record<string, unknown>;
+    Object.assign(info, redactSensitiveData(info));
+    return info;
 });
 
 const humanReadableFormat = winston.format.printf((info) => {

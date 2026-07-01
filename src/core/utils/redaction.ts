@@ -42,6 +42,7 @@ function redactNode(value: unknown, seen: WeakMap<object, unknown>): unknown {
             stack: value.stack ? sanitizeString(value.stack) : undefined,
         };
         seen.set(value, errorShape);
+        const errorValue = value as unknown as Record<string, unknown>;
 
         if ('cause' in value) {
             errorShape.cause = redactNode((value as Error & { cause?: unknown }).cause, seen);
@@ -49,7 +50,7 @@ function redactNode(value: unknown, seen: WeakMap<object, unknown>): unknown {
 
         for (const key of Object.keys(value)) {
             if (key === 'name' || key === 'message' || key === 'stack' || key === 'cause') continue;
-            errorShape[key] = redactNode((value as Record<string, unknown>)[key], seen);
+            errorShape[key] = redactNode(errorValue[key], seen);
         }
 
         return errorShape;
