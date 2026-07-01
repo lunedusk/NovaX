@@ -10,20 +10,6 @@ core/**
 !docs/**
 !docs
 
-
-.DS_Store
-*.DS_Store*
-**/.DS_Store
-.AppleDouble
-.LSOverride
-.Icon?
-.Spotlight-V100
-.Trashes
-._*
-**/*__MACOSX/**
-*__MACOSX/*
-__MACOSX/
-
 Thumbs.db
 ehthumbs.db
 Desktop.ini
@@ -197,3 +183,15 @@ __**
 !dashboard/**/lib/
 !src/plugins/**/lib/
 *graphify*/**/*
+.DS_Store
+*.DS_Store*
+**/.DS_Store
+.AppleDouble
+.LSOverride
+.Icon?
+.Spotlight-V100
+.Trashes
+._*
+**/*__MACOSX/**
+*__MACOSX/*
+__MACOSX/
