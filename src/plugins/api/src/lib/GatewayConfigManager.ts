@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { type Router, type Request, type Response, type NextFunction } from 'express';
 import swaggerJsdoc from 'swagger-jsdoc';
 import { getLogger } from '#core/utils/logger.js';
+import { secrets } from '#core/helpers/secretManager.js';
+import { permissionsManager } from '#core/manager/permissions.js';
 
 const log = getLogger('GatewayConfigManager');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,17 +25,27 @@ export interface AuthKeyEntry {
     key: string;
     label: string;
     enabled: boolean;
+    bits?: string[];
 }
 
 export interface AuthConfig {
     enabled: boolean;
+    masterKeySource: 'env' | 'config';
+    masterKeyEnvVar: string;
     publicPaths: string[];
     keys: AuthKeyEntry[];
 }
 
 export interface GatewayPluginConfig {
+    publicBaseUrl: string;
     cors: CorsConfig;
     auth: AuthConfig;
+}
+
+interface GatewayAuthContext {
+    isMaster: boolean;
+    label: string;
+    bits: string[];
 }
 
 // ─── GatewayConfigManager ───────────────────────────────────────────────────
@@ -52,6 +64,17 @@ export class GatewayConfigManager {
 
     public init(config: Readonly<GatewayPluginConfig>): void {
         this._config = config;
+        if (this._config.auth.enabled && this._config.auth.masterKeySource === 'env') {
+            const masterKey = secrets.getOptional(this._config.auth.masterKeyEnvVar);
+            if (!masterKey) {
+                throw new Error(`Gateway master key is missing. Set ${this._config.auth.masterKeyEnvVar} before starting.`);
+            }
+        }
+
+        if (!this._config.publicBaseUrl) {
+            throw new Error('Gateway config requires publicBaseUrl for canonical OpenAPI generation.');
+        }
+
         log.info('Gateway config loaded from framework ConfigManager.');
     }
 
@@ -59,6 +82,7 @@ export class GatewayConfigManager {
 
     public get cors(): Readonly<CorsConfig> { return this._config.cors; }
     public get auth(): Readonly<AuthConfig> { return this._config.auth; }
+    public get publicBaseUrl(): string { return this._config.publicBaseUrl; }
 
     // ─── Middleware stack ─────────────────────────────────────────────────────
 
@@ -66,6 +90,7 @@ export class GatewayConfigManager {
         router.use(this.securityHeaders);
         router.use(this.corsHandler);
         router.use(this.bearerAuth);
+        router.use(this.routeAuthorization);
     }
 
     private securityHeaders(_req: Request, res: Response, next: NextFunction): void {
@@ -132,8 +157,79 @@ export class GatewayConfigManager {
             return;
         }
 
-        if (!this.isValidKey(authHeader.slice(7))) {
+        const authContext = this.resolveAuthContext(authHeader.slice(7));
+        if (!authContext) {
             res.status(403).json({ error: 'Forbidden', message: 'Invalid or revoked API key.' });
+            return;
+        }
+
+        res.locals.gatewayAuth = authContext;
+
+        next();
+    };
+
+    private routeAuthorization = (req: Request, res: Response, next: NextFunction): void => {
+        if (!this._config.auth.enabled) {
+            next();
+            return;
+        }
+
+        const fullPath = req.baseUrl + req.path;
+        const isSensitiveRoute = fullPath.startsWith('/api/tokens')
+            || fullPath.startsWith('/api/permissions')
+            || fullPath === '/api/health';
+
+        if (this._config.auth.publicPaths.some((prefix) => fullPath.startsWith(prefix))) {
+            next();
+            return;
+        }
+
+        if (!permissionsManager) {
+            if (isSensitiveRoute) {
+                res.status(503).json({ error: 'Gateway Unavailable', message: 'Permission policy service is not initialized.' });
+                return;
+            }
+
+            next();
+            return;
+        }
+
+        const policy = permissionsManager.resolveHttpRouteAccess(req.method, fullPath);
+        if (!policy) {
+            if (isSensitiveRoute) {
+                res.status(500).json({ error: 'Misconfigured Route Policy', message: `No permission policy is defined for ${req.method} ${fullPath}.` });
+                return;
+            }
+
+            next();
+            return;
+        }
+
+        if (policy.public) {
+            next();
+            return;
+        }
+
+        const requiredBits = policy.bits ?? [];
+        if (requiredBits.length === 0) {
+            res.status(500).json({ error: 'Misconfigured Route Policy', message: `Route policy for ${req.method} ${fullPath} has no permission bits configured.` });
+            return;
+        }
+
+        const auth = res.locals.gatewayAuth as GatewayAuthContext | undefined;
+        if (!auth) {
+            res.status(403).json({ error: 'Forbidden', message: policy.denyMessage ?? 'This route requires API authentication.' });
+            return;
+        }
+
+        if (auth.isMaster) {
+            next();
+            return;
+        }
+
+        const hasAllBits = requiredBits.every((bit) => auth.bits.includes(bit));
+        if (!hasAllBits) {
+            res.status(403).json({ error: 'Forbidden', message: policy.denyMessage ?? 'Missing required API route permission.' });
             return;
         }
 
@@ -141,7 +237,7 @@ export class GatewayConfigManager {
     };
 
 
-    public buildOpenApiSpec(baseUrl: string): Record<string, unknown> {
+    public buildOpenApiSpec(): Record<string, unknown> {
         if (!this._cachedSpec) {
             this._cachedSpec = swaggerJsdoc({
                 definition: {
@@ -172,8 +268,13 @@ export class GatewayConfigManager {
                     paths: {
                         '/api/health': {
                             get: {
-                                tags: ['System'], summary: 'Health check', operationId: 'getHealth', security: [],
-                                responses: { '200': { description: 'Server is healthy', content: { 'application/json': { schema: { type: 'object', properties: { status: { type: 'string', example: 'online' }, uptime: { type: 'number', example: 3600 } } } } } } },
+                                tags: ['System'], summary: 'Health check', operationId: 'getHealth',
+                                responses: {
+                                    '200': { description: 'Server is healthy', content: { 'application/json': { schema: { type: 'object', properties: { status: { type: 'string', example: 'online' }, uptime: { type: 'number', example: 3600 } } } } } },
+                                    '401': { $ref: '#/components/responses/Unauthorized' },
+                                    '403': { $ref: '#/components/responses/Forbidden' },
+                                },
+                                security: [{ bearerAuth: [] }],
                             },
                         },
                     },
@@ -185,7 +286,7 @@ export class GatewayConfigManager {
             }) as Record<string, unknown>;
         }
 
-        return { ...this._cachedSpec, servers: [{ url: baseUrl, description: 'Current server' }] };
+        return { ...this._cachedSpec, servers: [{ url: this._config.publicBaseUrl, description: 'Canonical public API base URL' }] };
     }
 
 
@@ -200,7 +301,25 @@ export class GatewayConfigManager {
 
 
     public isValidKey(key: string): boolean {
-        return this._config.auth.keys.some(k => k.enabled && this.safeEquals(key, k.key));
+        return !!this.resolveAuthContext(key);
+    }
+
+    public resolveAuthContext(key: string): GatewayAuthContext | null {
+        if (this._config.auth.enabled && this._config.auth.masterKeySource === 'env') {
+            const masterKey = secrets.getOptional(this._config.auth.masterKeyEnvVar);
+            if (masterKey && this.safeEquals(key, masterKey)) {
+                return { isMaster: true, label: 'env-master', bits: [] };
+            }
+        }
+
+        const matchedKey = this._config.auth.keys.find((entry) => entry.enabled && this.safeEquals(key, entry.key));
+        if (!matchedKey) return null;
+
+        return {
+            isMaster: false,
+            label: matchedKey.label,
+            bits: Array.isArray(matchedKey.bits) ? matchedKey.bits : [],
+        };
     }
 
     private safeEquals(a: string, b: string): boolean {

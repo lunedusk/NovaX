@@ -2,9 +2,9 @@ import winston from 'winston';
 import TransportStream from 'winston-transport';
 import 'winston-daily-rotate-file';
 import util from 'util';
-import fastRedact from 'fast-redact';
 import { format } from './format.js';
 import { secrets } from '#core/helpers/secretManager.js';
+import { redactSensitiveData } from './redaction.js';
 
 export type Logger = winston.Logger & {
     fatal: winston.LeveledLogMethod;
@@ -62,15 +62,8 @@ const LEVEL_COLORS: Record<string, string> = {
     fatal:  '\x1b[48;2;180;0;0m\x1b[38;2;255;255;255m',
 };
 
-const redact = fastRedact({
-    paths: ['*.password', '*.token', '*.secret', '*.authorization', '*.apiKey', '*.cookie'],
-    censor: '[REDACTED]',
-    serialize: false,
-});
-
 const redactFormat = winston.format((info) => {
-    redact(info as Record<string, unknown>);
-    return info;
+    return redactSensitiveData(info as Record<string, unknown>) as Record<string, unknown>;
 });
 
 const humanReadableFormat = winston.format.printf((info) => {
@@ -86,7 +79,7 @@ const humanReadableFormat = winston.format.printf((info) => {
     if (stack) msg += `\n${color}${stack}${reset}`;
 
     if (metadata && Object.keys(metadata).length > 0) {
-        const inspected = util.inspect(metadata, { depth: 3, colors: colorize, compact: false, breakLength: 80 });
+        const inspected = util.inspect(redactSensitiveData(metadata), { depth: 3, colors: colorize, compact: false, breakLength: 80 });
         msg += `\n  ↳ ${inspected}`;
     }
 
@@ -146,11 +139,12 @@ class ErrorInterceptTransport extends TransportStream {
             if (_errorEmitter) {
                 const rawLevel = (info.level as string).replace(/\u001b\[[0-9;]*m/g, '').toLowerCase();
                 if (rawLevel === 'error' || rawLevel === 'fatal') {
+                    const redactedInfo = redactSensitiveData(info) as Record<string, unknown>;
                     _errorEmitter({
-                        message:   info.message as string,
-                        stack:     info.stack as string | undefined,
-                        name:      (info.name as string) || 'unknown',
-                        timestamp: info.timestamp as string,
+                        message:   String(redactedInfo.message ?? info.message ?? ''),
+                        stack:     redactedInfo.stack as string | undefined,
+                        name:      String(redactedInfo.name ?? info.name ?? 'unknown'),
+                        timestamp: String(redactedInfo.timestamp ?? info.timestamp ?? ''),
                     });
                 }
             }
@@ -168,7 +162,8 @@ const globalLogger = winston.createLogger({
         winston.format.timestamp({
             format: () => format.time.toTz(new Date(), getLogTz(), 'YYYY-MM-DD HH:mm:ss.SSS Z'),
         }),
-        winston.format.metadata({ fillExcept: ['message', 'level', 'timestamp', 'name', 'stack'] })
+        winston.format.metadata({ fillExcept: ['message', 'level', 'timestamp', 'name', 'stack'] }),
+        redactFormat()
     ),
     transports: [...sharedTransports, new ErrorInterceptTransport()],
 });

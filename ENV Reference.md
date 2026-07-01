@@ -514,6 +514,30 @@ The HTTP server only starts on the **primary shard** (shard 0 or standalone mode
 APIPort=3000
 ```
 
+### `ApiKey`
+
+The master API gateway key used when the gateway runs in env mode. When `configuration/api.json5` enables env mode, NovaX reads this value from the secrets manager and uses it as the gateway's primary authentication credential.
+
+| | |
+|---|---|
+| **Required** | **Yes — if API gateway env mode is enabled** |
+| **Default** | *(none — must be supplied through `.env`, `common.json`, or another secrets-backed source)* |
+| **Safe to Change** | Yes (requires restart) |
+| **Breaking Risk** | **CRITICAL** — changing or leaking this value affects gateway authentication immediately |
+| **Recommended Action** | Store this in a secrets manager or protected environment file. Rotate it only during a maintenance window, and update any gateway clients at the same time. |
+
+Generate a strong value:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+```env
+ApiKey=your_gateway_master_key_here
+```
+
+> 🔒 **Security Notice:** This is the master credential for the API gateway when env mode is enabled. Treat it like a root password: never commit it, never paste it into a shared config file, and rotate it immediately if exposure is suspected.
+
 ---
 
 ## 8. Database
@@ -913,6 +937,9 @@ EnableGlobalRatelimit=true
 hotReloadEnabled=false
 
 # ── AUTHENTICATION & TOKENS ────────────────────────────────
+# REQUIRED if API gateway env mode is enabled — must be kept secret
+# ApiKey=your_gateway_master_key_here
+
 # REQUIRED if using the token plugin — must be 32+ characters, persistent
 # TokenMasterSecret=your_generated_secret_here
 
@@ -943,6 +970,7 @@ hotReloadEnabled=false
 | `LogLevel` | No | `info` / `debug` | Yes | None |
 | `LogTZ` | No | `UTC` | Yes | None |
 | `APIPort` | No | `3000` | Yes | Low |
+| `ApiKey` | If API gateway env mode is enabled | *(none)* | Yes | **Critical** |
 | `Database` | No | `{}` + auto NovaDB | Yes | **High** |
 | `DisableDefaultNovaDB` | No | `false` | Yes | **High** |
 | `DisableDefaultSqlite` | No | `false` | Yes | **High** |

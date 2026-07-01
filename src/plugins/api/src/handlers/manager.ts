@@ -22,8 +22,8 @@ export default class GatewayManager extends BaseHandler {
         this.gateway.applyMiddleware(router);
     }
 
-    public buildOpenApiSpec(baseUrl: string): Record<string, unknown> {
-        return this.gateway.buildOpenApiSpec(baseUrl);
+    public buildOpenApiSpec(): Record<string, unknown> {
+        return this.gateway.buildOpenApiSpec();
     }
 
     public getCorsConfig(): Readonly<Record<string, unknown>> {
@@ -34,12 +34,14 @@ export default class GatewayManager extends BaseHandler {
         return this.gateway.isOriginAllowed(origin);
     }
 
-    public getAuthStatus(): { enabled: boolean; keyCount: number; publicPaths: string[] } {
+    public getAuthStatus(): { enabled: boolean; masterKeySource: string; keyCount: number; publicPaths: string[]; publicBaseUrl: string } {
         const cfg = this.gateway.auth;
         return {
             enabled:     cfg.enabled,
+            masterKeySource: cfg.masterKeySource,
             keyCount:    cfg.keys.filter(k => k.enabled).length,
             publicPaths: cfg.publicPaths,
+            publicBaseUrl: this.gateway.publicBaseUrl,
         };
     }
 

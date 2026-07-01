@@ -14,6 +14,7 @@ import type { UnhandledErrorPayload } from '#core/error/index.js';
 import { buildComponentsV2 } from '#core/builders/index.js';
 import type { Cv2LayoutSpec, Cv2BuildContext } from '#core/builders/index.js';
 import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import { redactSensitiveData } from '#core/utils/redaction.js';
 
 
 interface ReporterConfig {
@@ -90,15 +91,17 @@ export class ErrorReporterService {
 
     public async handleLogError(payload: LogErrorPayload): Promise<void> {
         if (!this.cfg.enabled || !this.cfg.reportLogErrors) return;
-        if (ErrorReporterService.INTERNAL_MODULES.has(payload.name)) return;
-        if (this.isDuplicate(payload.message) || this.isRateLimited()) return;
-        await this.deliver(this.buildLogErrorMessage(payload));
+        const safePayload = redactSensitiveData(payload) as LogErrorPayload;
+        if (ErrorReporterService.INTERNAL_MODULES.has(safePayload.name)) return;
+        if (this.isDuplicate(safePayload.message) || this.isRateLimited()) return;
+        await this.deliver(this.buildLogErrorMessage(safePayload));
     }
 
     public async handleUnhandledError(payload: UnhandledErrorPayload): Promise<void> {
         if (!this.cfg.enabled || !this.cfg.reportUnhandled) return;
-        if (this.isDuplicate(payload.message) || this.isRateLimited()) return;
-        await this.deliver(this.buildUnhandledErrorMessage(payload));
+        const safePayload = redactSensitiveData(payload) as UnhandledErrorPayload;
+        if (this.isDuplicate(safePayload.message) || this.isRateLimited()) return;
+        await this.deliver(this.buildUnhandledErrorMessage(safePayload));
     }
 
     private buildLogErrorMessage(payload: LogErrorPayload): MessageCreateOptions {
@@ -172,15 +175,17 @@ export class ErrorReporterService {
 
     private async deliver(message: MessageCreateOptions): Promise<void> {
         try {
+            const safeMessage = redactSensitiveData(message) as MessageCreateOptions;
+
             if (this.webhookClient) {
-                await this.webhookClient.send(message);
+                await this.webhookClient.send(safeMessage);
                 return;
             }
 
             if (this.cfg.channelId) {
                 const channel = this.heart.client.channels.cache.get(this.cfg.channelId);
                 if (channel instanceof TextChannel) {
-                    await channel.send(message);
+                    await channel.send(safeMessage);
                     return;
                 }
                 this.heart.log.warn(`[error-reporter] Channel ${this.cfg.channelId} not found or not a text channel.`);

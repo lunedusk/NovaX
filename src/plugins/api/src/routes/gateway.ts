@@ -29,15 +29,16 @@ export default class GatewayMetaRoute extends BaseRoute {
     protected register(): void {
         this.gateway?.applyMiddleware(this.router);
 
+        this.router.get('/health', this.asyncHandler(this.handleHealth.bind(this)));
         this.router.get('/openapi.json', this.asyncHandler(this.handleOpenApi.bind(this)));
     }
 
-    private async handleOpenApi(req: Request, res: Response): Promise<void> {
-        const forwarded = req.headers['x-forwarded-proto'];
-        const protocol  = (Array.isArray(forwarded) ? forwarded[0] : forwarded) ?? req.protocol;
-        const host      = req.headers['host'] ?? 'localhost';
+    private async handleHealth(_req: Request, res: Response): Promise<void> {
+        res.status(200).json({ status: 'online', uptime: process.uptime() });
+    }
 
-        const spec = this.gateway?.buildOpenApiSpec(`${protocol}://${host}`);
+    private async handleOpenApi(req: Request, res: Response): Promise<void> {
+        const spec = this.gateway?.buildOpenApiSpec();
 
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Cache-Control', 'public, max-age=300');

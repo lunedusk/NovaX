@@ -1,6 +1,5 @@
 import express, { type Express, type Router, type Request, type Response, type NextFunction } from 'express';
 import http from 'node:http';
-import cors from 'cors';
 import { getLogger } from '#core/utils/logger.js';
 import { performance } from 'node:perf_hooks';
 import { secrets } from '#core/helpers/secretManager.js';
@@ -17,8 +16,6 @@ export class HttpServer {
 
         log.info('Initializing REST API Server...');
         this.app = express();
-
-        this.app.use(cors());
         
         this.app.use(express.json({ 
             limit: '500kb',
@@ -41,8 +38,8 @@ export class HttpServer {
             next();
         });
 
-        this.app.get('/api/health', (req: Request, res: Response) => {
-            res.status(200).json({ status: 'online', uptime: process.uptime() });
+        this.app.get('/health', (_req: Request, res: Response) => {
+            res.status(200).json({ ok: true });
         });
     }
 

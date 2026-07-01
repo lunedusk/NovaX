@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '#core/utils/logger.js';
 import { secrets } from '#core/helpers/secretManager.js';
+import { configManager } from '#core/manager/config.js';
 import {
     PermissionError,
     BUILT_IN_BITS,
@@ -50,6 +51,14 @@ export interface RouteAccessConfig {
     userPermissions?: import('discord.js').PermissionResolvable[];
     clientPermissions?: import('discord.js').PermissionResolvable[];
     allowInDm?: boolean;
+    denyMessage?: string;
+}
+
+export interface HttpRouteAccessConfig {
+    method: string;
+    path: string;
+    bits?: string[];
+    public?: boolean;
     denyMessage?: string;
 }
 
@@ -131,6 +140,38 @@ export class PermissionsManager {
         if (typeof config.allowInDm === 'boolean') {
             data.setDMPermission(config.allowInDm);
         }
+    }
+
+    public resolveHttpRouteAccess(method: string, path: string): HttpRouteAccessConfig | null {
+        const permConfig = configManager.get<any>('permissions');
+        const routeConfigs: HttpRouteAccessConfig[] = Array.isArray(permConfig?.httpRoutes)
+            ? permConfig.httpRoutes
+            : [];
+
+        const normalizedMethod = method.toUpperCase();
+        const normalizedPath = path.split('?')[0];
+
+        for (const route of routeConfigs) {
+            const routeMethod = String(route.method ?? '').toUpperCase();
+            if (routeMethod !== '*' && routeMethod !== normalizedMethod) continue;
+            if (this.matchesHttpRoute(route.path, normalizedPath)) {
+                return route;
+            }
+        }
+
+        return null;
+    }
+
+    private matchesHttpRoute(template: string, actualPath: string): boolean {
+        if (!template) return false;
+        if (template === actualPath) return true;
+
+        const escaped = template
+            .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            .replace(/:([A-Za-z0-9_]+)/g, '[^/]+')
+            .replace(/\\\*/g, '.*');
+
+        return new RegExp(`^${escaped}$`).test(actualPath);
     }
 
 
