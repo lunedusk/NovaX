@@ -20,9 +20,9 @@ export default class Core extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'core',
         name: 'Core',
-        version: '0.1.0',
+        version: '0.1.1',
         author: 'Lunedusk',
-        novax_version: '>=0.1.6'
+        novax_version: '>=0.1.9'
     };
 
     private config!: PresenceConfig;

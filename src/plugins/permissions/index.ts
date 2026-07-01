@@ -5,11 +5,11 @@ export default class PermissionsPlugin extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'permissions',
         name: 'Permissions Manager',
-        version: '1.0.0',
+        version: '1.0.1',
         description: 'Admin commands for managing the bot permission system.',
         author: 'Lunedusk',
         dependencies: [],
-        novax_version: '>=0.1.8',
+        novax_version: '>=0.1.9',
         priority: -10,
     };
 

@@ -1,8 +1,8 @@
 {
     "id": "core",
     "name": "Core",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "author": "Lunedusk",
     "node_version": ">=18.20.8",
-    "novax_version": ">=0.1.8"
+    "novax_version": ">=0.1.9"
 }

@@ -1,11 +1,11 @@
 {
     "id": "token",
     "name": "Token Manager",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "HMAC-SHA256 bearer token management with REST API for authentication, issuance, and revocation.",
     "author": "NovaX Core",
     "dependencies": ["api"],
-    "novax_version": ">=0.1.8",
+    "novax_version": ">=0.1.9",
     "node_version": ">=20",
     "priority": -5
 }
