@@ -25,9 +25,11 @@ export abstract class BaseRoute {
         return this.#logger;
     }
     protected abstract register(): void;
-    protected asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<any>): RequestHandler {
+    protected asyncHandler<Req extends Request = Request>(
+        fn: (req: Req, res: Response, next: NextFunction) => Promise<any>,
+    ): RequestHandler {
         return (req: Request, res: Response, next: NextFunction) => {
-            Promise.resolve(fn(req, res, next)).catch(next);
+            Promise.resolve(fn(req as Req, res, next)).catch(next);
         };
     }
 }

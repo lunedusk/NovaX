@@ -426,13 +426,19 @@ Extend `BaseRoute`. All async handlers must be wrapped in `this.asyncHandler()` 
 import { BaseRoute } from '#core/bases/Route.js';
 import { type Request, type Response } from 'express';
 
+// Request<Params, ResBody, ReqBody, Query> — type Params/Query to avoid
+// 'string | string[]' errors when passing values into string parameters.
+type ItemParams = { itemId: string };
+type ListQuery = { limit?: string; cursor?: string };
+
 export default class WebhookRoute extends BaseRoute {
 
-    public readonly basePath = '/webhooks/my-plugin'; // Mounted at this path on the HTTP server
+    public readonly basePath = '/webhooks/my-plugin';
 
     protected register(): void {
         this.router.post('/github', this.asyncHandler(this.handleGithub.bind(this)));
-        this.router.get('/status', this.asyncHandler(this.handleStatus.bind(this)));
+        this.router.get('/items/:itemId', this.asyncHandler(this.handleItem.bind(this)));
+        this.router.get('/items', this.asyncHandler(this.handleList.bind(this)));
     }
 
     private async handleGithub(req: Request, res: Response): Promise<void> {
@@ -441,10 +447,18 @@ export default class WebhookRoute extends BaseRoute {
         res.json({ ok: true });
     }
 
-    private async handleStatus(_req: Request, res: Response): Promise<void> {
-        res.json({ status: 'ok', plugin: 'my-plugin' });
+    private async handleItem(req: Request<ItemParams>, res: Response): Promise<void> {
+        const { itemId } = req.params;           // typed string — safe to pass anywhere
+        res.json({ itemId });
+    }
+
+    private async handleList(req: Request<{}, unknown, unknown, ListQuery>, res: Response): Promise<void> {
+        // Query values are string | string[] | undefined — narrow before use.
+        const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20;
+        res.json({ limit });
     }
 }
+
 ```
 
 > The HTTP server is accessed internally — do not use `this.heart.net.http` to build responses. Use it only to register routers (`registerRouter`) or query server status.
@@ -1607,3 +1621,4 @@ export default class GuildMemberAddEvent extends BaseEvent<[GuildMember]> {
 29. **Always wire the `PermissionCache` to the `PermissionsManager`** via `manager.setCache(cache)` during boot. Without this, all permission checks hit the database on every interaction.
 30. **Token manager master secret** must be at least 32 characters. Store it in env vars, never in code.
 31. When issuing tokens, use `BitSets` constants for standard role presets rather than hand-assembling bit arrays.
+32. **Route param/query typing is mandatory.** In `BaseRoute` handlers, type the Express request generic — `Request<Params, ResBody, ReqBody, Query>` — whenever a handler reads `req.params.*` or `req.query.*`. `req.query` values are `string | string[] | undefined` and MUST be narrowed (`typeof x === 'string'`) or coerced (`String(x)`/`Number(x)`) before being passed into any parameter typed `string`. Never pass `req.query.*` directly into a string parameter — this is the cause of the `Argument of type 'string | string[]' is not assignable to parameter of type 'string'` error.
