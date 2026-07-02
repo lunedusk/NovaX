@@ -22,7 +22,8 @@ export default class Core extends BasePlugin {
         name: 'Core',
         version: '0.1.1',
         author: 'Lunedusk',
-        novax_version: '>=0.1.9'
+        novax_version: '>=0.1.9',
+        dependencies: ["api", "permissions"]
     };
 
     private config!: PresenceConfig;

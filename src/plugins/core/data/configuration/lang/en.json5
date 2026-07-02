@@ -5,6 +5,16 @@
         helpContainer: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#5865F2", "children": [] } ] }'
     },
     commands: {
+        restart: {
+            description: "Completely restart the bot process.",
+            reasonDescription: "Optional reason recorded in the logs",
+            messages: {
+                acknowledged: "Restart sequence accepted. The process is going down now and will be revived by the supervisor.\n\n**Triggered by:** {{user}}\n**Reason:**\n> {{reason}}",
+                denied: "You need the **bot.owner** or **bot.members.ban** permission bit to restart the bot.",
+                unavailable: "The permission subsystem is currently unavailable. Please try again shortly.",
+                fatalError: "A fatal error occurred during the restart sequence:\n```\n{{error}}\n```"
+            }
+        },
         help: {
             description: "View the dynamic command directory.",
             
@@ -81,5 +91,11 @@
                 fatalError: "A fatal error occurred while manipulating cache:\n```\n{{error}}\n```"
             }
         }
+    },
+    errors: {
+        unauthorized: "Authentication required.",
+        forbidden: "You do not have permission to perform this action.",
+        sessionExpired: "Your session has expired. Please sign in again.",
+        rotationDetected: "Session invalidated for security reasons. Please sign in again."
     }
 }
