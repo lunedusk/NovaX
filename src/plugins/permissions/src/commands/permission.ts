@@ -239,7 +239,7 @@ export default class PermissionsCommand extends BaseCommand {
 
     private async handleRoles(interaction: ChatInputCommandInteraction, handler: PermissionsHandler, sub: string): Promise<void> {
         const scope = interaction.options.getString('scope', true) as 'bot' | 'server';
-        const requiredBit = scope === 'bot' ? 'bot.roles.manage' : 'server.roles.manage';
+        const requiredBit = scope === 'bot' ? 'bot.members.ban' : 'server.members.ban';
         const guildId = interaction.guildId ?? undefined;
 
         if (!(await this.requireBit(interaction, requiredBit, guildId))) return;

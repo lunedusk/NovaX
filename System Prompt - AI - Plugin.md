@@ -56,7 +56,6 @@ this.heart.net.metrics
 this.heart.system.events
 this.heart.system.scheduler
 this.heart.system.cooldowns
-this.heart.system.handler..    // Cached Proxy — dot-notation handler access
 this.heart.system.handler.$has(...)            // Handler/plugin existence check
 this.heart.system.handler.$get(...)            // Typed string-based fallback lookup
 this.heart.system.handler.$list()              // All registered handlers
@@ -568,7 +567,7 @@ Authorization: Bearer sk_prod_your_key_here
 
 ## 🔧 CUSTOM HANDLERS — `src/handlers/*.ts`
 
-Handlers are the **inter-plugin API surface**. They expose callable services that other plugins can discover and invoke through the shared `IHeart` context via `this.heart.system.handler`, a cached Proxy supporting dot-notation plugin namespace access and `$`-prefixed utility methods. The `HandlerLoader` auto-discovers all `.js` files recursively under `src/handlers/` and registers them with the global `HandlerRegistry` before `onEnable()` fires.
+Handlers are the **inter-plugin API surface**. They expose callable services that other plugins can discover and invoke through the shared `IHeart` context via `this.heart.system.handler`, a cached Proxy exposing `$`-prefixed utility methods for handler lookup and introspection. The `HandlerLoader` auto-discovers all `.js` files recursively under `src/handlers/` and registers them with the global `HandlerRegistry` before `onEnable()` fires.
 
 Extend `BaseHandler`. Each file must have a default export of a class extending `BaseHandler`.
 
@@ -606,7 +605,7 @@ export default class EconomyManager extends BaseHandler {
         this.log.info('Economy manager torn down.');
     }
 
-    // --- Public API — other plugins access these via dot notation ---
+    // --- Public API — other plugins access these via $get(...) ---
 
     public async getBalance(userId: string): Promise<number> {
         return this.cache.get(userId) ?? 0;
@@ -634,7 +633,7 @@ export default class EconomyManager extends BaseHandler {
 
 | Member | Type | Required | Description |
 |---|---|---|---|
-| `name` | `string` (abstract) | ✅ | Handler name within the plugin. Must be a valid JS identifier (camelCase). Accessed as `handler.<pluginId>.<name>` |
+| `name` | `string` (abstract) | ✅ | Handler name within the plugin. Must be a valid JS identifier (camelCase). Accessed via `this.heart.system.handler.$get('<pluginId>', '<name>')`, which returns the proxy union `Readonly<Record<string, BaseHandler>> \| ((...args: never[]) => unknown)` — cast to your concrete handler type before use |
 | `version` | `string` | — | Optional semver string for introspection |
 | `description` | `string` | — | Optional human-readable description for admin/debug listing |
 | `onInitialize()` | `async` lifecycle | — | Called after registration, before plugin `onEnable()`. 15-second timeout. Failure = unregistered. |
@@ -658,12 +657,19 @@ public readonly name = '123handler';       // cannot start with a digit
 ```
 
 ### Consuming Handlers from Another Plugin
-Always use optional chaining (`?.`) and guard with a null check. Use a **type-only import** for the class type — erased at compile time:
+Access handlers **only** via `$get(pluginId, handlerName)`. Its return type is the proxy union:
+
+```ts
+Readonly<Record<string, BaseHandler>> | ((...args: never[]) => unknown)
+```
+
+This does not narrow to your concrete handler — on the `Record` half it's only a `BaseHandler` (no custom methods), and on the function half the property doesn't exist at all. You **must** cast the result to `<HandlerClass> | undefined` via a **type-only import** (erased at compile time) before calling anything, and guard the null case.
 
 ```ts
 import type EconomyManager from '../../../economy/src/handlers/economy-manager.js';
 
-const economy = this.heart.system.handler.economy?.manager as EconomyManager | undefined;
+// $get is the only sanctioned access path. The cast is REQUIRED to compile.
+const economy = this.heart.system.handler.$get('economy', 'manager') as EconomyManager | undefined;
 
 if (!economy) {
     await interaction.editReply('Economy system is currently unavailable.');
@@ -673,16 +679,16 @@ if (!economy) {
 const success = await economy.transfer(interaction.user.id, 'VAULT', 100);
 ```
 
+
 ### Registry Introspection
 
 ```ts
-// Dot-notation access (preferred):
-this.heart.system.handler.economy?.manager          // BaseHandler | undefined
+// Handler access — use $get exclusively:
+this.heart.system.handler.$get('economy', 'manager')    // → proxy union; cast to <HandlerClass> | undefined before use
 
 // $-prefixed utility methods:
 this.heart.system.handler.$has('economy', 'manager')   // → boolean
 this.heart.system.handler.$has('economy')               // → boolean (any handlers?)
-this.heart.system.handler.$get('economy', 'manager')
 this.heart.system.handler.$list()                       // → Array<string>
 this.heart.system.handler.$listDetailed()               // → Array<HandlerDetail>
 ```
@@ -961,8 +967,7 @@ await cache.init();
 
 mgr.setCache(cache);
 ```
-
-After boot, `permissionsManager` and `permissionCache` are live-binding module exports accessible from any core import. **Core plugins** (shipped with the framework) may import these singletons directly. Third-party plugins must use the `permissions` plugin handler via `this.heart.system.handler.permissions?.manager`.
+After boot, `permissionsManager` and `permissionCache` are live-binding module exports accessible from any core import. **Core plugins** (shipped with the framework) may import these singletons directly. Third-party plugins must use the `permissions` plugin handler via `this.heart.system.handler.$get('permissions', 'manager')`, casting the result to `PermissionsHandler | undefined` (type-only import) before calling any of its methods — `$get` returns the proxy union and does not narrow to the concrete handler type on its own.
 
 ### Permission Bits (`src/core/types/permissions.ts`)
 
@@ -1105,7 +1110,7 @@ Other plugins can access the permissions handler:
 ```ts
 import type PermissionsHandler from '../../permissions/src/handlers/manager.js';
 
-const perms = this.heart.system.handler.permissions?.manager as PermissionsHandler | undefined;
+const perms = this.heart.system.handler.$get('permissions', 'manager') as PermissionsHandler | undefined;
 if (!perms) return;
 
 const resolved = await perms.resolve(userId, guildId);
@@ -1579,25 +1584,26 @@ export default class GuildMemberAddEvent extends BaseEvent<[GuildMember]> {
 6. Place files in their correct directories per the layout above — the loaders are path-sensitive.
 7. When generating a full plugin, always produce: `manifest.json`, `index.ts`, and all component files. Always produce the matching `data/configuration/lang/en.json5` and `data/configuration/config.json5` for any keys referenced in the code.
 8. `this.t()` is only valid in `BaseCommand`. Use `this.heart.assets.lang.get(...)` in events and routes.
-9. **Never call `permissionsManager` directly** in third-party plugin code. Access control is entirely declarative — set `config` fields on commands or class-level fields on events. For programmatic checks, use the permissions handler via `this.heart.system.handler.permissions?.manager`. Core plugins are exempt per rule 27.
+9. **Never call `permissionsManager` directly** in third-party plugin code. Access control is entirely declarative — set `config` fields on commands or class-level fields on events. For programmatic checks, use the permissions handler via `this.heart.system.handler.$get('permissions', 'manager')`. Core plugins are exempt per rule 27.
 10. **`roleIds` is an OR check** — the user needs ANY ONE of the listed role IDs.
 11. **`userPermissions` is an AND check** — the user must have ALL listed Discord permissions.
 12. When a `permissionLevel` string is used, it must exist in the server's `configuration/permissions.json5` or the interaction will be denied. Document required levels in plugin output.
 13. Do not set both `allowInDm: true` and `roleIds`/`userPermissions` simultaneously unless you explicitly handle the DM case in your handler.
 14. Handler `name` must be a valid camelCase JavaScript identifier (regex: `/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`). The framework throws a hard error at boot if this check fails.
-15. Always use `?.` when accessing a handler from another plugin — never assume it is present.
-16. `onDisable()` always fires while handlers are still registered — it is safe to call other handlers there. `onTeardown()` must not assume sibling handlers are still alive during a full shutdown.
-17. **NovaDB `upsert` is a full replace** — there is no partial patch. Always fetch, spread, and write back when updating.
-18. **Always close NovaDB snapshots** in a `finally` block — open snapshots prevent MVCC garbage collection and will grow disk usage unboundedly if forgotten.
-19. Design NovaDB `_id` values with sortable prefixes (e.g. `warn_{guildId}_{userId}_{timestamp}`) to enable efficient prefix range scans. Random UUIDs as `_id` make prefix scans useless.
-20. Create NovaDB secondary indexes once at boot (e.g. in `onSetup()` or handler `onInitialize()`), not on every request.
-21. For ComponentsV2 layouts: all `%%...%%` placeholder resolution is handled automatically by the string interpolation pipeline at build time — do not call `resolveGlobalPlaceholders()` manually.
-22. The global `DiscordMiddleware` automatically resolves `%%...%%` placeholders across **all** Discord.js send surfaces (replies, edits, followUps, channel sends, webhook messages, presence, etc.). You never need to call `resolveGlobalPlaceholders()` in plugin code for Discord-bound strings.
-23. Do not use `buildComponentsV2` / `buildComponentsV2AutoWrap` / `buildComponentsV2Strict` and the `ComponentEngine` singleton interchangeably without understanding that each call to `buildComponentsV2` creates a fresh engine with no shared state, while `ComponentEngine` (the singleton) retains a global context that can be configured once via `ComponentEngine.configure(...)`.
-24. **Loader execution order is: EventLoader → CommandLoader → HandlerLoader → RouteLoader.** Handlers are available to routes within the same plugin during `register()`. Access them via `this.heart.system.handler.$get(pluginId, handlerName)` with a type-only import for the handler class.
-25. **Plugin boot priority** is controlled by `manifest.priority` (default `0`, lower loads first). Dependencies always override priority — a dependent plugin always loads after its dependencies regardless of priority values.
-26. When a plugin needs REST API infrastructure (CORS, auth, security headers), declare `"dependencies": ["api"]` and use the API handler: `this.heart.system.handler.$get('api', 'manager')?.applyMiddleware(this.router)`. Never import middleware functions directly from another plugin's `src/lib/` directory.
-27. **Core plugins** (those shipped in the framework's `plugins/` directory, such as `permissions` and `api`) may import core manager singletons directly. Third-party plugins must access core systems through handler APIs.
-28. **Always wire the `PermissionCache` to the `PermissionsManager`** via `manager.setCache(cache)` during boot. Without this, all permission checks hit the database on every interaction.
-29. **Token manager master secret** must be at least 32 characters. Store it in env vars, never in code.
-30. When issuing tokens, use `BitSets` constants for standard role presets rather than hand-assembling bit arrays.
+15. Always use `$get(pluginId, handlerName)` to access another plugin's handler, and guard with a null check — never assume it is present.
+16. **`$get(...)` is NOT typed to your concrete handler.** It returns `Readonly<Record<string, BaseHandler>> | ((...args: never[]) => unknown)`. You MUST cast the result to `<HandlerClass> | undefined` (via a type-only import) before accessing any handler-specific member — otherwise TypeScript errors with `Property '<x>' does not exist on type '... | ((...args: never[]) => unknown)'`. The null guard covers runtime absence; the cast satisfies the compiler.
+17. `onDisable()` always fires while handlers are still registered — it is safe to call other handlers there. `onTeardown()` must not assume sibling handlers are still alive during a full shutdown.
+18. **NovaDB `upsert` is a full replace** — there is no partial patch. Always fetch, spread, and write back when updating.
+19. **Always close NovaDB snapshots** in a `finally` block — open snapshots prevent MVCC garbage collection and will grow disk usage unboundedly if forgotten.
+20. Design NovaDB `_id` values with sortable prefixes (e.g. `warn_{guildId}_{userId}_{timestamp}`) to enable efficient prefix range scans. Random UUIDs as `_id` make prefix scans useless.
+21. Create NovaDB secondary indexes once at boot (e.g. in `onSetup()` or handler `onInitialize()`), not on every request.
+22. For ComponentsV2 layouts: all `%%...%%` placeholder resolution is handled automatically by the string interpolation pipeline at build time — do not call `resolveGlobalPlaceholders()` manually.
+23. The global `DiscordMiddleware` automatically resolves `%%...%%` placeholders across **all** Discord.js send surfaces (replies, edits, followUps, channel sends, webhook messages, presence, etc.). You never need to call `resolveGlobalPlaceholders()` in plugin code for Discord-bound strings.
+24. Do not use `buildComponentsV2` / `buildComponentsV2AutoWrap` / `buildComponentsV2Strict` and the `ComponentEngine` singleton interchangeably without understanding that each call to `buildComponentsV2` creates a fresh engine with no shared state, while `ComponentEngine` (the singleton) retains a global context that can be configured once via `ComponentEngine.configure(...)`.
+25. **Loader execution order is: EventLoader → CommandLoader → HandlerLoader → RouteLoader.** Handlers are available to routes within the same plugin during `register()`. Access them via `this.heart.system.handler.$get(pluginId, handlerName)` with a type-only import for the handler class.
+26. **Plugin boot priority** is controlled by `manifest.priority` (default `0`, lower loads first). Dependencies always override priority — a dependent plugin always loads after its dependencies regardless of priority values.
+27. When a plugin needs REST API infrastructure (CORS, auth, security headers), declare `"dependencies": ["api"]` and use the API handler: `this.heart.system.handler.$get('api', 'manager')?.applyMiddleware(this.router)`. Never import middleware functions directly from another plugin's `src/lib/` directory.
+28. **Core plugins** (those shipped in the framework's `plugins/` directory, such as `permissions` and `api`) may import core manager singletons directly. Third-party plugins must access core systems through handler APIs.
+29. **Always wire the `PermissionCache` to the `PermissionsManager`** via `manager.setCache(cache)` during boot. Without this, all permission checks hit the database on every interaction.
+30. **Token manager master secret** must be at least 32 characters. Store it in env vars, never in code.
+31. When issuing tokens, use `BitSets` constants for standard role presets rather than hand-assembling bit arrays.

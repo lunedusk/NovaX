@@ -195,3 +195,4 @@ __**
 **/*__MACOSX/**
 *__MACOSX/*
 __MACOSX/
+src/plugins/dashboard/**/*
