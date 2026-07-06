@@ -196,3 +196,4 @@ __**
 *__MACOSX/*
 __MACOSX/
 src/plugins/dashboard/**/*
+src/plugins/message-builder/**/*

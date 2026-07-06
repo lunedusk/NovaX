@@ -9,10 +9,10 @@
             description: "Completely restart the bot process.",
             reasonDescription: "Optional reason recorded in the logs",
             messages: {
-                acknowledged: "Restart sequence accepted. The process is going down now and will be revived by the supervisor.\n\n**Triggered by:** {{user}}\n**Reason:**\n> {{reason}}",
-                denied: "You need the **bot.owner** or **bot.members.ban** permission bit to restart the bot.",
-                unavailable: "The permission subsystem is currently unavailable. Please try again shortly.",
-                fatalError: "A fatal error occurred during the restart sequence:\n```\n{{error}}\n```"
+                acknowledged: "%%emoji_tick%% Restart sequence accepted. The process is going down now and will be revived by the supervisor.\n\n**Triggered by:** {{user}}\n**Reason:**\n> {{reason}}",
+                denied: "%%emoji_no_entry%% You need the **bot.owner** or **bot.members.ban** permission bit to restart the bot.",
+                unavailable: "%%emoji_caution%% The permission subsystem is currently unavailable. Please try again shortly.",
+                fatalError: "%%emoji_alert%% A fatal error occurred during the restart sequence:\n```\n{{error}}\n```"
             }
         },
         help: {
@@ -66,19 +66,19 @@
             namespaceDescription: "The translation namespace or 'all'",
             idDescription: "The target plugin",
             messages: {
-                configSuccess: "Successfully synchronized **{{count}}** configuration files.\n\n{{grid}}",
-                configError: "Failed to reload target: `{{file}}`. Check console for JSON parse errors.",
+                configSuccess: "%%emoji_tick%% Successfully synchronized **{{count}}** configuration files.\n\n{{grid}}",
+                configError: "%%emoji_cross%% Failed to reload target: `{{file}}`. Check console for JSON parse errors.",
                 
-                langSuccess: "Successfully recompiled translations for **{{count}}** namespaces.\n\n{{grid}}",
-                langError: "Failed to compile language namespace: `{{namespace}}`.",
+                langSuccess: "%%emoji_tick%% Successfully recompiled translations for **{{count}}** namespaces.\n\n{{grid}}",
+                langError: "%%emoji_cross%% Failed to compile language namespace: `{{namespace}}`.",
                 
-                emojiSuccess: "Global emoji map refreshed and successfully mapped to **{{count}}** assets in memory.",
-                emojiError: "Failed to read emoji data source.",
+                emojiSuccess: "%%emoji_tick%% Global emoji map refreshed and successfully mapped to **{{count}}** assets in memory.",
+                emojiError: "%%emoji_cross%% Failed to read emoji data source.",
                 
                 pluginSuccess: "Successfully executed hot-reload sequence.\n\n**Manifest Identity:**\n> **Name:** {{name}}\n> **Version:** v{{version}}\n> **State:** Live\n\n**Active Modules:**\n> %%emoji_gear%% **Commands:** {{cmdCount}}\n> %%emoji_megaphone%% **Events:** {{eventCount}}\n> %%emoji_globe%% **Routes:** {{routeCount}}",
-                pluginError: "Surgical reload failed for `{{pluginId}}`.",
+                pluginError: "%%emoji_cross%% Surgical reload failed for `{{pluginId}}`.",
                 
-                fatalError: "A fatal error occurred during execution:\n```\n{{error}}\n```"
+                fatalError: "%%emoji_alert%% A fatal error occurred during execution:\n```\n{{error}}\n```"
             }
         },
         cache: {
@@ -86,16 +86,16 @@
             popDescription: "Invalidate and clear a specific memory cache pool.",
             targetDescription: "The cache registry to drop",
             messages: {
-                popped: "Successfully purged memory pool and flushed records for **{{target}}**.",
-                unknown: "Unrecognized memory cache target: `{{target}}`.\nAvailable targets: `cross-guild`",
-                fatalError: "A fatal error occurred while manipulating cache:\n```\n{{error}}\n```"
+                popped: "%%emoji_tick%% Successfully purged memory pool and flushed records for **{{target}}**.",
+                unknown: "%%emoji_question%% Unrecognized memory cache target: `{{target}}`.\nAvailable targets: `cross-guild`",
+                fatalError: "%%emoji_alert%% A fatal error occurred while manipulating cache:\n```\n{{error}}\n```"
             }
         }
     },
     errors: {
-        unauthorized: "Authentication required.",
-        forbidden: "You do not have permission to perform this action.",
-        sessionExpired: "Your session has expired. Please sign in again.",
-        rotationDetected: "Session invalidated for security reasons. Please sign in again."
+        unauthorized: "%%emoji_no_entry%% Authentication required.",
+        forbidden: "%%emoji_no_entry%% You do not have permission to perform this action.",
+        sessionExpired: "%%emoji_clock%% Your session has expired. Please sign in again.",
+        rotationDetected: "%%emoji_shield%% Session invalidated for security reasons. Please sign in again."
     }
 }
