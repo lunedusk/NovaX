@@ -197,3 +197,5 @@ __**
 __MACOSX/
 src/plugins/dashboard/**/*
 src/plugins/message-builder/**/*
+codex-skills/**/*
+Skill.md
