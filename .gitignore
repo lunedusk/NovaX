@@ -199,3 +199,6 @@ src/plugins/dashboard/**/*
 src/plugins/message-builder/**/*
 codex-skills/**/*
 Skill.md
+.CODE_OF_CONDUCT.md
+.CONTRIBUTING.md
+.claude-flow/**/*
