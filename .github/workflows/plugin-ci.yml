@@ -1,0 +1,41 @@
+name: Plugin CI & Auto-Tag
+
+on:
+  push:
+    branches:
+      - 'plugin-*' 
+    paths:
+      - 'src/plugins/**/manifest.json' # Updated path trigger
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Plugin Branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node & Compile
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Typecheck and Build
+        run: |
+          npm ci
+          npx tsc --noEmit # Fails the workflow if there are TS errors
+
+      - name: Auto-Tag Plugin Version
+        if: success()
+        run: |
+          PLUGIN_NAME=${GITHUB_REF_NAME#plugin-}
+          PLUGIN_VERSION=$(jq -r .version src/plugins/$PLUGIN_NAME/manifest.json)
+          TAG_NAME="${GITHUB_REF_NAME}-v${PLUGIN_VERSION}"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag $TAG_NAME
+          git push origin $TAG_NAME

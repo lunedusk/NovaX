@@ -1,0 +1,77 @@
+name: Community Manager
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, closed]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: write
+
+jobs:
+  greet-user:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+    steps:
+      - name: Send Greeting
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const user = context.payload.sender.login;
+            const isPR = context.eventName === 'pull_request';
+            
+            let message = `Hey @${user}! 👋 Thanks for opening this. `;
+            message += isPR 
+              ? "We'll review your pull request as soon as possible. Thank you for contributing!" 
+              : "We've received your issue and will look into it shortly.";
+              
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: message
+            });
+
+  auto-add-contributor:
+      runs-on: ubuntu-latest
+      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
+
+        - name: Import GPG Key
+          uses: crazy-max/ghaction-import-gpg@v6
+          with:
+            gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+            passphrase: ${{ secrets.GPG_PASSPHRASE }}
+            git_user_signingkey: true
+            git_commit_gpgsign: true
+            git_config_global: true
+
+        - name: Update Hall of Fame in CONTRIBUTORS.md
+          env:
+            AUTHOR_USERNAME: ${{ github.event.pull_request.user.login }}
+            AUTHOR_URL: ${{ github.event.pull_request.user.html_url }}
+          run: |
+            if grep -q "\[@$AUTHOR_USERNAME\]" CONTRIBUTORS.md; then
+              echo "$AUTHOR_USERNAME is already in the Hall of Fame. Skipping."
+              exit 0
+            fi
+            
+            echo "Adding $AUTHOR_USERNAME to the Hall of Fame!"
+            
+            AVATAR="<img src=\"https://github.com/${AUTHOR_USERNAME}.png?size=50\" width=\"40\" style=\"border-radius:50%\">"
+            USER_LINK="**[@${AUTHOR_USERNAME}](${AUTHOR_URL})**"
+            RANK="🚀 Contributor"
+            
+            NEW_ROW="| $AVATAR | $USER_LINK | $RANK |"
+            
+            echo "$NEW_ROW" >> CONTRIBUTORS.md
+            
+            git add CONTRIBUTORS.md
+            # The commit is now automatically signed using your imported GPG key!
+            git commit -S -m "chore: welcome @$AUTHOR_USERNAME to the Hall of Fame 🏆"
+            git push
