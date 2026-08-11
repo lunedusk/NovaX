@@ -89,7 +89,6 @@ jobs:
           NEW_VER: ${{ steps.version_check.outputs.version }}
         run: |
           npm install
-          npm ci
           npm run docs
           node -e "
           const fs = require('fs');
@@ -116,8 +115,7 @@ jobs:
           cp package.json package-lock.json release_build/
           
           cd release_build
-          npm install
-          npm ci --omit=dev
+          npm install --omit=dev
           find . -name "*.d.ts" -type f -delete
           
           zip -r ../NovaX-v${{ steps.version_check.outputs.version }}.zip .
