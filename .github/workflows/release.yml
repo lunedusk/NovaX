@@ -88,6 +88,7 @@ jobs:
           OLD_VER: ${{ steps.version_check.outputs.old_version }}
           NEW_VER: ${{ steps.version_check.outputs.version }}
         run: |
+          npm install
           npm ci
           npm run docs
           node -e "
@@ -115,6 +116,7 @@ jobs:
           cp package.json package-lock.json release_build/
           
           cd release_build
+          npm install
           npm ci --omit=dev
           find . -name "*.d.ts" -type f -delete
           
