@@ -27,7 +27,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
+          
       - name: Sync Core → plugin-template
         env:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
@@ -47,6 +47,9 @@ jobs:
           git add .core-version
           git commit -m "chore: update .core-version to $TAG" || true
 
-          # Force the remote to use the PAT (avoids checkout credential helper)
+          # Remove the GITHUB_TOKEN auth header that checkout injected
+          git config --unset-all http.https://github.com/.extraheader || true
+
+          # Now push with the PAT
           git remote set-url origin "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git"
           git push origin plugin-template
