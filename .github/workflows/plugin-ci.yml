@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'plugin-*'
+      - '!plugin-template'          # never run on the template
     paths:
       - 'src/plugins/**/manifest.json'
 
@@ -23,12 +24,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          # cache intentionally omitted for consistency with release workflow
 
-      - name: Typecheck
+      - name: Install & Typecheck
         run: |
           set -euo pipefail
-          npm ci
+
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "No package-lock.json found – falling back to npm install"
+            npm install
+          fi
+
           npx tsc --noEmit
 
       - name: Auto-Tag Plugin Version
@@ -56,7 +63,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Create annotated tag only if it does not already exist
           if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
             echo "Tag $TAG_NAME already exists – skipping"
           else

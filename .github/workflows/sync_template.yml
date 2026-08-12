@@ -27,7 +27,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
+
       - name: Sync Core → plugin-template
         env:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
@@ -35,21 +35,22 @@ jobs:
           set -euo pipefail
 
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "Making plugin-template exactly match $TAG"
 
-          echo "Syncing plugin-template to $TAG"
+          # Move to the template branch (create it if missing)
+          git checkout -B plugin-template
 
-          git checkout plugin-template
+          # Hard-reset so the branch is identical to the release tag
+          git reset --hard "$TAG"
 
-          git merge "$TAG" --no-edit -X theirs \
-            -m "chore: sync plugin-template with core $TAG"
-
+          # Record which core version this template is based on
           echo "$TAG" > .core-version
           git add .core-version
-          git commit -m "chore: update .core-version to $TAG" || true
+          git commit -m "chore: sync plugin-template to $TAG" || true
 
-          # Remove the GITHUB_TOKEN auth header that checkout injected
+          # Clear the GITHUB_TOKEN header injected by actions/checkout
           git config --unset-all http.https://github.com/.extraheader || true
 
-          # Now push with the PAT
+          # Push with PAT (required for workflow files + force update)
           git remote set-url origin "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git"
-          git push origin plugin-template
+          git push --force origin plugin-template
