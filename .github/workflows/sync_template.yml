@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to sync (e.g. v0.1.10)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -26,17 +32,18 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Use the input when called via workflow_dispatch, otherwise use the tag that triggered us
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+
+          echo "Syncing plugin-template to $TAG"
+
           git checkout plugin-template
 
-          # Force core files from the new release tag, leave plugin-specific content alone
-          git merge "${{ github.ref_name }}" --no-edit -X theirs \
-            -m "chore: sync plugin-template with core ${{ github.ref_name }}"
+          git merge "$TAG" --no-edit -X theirs \
+            -m "chore: sync plugin-template with core $TAG"
 
-          # Update the version index
-          echo "${{ github.ref_name }}" > .core-version
+          echo "$TAG" > .core-version
           git add .core-version
-
-          # Single clean commit (or no-op if nothing changed)
-          git commit -m "chore: update .core-version to ${{ github.ref_name }}" || true
+          git commit -m "chore: update .core-version to $TAG" || true
 
           git push origin plugin-template
