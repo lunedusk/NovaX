@@ -47,5 +47,6 @@ jobs:
           git add .core-version
           git commit -m "chore: update .core-version to $TAG" || true
 
-          # Push with PAT so workflow files are allowed
-          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" plugin-template
+          # Force the remote to use the PAT (avoids checkout credential helper)
+          git remote set-url origin "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git"
+          git push origin plugin-template
