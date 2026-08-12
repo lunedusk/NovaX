@@ -3,9 +3,9 @@ name: Plugin CI & Auto-Tag
 on:
   push:
     branches:
-      - 'plugin-*' 
+      - 'plugin-*'
     paths:
-      - 'src/plugins/**/manifest.json' # Updated path trigger
+      - 'src/plugins/**/manifest.json'
 
 permissions:
   contents: write
@@ -16,26 +16,50 @@ jobs:
     steps:
       - name: Checkout Plugin Branch
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Setup Node & Compile
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-      
-      - name: Typecheck and Build
+          # cache intentionally omitted for consistency with release workflow
+
+      - name: Typecheck
         run: |
+          set -euo pipefail
           npm ci
-          npx tsc --noEmit # Fails the workflow if there are TS errors
+          npx tsc --noEmit
 
       - name: Auto-Tag Plugin Version
         if: success()
         run: |
+          set -euo pipefail
+
           PLUGIN_NAME=${GITHUB_REF_NAME#plugin-}
-          PLUGIN_VERSION=$(jq -r .version src/plugins/$PLUGIN_NAME/manifest.json)
+          MANIFEST="src/plugins/${PLUGIN_NAME}/manifest.json"
+
+          if [ ! -f "$MANIFEST" ]; then
+            echo "❌ manifest.json not found at $MANIFEST"
+            exit 1
+          fi
+
+          PLUGIN_VERSION=$(jq -r .version "$MANIFEST")
+          if [ -z "$PLUGIN_VERSION" ] || [ "$PLUGIN_VERSION" = "null" ]; then
+            echo "❌ Could not read version from manifest"
+            exit 1
+          fi
+
           TAG_NAME="${GITHUB_REF_NAME}-v${PLUGIN_VERSION}"
-          
+          echo "Creating tag: $TAG_NAME"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag $TAG_NAME
-          git push origin $TAG_NAME
+
+          # Create annotated tag only if it does not already exist
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME already exists – skipping"
+          else
+            git tag -a "$TAG_NAME" -m "Plugin ${PLUGIN_NAME} v${PLUGIN_VERSION}"
+            git push origin "$TAG_NAME"
+          fi

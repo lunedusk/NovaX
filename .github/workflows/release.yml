@@ -2,10 +2,8 @@ name: Master Auto Tag & Release
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'package.json'
+    branches: [main]
+    paths: ['package.json']
 
 permissions:
   contents: write
@@ -17,30 +15,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2 
+          fetch-depth: 0
 
       - name: Analyze Version Change
         id: version_check
         run: |
           OLD_VERSION=$(git show HEAD~1:package.json | jq -r .version)
           NEW_VERSION=$(jq -r .version package.json)
-          
-          if [ "$OLD_VERSION" == "$NEW_VERSION" ]; then
+
+          if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
             echo "Version did not change. Skipping."
             echo "changed=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           echo "changed=true" >> $GITHUB_OUTPUT
           echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          
+
           OLD_MAJOR=$(echo $OLD_VERSION | cut -d. -f1)
           OLD_MINOR=$(echo $OLD_VERSION | cut -d. -f2)
           NEW_MAJOR=$(echo $NEW_VERSION | cut -d. -f1)
           NEW_MINOR=$(echo $NEW_VERSION | cut -d. -f2)
-          
-          if [ "$OLD_MAJOR" == "$NEW_MAJOR" ] && [ "$OLD_MINOR" == "$NEW_MINOR" ]; then
+
+          if [ "$OLD_MAJOR" = "$NEW_MAJOR" ] && [ "$OLD_MINOR" = "$NEW_MINOR" ]; then
             echo "is_prerelease=true" >> $GITHUB_OUTPUT
           else
             echo "is_prerelease=false" >> $GITHUB_OUTPUT
@@ -51,85 +49,228 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
-      # --- FETCH AND ISOLATE PLUGINS (WITH SOFTFAIL) ---
-      - name: Fetch and Clean Plugins
+      # ────────────────────────────────────────────────
+      # PHASE 2 – SLIM (core only)
+      # ────────────────────────────────────────────────
+      - name: Build Slim Distributions
         if: steps.version_check.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version_check.outputs.version }}
         run: |
+          set -euo pipefail
+
+          echo "📦 Packaging Slim Source..."
+          zip -q -r "NovaX-v${VERSION}-Slim-Source.zip" . \
+            -x "*.git*" \
+            -x "*node_modules*" \
+            -x "*.zip" \
+            -x "slim_build*" \
+            -x "bundled_build*" \
+            -x "core" -x "plugins" -x "scripts" \
+            -x "index.js" -x "index.d.ts"
+
+          echo "🔨 Building Slim (official pipeline)..."
+          npm install
+          npm run clean || true
+          npx tsc
+          npm run copy-assets
+
+          # ── Create distribution folder ──
+          rm -rf slim_build
+          mkdir -p slim_build
+
+          # Compiled output + declarations + assets from copy-assets
+          for item in core plugins scripts index.js index.d.ts; do
+            [ -e "$item" ] && mv "$item" slim_build/ || true
+          done
+
+          # Essential scaffolding
+          cp package.json package-lock.json slim_build/
+          [ -f plugins.txt ] && cp plugins.txt slim_build/
+          [ -f Dockerfile ] && cp Dockerfile slim_build/
+          [ -f docker-compose.yml ] && cp docker-compose.yml slim_build/
+
+          # All top-level markdown and shell scripts
+          cp *.md slim_build/ 2>/dev/null || true
+          cp *.sh slim_build/ 2>/dev/null || true
+
+          echo "📦 Packaging Slim Compiled..."
+          (cd slim_build && zip -q -r "../NovaX-v${VERSION}-Slim-Compiled.zip" .)
+
+          # Reset
+          npm run clean || rm -rf core plugins scripts index.js index.d.ts
+          rm -rf slim_build
+
+      # ────────────────────────────────────────────────
+      # PHASE 3 – Smart Plugin Bundler
+      # ────────────────────────────────────────────────
+      - name: Inject Compatible Plugins
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version_check.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm install semver --no-save
+
           mkdir -p src/plugins
-          
-          while IFS= read -r branch; do
+
+          echo "Current core version: $VERSION"
+          echo "plugins.txt contents:"
+          cat plugins.txt || true
+          echo "────────────────────────────────────────"
+
+          while IFS= read -r branch || [ -n "$branch" ]; do
+            branch=$(echo "$branch" | sed 's/#.*//' | xargs)
             [ -z "$branch" ] && continue
-            
-            echo "Fetching plugin branch: $branch"
+
             PLUGIN_NAME=${branch#plugin-}
-            
-            git clone --branch "$branch" --single-branch https://github.com/${{ github.repository }}.git temp_plugin
-            
-            # SOFTFAIL VALIDATION
-            if [ ! -f "temp_plugin/src/plugins/$PLUGIN_NAME/manifest.json" ]; then
-              echo "⚠️ SOFTFAIL: No manifest.json found at 'src/plugins/$PLUGIN_NAME/' in branch '$branch'. Skipping this branch."
-              rm -rf temp_plugin
-              continue
+            echo "────────────────────────────────────────"
+            echo "Processing: $branch → plugin name = '$PLUGIN_NAME'"
+
+            mapfile -t TAGS < <(git tag -l "plugin-${PLUGIN_NAME}-v*" | sort -V -r)
+
+            SELECTED_REF=""
+            SELECTED_TYPE=""
+
+            if [ ${#TAGS[@]} -gt 0 ]; then
+              echo "  Found tags: ${TAGS[*]}"
+              for TAG in "${TAGS[@]}"; do
+                if ! MANIFEST=$(git show "$TAG:src/plugins/${PLUGIN_NAME}/manifest.json" 2>/dev/null); then
+                  echo "  ↳ $TAG → no manifest"
+                  continue
+                fi
+
+                COMPAT=$(node -e '
+                  const semver = require("semver");
+                  const manifest = JSON.parse(process.argv[1]);
+                  const core = process.argv[2];
+                  const req = manifest.novax_version || (manifest.engines && manifest.engines.novax) || "*";
+                  const ok = semver.satisfies(core, req, { includePrerelease: true });
+                  console.log(ok ? "yes|" + req : "no|" + req);
+                ' "$MANIFEST" "$VERSION")
+
+                STATUS=${COMPAT%%|*}
+                REQ=${COMPAT#*|}
+
+                if [ "$STATUS" = "yes" ]; then
+                  echo "  ✅ $TAG compatible (requires $REQ)"
+                  SELECTED_REF=$TAG
+                  SELECTED_TYPE="tag"
+                  break
+                else
+                  echo "  ↳ $TAG incompatible (requires $REQ)"
+                fi
+              done
+            else
+              echo "  ⚠️  No tags matching plugin-${PLUGIN_NAME}-v*"
             fi
-            
-            # Inject only the specific plugin folder
-            mv "temp_plugin/src/plugins/$PLUGIN_NAME" "src/plugins/$PLUGIN_NAME"
-            rm -rf temp_plugin
-            
-            echo "✅ Successfully injected plugin: $PLUGIN_NAME"
+
+            # Fallback to branch tip when no compatible tag exists
+            if [ -z "$SELECTED_REF" ]; then
+              if git rev-parse --verify "origin/$branch" >/dev/null 2>&1; then
+                echo "  ↪️  Falling back to origin/$branch"
+                if git show "origin/$branch:src/plugins/${PLUGIN_NAME}/manifest.json" >/dev/null 2>&1; then
+                  SELECTED_REF="origin/$branch"
+                  SELECTED_TYPE="branch"
+                else
+                  echo "  ❌ Branch has no manifest – skipping"
+                  continue
+                fi
+              else
+                echo "  ❌ Branch origin/$branch does not exist – skipping"
+                continue
+              fi
+            fi
+
+            echo "  📥 Injecting $SELECTED_TYPE $SELECTED_REF → src/plugins/$PLUGIN_NAME"
+            rm -rf "src/plugins/$PLUGIN_NAME"
+            git archive "$SELECTED_REF" "src/plugins/$PLUGIN_NAME" | tar -x
+            echo "  ✅ Injected"
           done < plugins.txt
 
-      # --- SMART DOCS UPDATE ---
-      - name: Smart Update Docs & References
+          echo "────────────────────────────────────────"
+          echo "Final plugins present:"
+          ls -1 src/plugins/ || true
+
+      # ────────────────────────────────────────────────
+      # PHASE 4 – BUNDLED
+      # ────────────────────────────────────────────────
+      - name: Build Bundled Distributions
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version_check.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          echo "📦 Packaging Bundled Source..."
+          zip -q -r "NovaX-v${VERSION}-Bundled-Source.zip" . \
+            -x "*.git*" \
+            -x "*node_modules*" \
+            -x "*.zip" \
+            -x "slim_build*" \
+            -x "bundled_build*" \
+            -x "core" -x "plugins" -x "scripts" \
+            -x "index.js" -x "index.d.ts"
+
+          echo "🔨 Building Bundled (official pipeline)..."
+          npm install
+          npm run clean || true
+          npx tsc
+          npm run copy-assets
+
+          # ── Create distribution folder ──
+          rm -rf bundled_build
+          mkdir -p bundled_build
+
+          for item in core plugins scripts index.js index.d.ts; do
+            [ -e "$item" ] && mv "$item" bundled_build/ || true
+          done
+
+          cp package.json package-lock.json bundled_build/
+          [ -f plugins.txt ] && cp plugins.txt bundled_build/
+          [ -f Dockerfile ] && cp Dockerfile bundled_build/
+          [ -f docker-compose.yml ] && cp docker-compose.yml bundled_build/
+
+          # All top-level markdown and shell scripts
+          cp *.md bundled_build/ 2>/dev/null || true
+          cp *.sh bundled_build/ 2>/dev/null || true
+
+          echo "📦 Packaging Bundled Compiled..."
+          (cd bundled_build && zip -q -r "../NovaX-v${VERSION}-Bundled-Compiled.zip" .)
+
+          npm run clean || rm -rf core plugins scripts index.js index.d.ts
+          rm -rf bundled_build
+
+      # ────────────────────────────────────────────────
+      # PHASE 5 – Docs, GPG, Tag, Release
+      # ────────────────────────────────────────────────
+      - name: Smart Update Docs & Version References
         if: steps.version_check.outputs.changed == 'true'
         env:
           OLD_VER: ${{ steps.version_check.outputs.old_version }}
           NEW_VER: ${{ steps.version_check.outputs.version }}
         run: |
-          npm install
-          npm run docs
-          node -e "
-          const fs = require('fs');
-          const oldVer = process.env.OLD_VER;
-          const newVer = process.env.NEW_VER;
-          const files = fs.readdirSync('.').filter(f => f.endsWith('.md'));
-          for (const file of files) {
-            let content = fs.readFileSync(file, 'utf8');
-            const regex = new RegExp('(?<!\\\\d)' + oldVer.replace(/\\./g, '\\\\.') + '(?!\\\\d)', 'g');
-            if (regex.test(content)) {
-              content = content.replace(regex, newVer);
-              fs.writeFileSync(file, content);
+          if grep -q '"docs"' package.json; then
+            npm run docs || true
+          fi
+
+          node -e '
+            const fs = require("fs");
+            const oldVer = process.env.OLD_VER;
+            const newVer = process.env.NEW_VER;
+            const files = fs.readdirSync(".").filter(f => f.endsWith(".md"));
+            for (const file of files) {
+              let content = fs.readFileSync(file, "utf8");
+              const regex = new RegExp("(?<!\\d)" + oldVer.replace(/\\./g, "\\\\.") + "(?!\\d)", "g");
+              if (regex.test(content)) {
+                content = content.replace(regex, newVer);
+                fs.writeFileSync(file, content);
+                console.log("Updated", file);
+              }
             }
-          }
-          "
+          '
 
-      # --- BUILD, CLEAN, AND ZIP ---
-      - name: Build and Package
-        if: steps.version_check.outputs.changed == 'true'
-        run: |
-          npx tsc
-          mkdir release_build
-          rsync -avm --include='*.js' --include='*.json' --include='*/' --exclude='*' src/ release_build/src/
-          cp package.json package-lock.json release_build/
-          
-          cd release_build
-          npm install --omit=dev
-          find . -name "*.d.ts" -type f -delete
-          
-          zip -r ../NovaX-v${{ steps.version_check.outputs.version }}.zip .
-          cd ..
-
-      # --- UPLOAD ARTIFACT ---
-      - name: Upload Artifact to GitHub Action
-        if: steps.version_check.outputs.changed == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: NovaX-Compiled-v${{ steps.version_check.outputs.version }}
-          path: NovaX-v${{ steps.version_check.outputs.version }}.zip
-
-      # --- IMPORT GPG KEY ---
       - name: Import GPG Key
         if: steps.version_check.outputs.changed == 'true'
         uses: crazy-max/ghaction-import-gpg@v6
@@ -141,29 +282,44 @@ jobs:
           git_tag_gpgsign: true
           git_config_global: true
 
-      # --- COMMIT, TAG & PUBLISH ---
       - name: Commit, Tag & Publish Release
         if: steps.version_check.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version_check.outputs.version }}
           IS_PRERELEASE: ${{ steps.version_check.outputs.is_prerelease }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
-          TAG_NAME="v$VERSION"
-          git add docs/ *.md plugins.txt
-          
+          set -euo pipefail
+
+          TAG_NAME="v${VERSION}"
+
+          git add docs/ *.md plugins.txt || true
           if ! git diff --cached --quiet; then
-            git commit -S -m "[CHORE] Update Docs & Version References to $TAG_NAME"
+            git commit -S -m "[CHORE] Update Docs & Version References to ${TAG_NAME}"
           fi
-          
-          git tag -s $TAG_NAME -m "Release $TAG_NAME"
-          git push origin main
-          git push origin $TAG_NAME
-          
-          ZIP_FILE="NovaX-$TAG_NAME.zip"
-          
-          if [ "$IS_PRERELEASE" == "true" ]; then
-            gh release create $TAG_NAME $ZIP_FILE --prerelease --title "$TAG_NAME Pre-release" --generate-notes
+
+          git tag -s "${TAG_NAME}" -m "Release ${TAG_NAME}"
+
+          # Push with the PAT so other workflows (Sync Plugin Template) are triggered
+          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" main
+          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" "${TAG_NAME}"
+
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            gh release create "${TAG_NAME}" \
+              "NovaX-v${VERSION}-Slim-Source.zip" \
+              "NovaX-v${VERSION}-Slim-Compiled.zip" \
+              "NovaX-v${VERSION}-Bundled-Source.zip" \
+              "NovaX-v${VERSION}-Bundled-Compiled.zip" \
+              --prerelease \
+              --title "${TAG_NAME} Pre-release" \
+              --generate-notes
           else
-            gh release create $TAG_NAME $ZIP_FILE --title "$TAG_NAME Latest" --generate-notes
+            gh release create "${TAG_NAME}" \
+              "NovaX-v${VERSION}-Slim-Source.zip" \
+              "NovaX-v${VERSION}-Slim-Compiled.zip" \
+              "NovaX-v${VERSION}-Bundled-Source.zip" \
+              "NovaX-v${VERSION}-Bundled-Compiled.zip" \
+              --title "${TAG_NAME} Latest" \
+              --generate-notes
           fi

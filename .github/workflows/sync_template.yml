@@ -3,7 +3,7 @@ name: Sync Plugin Template
 on:
   push:
     tags:
-      - 'v*' # Triggers whenever you push a new core release tag
+      - 'v*'
 
 permissions:
   contents: write
@@ -12,24 +12,31 @@ jobs:
   sync-template:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          
+
       - name: Setup Git Identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Sync Core to Template
+      - name: Sync Core → plugin-template
         run: |
+          set -euo pipefail
+
           git checkout plugin-template
-          git merge ${{ github.ref_name }} --no-edit -X theirs -m "chore: sync plugin-template with release ${{ github.ref_name }}"
-          
-          # Create/Update the core-version index file for the template
+
+          # Force core files from the new release tag, leave plugin-specific content alone
+          git merge "${{ github.ref_name }}" --no-edit -X theirs \
+            -m "chore: sync plugin-template with core ${{ github.ref_name }}"
+
+          # Update the version index
           echo "${{ github.ref_name }}" > .core-version
           git add .core-version
-          git commit -m "chore: update .core-version index to ${{ github.ref_name }}" || true
-          
+
+          # Single clean commit (or no-op if nothing changed)
+          git commit -m "chore: update .core-version to ${{ github.ref_name }}" || true
+
           git push origin plugin-template
