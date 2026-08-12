@@ -29,10 +29,11 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Sync Core → plugin-template
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           set -euo pipefail
 
-          # Use the input when called via workflow_dispatch, otherwise use the tag that triggered us
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
 
           echo "Syncing plugin-template to $TAG"
@@ -46,4 +47,5 @@ jobs:
           git add .core-version
           git commit -m "chore: update .core-version to $TAG" || true
 
-          git push origin plugin-template
+          # Push with PAT so workflow files are allowed
+          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" plugin-template
