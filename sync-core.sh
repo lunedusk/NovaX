@@ -1,6 +1,7 @@
 #!/bin/bash
 # sync-core.sh – Update core files on the current plugin-* branch
 # Does NOT touch or remove the plugin you are working on.
+# Only syncs core paths + sibling plugins that EXIST on the core tag.
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -85,10 +86,14 @@ info "Backing up your plugin → $BACKUP_DIR/$PLUGIN_NAME"
 cp -a "$PLUGIN_DIR" "$BACKUP_DIR/$PLUGIN_NAME"
 
 # Also remember any other local-only plugins so we never delete them
-mapfile -t LOCAL_PLUGINS < <(ls -1 src/plugins/ 2>/dev/null || true)
+# (portable: macOS ships bash 3.2 which lacks `mapfile`)
+LOCAL_PLUGINS=()
+while IFS= read -r line; do
+  [ -n "$line" ] && LOCAL_PLUGINS+=("$line")
+done < <(ls -1 src/plugins/ 2>/dev/null || true)
 
 # ──────────────────────────────────────────────
-# 5. Bring in core files from the tag (not a full merge)
+# 5. Bring in core files from the tag (path checkout, NOT a full merge)
 # ──────────────────────────────────────────────
 # Adjust this list if your core layout differs
 CORE_PATHS=(
@@ -111,12 +116,14 @@ for path in "${CORE_PATHS[@]}"; do
   fi
 done
 
-# Optional: update *sibling* plugins that exist on the tag,
-# but never touch the current plugin and never delete local-only ones
+# Update ONLY sibling plugins that exist on the tag,
+# never touch the current plugin, never delete local-only ones.
 if git cat-file -e "$LATEST_TAG:src/plugins" 2>/dev/null; then
-  info "Updating sibling plugins from tag (skipping $PLUGIN_NAME)..."
-  # List plugins that exist on the tag
-  mapfile -t TAG_PLUGINS < <(git ls-tree --name-only "$LATEST_TAG:src/plugins" 2>/dev/null || true)
+  info "Updating sibling plugins present on tag (skipping $PLUGIN_NAME)..."
+  TAG_PLUGINS=()
+  while IFS= read -r line; do
+    [ -n "$line" ] && TAG_PLUGINS+=("$line")
+  done < <(git ls-tree --name-only "$LATEST_TAG:src/plugins" 2>/dev/null || true)
   for p in "${TAG_PLUGINS[@]}"; do
     if [ "$p" = "$PLUGIN_NAME" ]; then
       continue   # never overwrite the plugin we're developing
