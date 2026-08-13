@@ -22,9 +22,10 @@ This document is the complete reference for every environment variable recognize
 10. [Internationalisation](#10-internationalisation)
 11. [Rate Limiting](#11-rate-limiting)
 12. [Hot Reload](#12-hot-reload)
-13. [Authentication & Tokens](#13-authentication--tokens)
-14. [Full `.env` Template](#14-full-env-template)
-15. [Quick-Reference Table](#15-quick-reference-table)
+13. [Auto Updater](#13-auto-updater)
+14. [Authentication & Tokens](#14-authentication--tokens)
+15. [Full `.env` Template](#15-full-env-template)
+16. [Quick-Reference Table](#16-quick-reference-table)
 
 ---
 
@@ -764,7 +765,348 @@ hotReloadEnabled=false
 
 ---
 
-## 13. Authentication & Tokens
+## 13. Auto Updater
+
+NovaX can check GitHub for newer **tagged** releases and apply them without a local git repository. The updater runs after compilation via:
+
+```bash
+npm run updater
+# or with flags:
+node --import ./core/dependency/index.mjs ./index.js --updater
+node --import ./core/dependency/index.mjs ./index.js --updater --dry-run
+node --import ./core/dependency/index.mjs ./index.js --updater --force
+node --import ./core/dependency/index.mjs ./index.js --updater --baseline-only
+```
+
+It only starts `common777` + `secrets` — it does **not** log into Discord, load plugins, or start the HTTP server.
+
+Updates are driven by **semver tags** (`vX.Y.Z`):
+
+| Change | Behaviour |
+|---|---|
+| Major (`X`) | Always allowed when updater is on |
+| Minor (`Y`) | Always allowed when updater is on |
+| Patch (`Z`) | Allowed **only** when `DevBuilds=true` |
+
+SafeUpdate compares local files to a **baseline** (Blake2b-512 hashes written after the last successful update), never to the newest remote tree. Plugins under `src/plugins/` and `plugins/` follow a manifest `id` decision tree and are never blindly overwritten.
+
+---
+
+### `AutoUpdater`
+
+Master switch for automatic / CLI-driven updates.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `true` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Low — disabling only stops the updater; the bot itself is unaffected |
+| **Recommended Action** | Leave `true` if you want CLI/`npm run updater` and any future background checks to work. Set `false` on machines that must never pull remote code. |
+
+```env
+AutoUpdater=true
+```
+
+---
+
+### `RepositoryUrl`
+
+Highest-priority repository identifier. Accepts `owner/repo` or a full GitHub URL.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | *(empty — falls back to `UpdaterDefaultRepo`)* |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Medium — if this is set and the request fails (404, auth, network), the updater **aborts with a warning and does nothing**. It will not fall back to the default repo. |
+| **Recommended Action** | Leave empty to use the official default. Set only when tracking a fork or private mirror. |
+
+```env
+# RepositoryUrl=lunedusk/NovaX
+# RepositoryUrl=https://github.com/lunedusk/NovaX
+```
+
+---
+
+### `GithubPat`
+
+Optional GitHub Personal Access Token (or fine-grained token) for private repos or higher API rate limits.
+
+| | |
+|---|---|
+| **Required** | No (required only for private repositories) |
+| **Default** | *(none)* |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | **HIGH if leaked** — a token with `repo` scope can read private code |
+| **Recommended Action** | Set only when needed. Prefer a fine-grained token limited to the target repository. Never commit it. Also accepted as `GH_TOKEN` for compatibility. |
+
+```env
+# GithubPat=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+---
+
+### `UpdaterDefaultRepo`
+
+Fallback repository when `RepositoryUrl` is absent.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `lunedusk/NovaX` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Low |
+| **Recommended Action** | Leave at default unless you permanently track a different public repo. |
+
+```env
+UpdaterDefaultRepo=lunedusk/NovaX
+```
+
+---
+
+### `UpdaterBranch`
+
+Secondary reference branch name (used only as a hint where tags are absent or for future extensions). Tag selection remains the primary update driver.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `main` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | None for current tag-based flow |
+| **Recommended Action** | Leave as `main` unless your default branch differs. |
+
+```env
+UpdaterBranch=main
+```
+
+---
+
+### `DevBuilds`
+
+Allows **patch** tag upgrades (`v1.2.3` → `v1.2.4`). Major and minor upgrades are always allowed when the updater is on.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `false` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Low — enabling only accepts more tags; it does not force an update by itself |
+| **Recommended Action** | Keep `false` in production. Set `true` on staging or when you intentionally want every patch release. |
+
+```env
+DevBuilds=false
+```
+
+---
+
+### `SafeUpdate`
+
+When `true`, the updater refuses to apply a new tag if any managed local file differs from the last written baseline (content hash mismatch).
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `true` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | **HIGH if disabled carelessly** — local edits can be overwritten |
+| **Recommended Action** | Leave `true`. Use `--force` or `UpdaterAllowForce=true` only when you intentionally discard local changes to managed files. |
+
+Files never present in any baseline, and plugins marked “leave alone”, are not treated as dirty.
+
+```env
+SafeUpdate=true
+```
+
+---
+
+### `UpdaterKeepExtra`
+
+Preserve local files and directories that do not exist on the remote tree (top-level extras, unknown folders, etc.).
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `true` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Medium if set to `false` — extras may be ignored in planning (updater still does not delete arbitrary trees by default, but keep `true`) |
+| **Recommended Action** | Leave `true`. |
+
+```env
+UpdaterKeepExtra=true
+```
+
+---
+
+### `UpdaterAllowForce`
+
+Allows overriding SafeUpdate via config (in addition to the CLI `--force` flag).
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `false` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | **HIGH** — enables overwriting user-modified managed files |
+| **Recommended Action** | Leave `false`. Prefer one-off `--force` on the CLI when needed. |
+
+```env
+UpdaterAllowForce=false
+```
+
+---
+
+### `UpdaterDryRun`
+
+Plan-only mode: resolve tags, run safety checks, print the plan, write nothing.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `false` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | None |
+| **Recommended Action** | Use via CLI `--dry-run` for one-off checks. Set `true` in env only if you want every updater invocation to be non-mutating. |
+
+```env
+UpdaterDryRun=false
+```
+
+---
+
+### `UpdaterMaxBackups`
+
+How many successful pre-update backups to retain under `.data/updater/backups/`.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `3` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Low — lowering only reduces older backups |
+| **Recommended Action** | `3` is enough for most hosts. Increase on machines with spare disk if you want a longer rollback window. |
+
+```env
+UpdaterMaxBackups=3
+```
+
+---
+
+### `UpdaterTimeoutMs`
+
+Overall timeout (milliseconds) for the update pipeline, including download and `npm run build`.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `300000` (5 minutes) |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Low — too low may abort large builds; too high only delays failure detection |
+| **Recommended Action** | Raise on slow CI or large trees; `300000` is fine for typical installs. |
+
+```env
+UpdaterTimeoutMs=300000
+```
+
+---
+
+### `UpdaterPostUpdateCmd`
+
+Optional shell command run after a successful apply + rebuild (e.g. migrate, notify).
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | *(empty — skipped)* |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Medium — a failing or destructive command runs with the bot process privileges |
+| **Recommended Action** | Leave empty unless you have a specific post-update step. Prefer idempotent scripts. |
+
+```env
+# UpdaterPostUpdateCmd=node scripts/post-update.js
+```
+
+---
+
+### `UpdaterNotifyChannel`
+
+Optional Discord channel Snowflake for future/post-update notifications (only meaningful when the bot is already running; the standalone updater path does not log in).
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | *(empty)* |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | None |
+| **Recommended Action** | Leave empty until notification wiring is used in your deployment. |
+
+```env
+# UpdaterNotifyChannel=123456789012345678
+```
+
+---
+
+### `UpdaterPluginManifest`
+
+Filename used inside each plugin folder for identity checks during updates.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `manifest.json` |
+| **Safe to Change** | Only if all your plugins use a different name |
+| **Breaking Risk** | Medium — wrong name disables id matching and changes plugin update decisions |
+| **Recommended Action** | Leave as `manifest.json`. |
+
+```env
+UpdaterPluginManifest=manifest.json
+```
+
+---
+
+### `UpdaterMode`
+
+How the updater is intended to run.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `standalone` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Low |
+| **Recommended Action** | Keep `standalone` for `npm run updater`. Use `background` only if you later wire periodic checks inside a long-running process. |
+
+**Accepted values:** `standalone`, `background`
+
+```env
+UpdaterMode=standalone
+```
+
+---
+
+### CLI flags (not env, but related)
+
+| Flag | Effect |
+|---|---|
+| `--updater` | Enter updater-only mode (no Discord login) |
+| `--dry-run` / `--dryRun` | Plan only |
+| `--force` | Bypass SafeUpdate for this run |
+| `--baseline-only` / `--baselineOnly` | Find exact or nearest tag, hash-match local files, write baseline; non-matching files are treated as user-updated and excluded from the baseline. No file overwrite. |
+
+---
+
+### First run / missing baseline
+
+If `.data/updater/baseline.json` is missing or unreadable:
+
+- Normal update path may still select the newest **allowed** tag, apply, rebuild, then write a new baseline.
+- `--baseline-only` selects the exact or nearest tag relative to the current baseline tag or `package.json` version, compares hashes, and writes a baseline from matching files only.
+```
+
+---
+
+## 14. Authentication & Tokens
 
 ### `TokenMasterSecret`
 
@@ -864,7 +1206,7 @@ TokenAudience=dashboard
 
 ---
 
-## 14. Full `.env` Template
+## 15. Full `.env` Template
 
 Copy this template as your starting point. Required variables are marked. All others have safe defaults.
 
@@ -952,11 +1294,29 @@ hotReloadEnabled=false
 # Issuer and audience claims (change only if running multiple environments)
 # TokenIssuer=novax
 # TokenAudience=dashboard
+
+# ── AUTO UPDATER ────────────────────────────────────────────
+AutoUpdater=true
+# RepositoryUrl=                    # if set and fails → abort (no fallback)
+# GithubPat=                        # private repos / higher rate limits
+UpdaterDefaultRepo=lunedusk/NovaX
+UpdaterBranch=main
+DevBuilds=false
+SafeUpdate=true
+UpdaterKeepExtra=true
+UpdaterAllowForce=false
+UpdaterDryRun=false
+UpdaterMaxBackups=3
+UpdaterTimeoutMs=300000
+# UpdaterPostUpdateCmd=
+# UpdaterNotifyChannel=
+UpdaterPluginManifest=manifest.json
+UpdaterMode=standalone
 ```
 
 ---
 
-## 15. Quick-Reference Table
+## 16. Quick-Reference Table
 
 | Variable | Required | Default | Safe to Change | Breaking Risk |
 |---|---|---|---|---|
@@ -986,6 +1346,24 @@ hotReloadEnabled=false
 | `TokenMaxTTL` | No | `86400` | Yes | None |
 | `TokenIssuer` | No | `novax` | Yes (invalidates tokens) | Medium |
 | `TokenAudience` | No | `dashboard` | Yes (invalidates tokens) | Medium |
+| `AutoUpdater` | No | `true` | Yes | Low |
+| `RepositoryUrl` | No | *(empty)* | Yes | Medium (fail = abort) |
+| `GithubPat` | No* | *(none)* | Yes | **Critical if leaked** |
+| `UpdaterDefaultRepo` | No | `lunedusk/NovaX` | Yes | Low |
+| `UpdaterBranch` | No | `main` | Yes | None |
+| `DevBuilds` | No | `false` | Yes | Low |
+| `SafeUpdate` | No | `true` | Yes | **High if disabled** |
+| `UpdaterKeepExtra` | No | `true` | Yes | Medium if `false` |
+| `UpdaterAllowForce` | No | `false` | Yes | **High** |
+| `UpdaterDryRun` | No | `false` | Yes | None |
+| `UpdaterMaxBackups` | No | `3` | Yes | Low |
+| `UpdaterTimeoutMs` | No | `300000` | Yes | Low |
+| `UpdaterPostUpdateCmd` | No | *(empty)* | Yes | Medium |
+| `UpdaterNotifyChannel` | No | *(empty)* | Yes | None |
+| `UpdaterPluginManifest` | No | `manifest.json` | Rarely | Medium |
+| `UpdaterMode` | No | `standalone` | Yes | Low |
+
+\*Required only for private GitHub repositories.
 
 ### `common.json` Field Reference
 

@@ -1,6 +1,6 @@
 {
   "name": "@lunedusk/novax",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "The most versatile modular discord framework for Node.js (discord.js) in TypeScript",
   "main": "./index.js",
   "type": "module",
@@ -23,7 +23,8 @@
     "dev": "tsx --import ./src/core/dependency/index.mts ./src/index.ts",
     "docs": "npm run rmdocs && typedoc",
     "rmdocs": "rm -rf docs",
-    "flush": "rm -rf core plugins configuration logs .data scripts index.js index.d.ts"
+    "flush": "rm -rf core plugins configuration logs .data scripts index.js index.d.ts",
+    "updater": "node --import ./core/dependency/index.mjs ./index.js --updater"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",
