@@ -28,7 +28,7 @@ jobs:
       - name: Typecheck
         run: |
           set -euo pipefail
-          npm ci
+          npm install
           npx tsc --noEmit
 
       - name: Auto-Tag Plugin Version
