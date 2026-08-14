@@ -14,10 +14,11 @@ export interface PluginDecision {
     pluginId: string;
     localPath: string;
     remotePath: string | null;
-    action: 'update' | 'leave' | 'add';
+    action: 'update' | 'leave' | 'add' | 'skip';
     reason: string;
     localManifestId?: string;
     remoteManifestId?: string;
+    selectedPluginTag?: string;
 }
 
 export interface DirtyFile {
@@ -40,6 +41,7 @@ export interface UpdatePlan {
     filesToKeep: string[];
     dryRun: boolean;
     baselineOnly: boolean;
+    installPlugin: string | null;
 }
 
 export interface UpdaterConfig {

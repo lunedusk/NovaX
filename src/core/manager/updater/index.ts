@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getLogger } from '#core/utils/logger.js';
 import { secrets } from '#core/helpers/secretManager.js';
-import { SemVer } from '#core/utils/semver.js';
+import { SemVer, SemVerRange } from '#core/utils/semver.js';
 import { GitHubClient } from './github.js';
 import { hashFile } from '#core/helpers/hash/index.js';
 import type {
@@ -115,107 +115,9 @@ async function computeLocalHashes(files: string[]): Promise<Record<string, Basel
         try {
             const { hash, size } = await hashFile(full);
             out[rel] = { hash, size };
-        } catch {
-        }
+        } catch { /* skip */ }
     }
     return out;
-}
-
-function decidePlugins(
-    localFiles: string[],
-    remoteFiles: Set<string>,
-    manifestName: string
-): PluginDecision[] {
-    const decisions: PluginDecision[] = [];
-    const localRoots = new Set<string>();
-    const remoteRoots = new Set<string>();
-
-    for (const f of localFiles) {
-        const r = pluginRoot(f);
-        if (r) localRoots.add(r);
-    }
-    for (const f of remoteFiles) {
-        const r = pluginRoot(f);
-        if (r) remoteRoots.add(r);
-    }
-
-    for (const root of new Set([...localRoots, ...remoteRoots])) {
-        const localManifest = path.join(process.cwd(), root, manifestName);
-        const hasLocal = fs.existsSync(localManifest);
-        const remoteHas = [...remoteFiles].some(f => f === root || f.startsWith(root + '/'));
-
-        let localId: string | undefined;
-        if (hasLocal) {
-            try {
-                const j = JSON.parse(fs.readFileSync(localManifest, 'utf-8'));
-                localId = j.id || j.name;
-            } catch {  }
-        }
-
-        if (!remoteHas) {
-            decisions.push({
-                pluginId: root, localPath: root, remotePath: null,
-                action: 'leave', reason: 'Exists only locally – never touched',
-                localManifestId: localId
-            });
-            continue;
-        }
-
-        if (!localRoots.has(root)) {
-            decisions.push({
-                pluginId: root, localPath: root, remotePath: root,
-                action: 'add', reason: 'Present on remote, absent locally'
-            });
-            continue;
-        }
-
-        if (hasLocal && localId) {
-            decisions.push({
-                pluginId: root, localPath: root, remotePath: root,
-                action: 'update', reason: `Local id="${localId}" – will verify after download`,
-                localManifestId: localId
-            });
-        } else if (!hasLocal) {
-            decisions.push({
-                pluginId: root, localPath: root, remotePath: root,
-                action: 'update', reason: 'No local manifest – legacy plugin, will update'
-            });
-        } else {
-            decisions.push({
-                pluginId: root, localPath: root, remotePath: root,
-                action: 'leave', reason: 'Local manifest missing id – safer to leave'
-            });
-        }
-    }
-    return decisions;
-}
-
-function refinePluginDecisions(
-    decisions: PluginDecision[],
-    stagingRoot: string,
-    manifestName: string
-): PluginDecision[] {
-    return decisions.map(d => {
-        if (d.action !== 'update' || !d.remotePath) return d;
-        const remoteMan = path.join(stagingRoot, d.remotePath, manifestName);
-        if (!fs.existsSync(remoteMan)) return d;
-
-        try {
-            const j = JSON.parse(fs.readFileSync(remoteMan, 'utf-8'));
-            const remoteId = j.id || j.name;
-            if (d.localManifestId && remoteId && d.localManifestId !== remoteId) {
-                return {
-                    ...d,
-                    action: 'leave' as const,
-                    reason: `id mismatch (local="${d.localManifestId}" vs remote="${remoteId}")`,
-                    remoteManifestId: remoteId
-                };
-            }
-            return { ...d, remoteManifestId: remoteId, reason: `id matches (${remoteId})` };
-        } catch {
-            return d;
-        }
-    });
 }
 
 function readPackageVersion(): SemVer | null {
@@ -224,6 +126,53 @@ function readPackageVersion(): SemVer | null {
         return SemVer.parse(pkg.version);
     } catch {
         return null;
+    }
+}
+
+function parsePluginsTxt(body: string): string[] {
+    const names: string[] = [];
+    for (const line of body.split(/\r?\n/)) {
+        const cleaned = line.replace(/#.*$/, '').trim();
+        if (!cleaned) continue;
+        const name = cleaned.startsWith('plugin-') ? cleaned.slice('plugin-'.length) : cleaned;
+        if (name) names.push(name);
+    }
+    return names;
+}
+
+function localPluginDir(pluginName: string): string | null {
+    const candidates = [
+        path.join('src', 'plugins', pluginName),
+        path.join('plugins', pluginName)
+    ];
+    for (const c of candidates) {
+        if (fs.existsSync(path.join(process.cwd(), c))) return c.replace(/\\/g, '/');
+    }
+    return null;
+}
+
+function readLocalManifestId(pluginRel: string, manifestName: string): string | undefined {
+    const p = path.join(process.cwd(), pluginRel, manifestName);
+    if (!fs.existsSync(p)) return undefined;
+    try {
+        const j = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        return j.id || j.name;
+    } catch {
+        return undefined;
+    }
+}
+
+function manifestCompatible(manifestJson: string, coreVersion: SemVer): { ok: boolean; req: string } {
+    try {
+        const manifest = JSON.parse(manifestJson);
+        const req: string =
+            manifest.novax_version ||
+            (manifest.engines && manifest.engines.novax) ||
+            '*';
+        const ok = SemVerRange.satisfies(coreVersion.toString(), req);
+        return { ok, req: String(req) };
+    } catch {
+        return { ok: false, req: '?' };
     }
 }
 
@@ -240,23 +189,27 @@ export class Updater {
         force?: boolean;
         dryRun?: boolean;
         baselineOnly?: boolean;
+        installPlugin?: string | null;
     } = {}): Promise<UpdatePlan> {
         ensureDirs();
-        const force        = options.force ?? false;
-        const dryRun       = options.dryRun ?? this.config.dryRun;
-        const baselineOnly = options.baselineOnly ?? false;
+        const force         = options.force ?? false;
+        const dryRun        = options.dryRun ?? this.config.dryRun;
+        const baselineOnly  = options.baselineOnly ?? false;
+        const installPlugin = this.normalizePluginArg(options.installPlugin ?? null);
 
-        log.info(`Updater start (baselineOnly=${baselineOnly}, dryRun=${dryRun}, force=${force})`);
+        log.info(
+            `Updater start (baselineOnly=${baselineOnly}, dryRun=${dryRun}, force=${force}, installPlugin=${installPlugin ?? '-'})`
+        );
 
-        let owner: string, repo: string;
-        const input = this.config.repositoryUrl || this.config.defaultRepo;
+        let owner: string;
+        let repo: string;
 
         if (this.config.repositoryUrl) {
             try {
                 ({ owner, repo } = GitHubClient.parseRepo(this.config.repositoryUrl));
             } catch (e) {
                 log.warn(`RepositoryUrl invalid – aborting: ${(e as Error).message}`);
-                return this.emptyPlan('Invalid RepositoryUrl', baselineOnly);
+                return this.emptyPlan('Invalid RepositoryUrl', baselineOnly, installPlugin);
             }
         } else {
             ({ owner, repo } = GitHubClient.parseRepo(this.config.defaultRepo));
@@ -266,89 +219,153 @@ export class Updater {
         const baseline = readBaseline();
         let currentSemVer: SemVer | null = null;
         if (baseline) {
-            try { currentSemVer = SemVer.parse(baseline.tag); } catch {  }
+            try { currentSemVer = SemVer.parse(baseline.tag); } catch { /* ignore */ }
         }
         if (!currentSemVer) currentSemVer = readPackageVersion();
 
-        let target: TagInfo | null;
-
-        try {
-            if (baselineOnly) {
+        if (baselineOnly) {
+            let target: TagInfo | null;
+            try {
                 target = await this.gh.findNearestTag(owner, repo, currentSemVer);
-                if (target) log.info(`baseline-only: selected nearest tag ${target.name}`);
-            } else {
-                target = await this.gh.getLatestAllowedTag(owner, repo, currentSemVer, this.config.devBuilds);
+            } catch (e) {
+                if (this.config.repositoryUrl) {
+                    return this.emptyPlan(`RepositoryUrl unreachable: ${(e as Error).message}`, true, installPlugin);
+                }
+                throw e;
             }
+            if (!target?.semver) return this.emptyPlan('No suitable tag', true, installPlugin);
+            const stagingRoot = await this.stageArchive(owner, repo, target.name);
+            const remoteFiles = this.collectRemoteFiles(stagingRoot);
+            return this.runBaselineOnly({
+                target, stagingRoot, remoteFiles, dryRun, force
+            });
+        }
+
+        let coreTarget: TagInfo | null = null;
+        try {
+            coreTarget = await this.gh.getLatestAllowedTag(owner, repo, currentSemVer, this.config.devBuilds);
         } catch (e) {
             if (this.config.repositoryUrl) {
-                log.warn(`RepositoryUrl unreachable – aborting: ${(e as Error).message}`);
-                return this.emptyPlan(`RepositoryUrl unreachable: ${(e as Error).message}`, baselineOnly);
+                return this.emptyPlan(`RepositoryUrl unreachable: ${(e as Error).message}`, false, installPlugin);
             }
             throw e;
         }
 
-        if (!target || !target.semver) {
-            log.info('No suitable tag found.');
-            return this.emptyPlan('No suitable tag', baselineOnly);
-        }
+        let coreForCompat: SemVer | null =
+            coreTarget?.semver ?? currentSemVer ?? readPackageVersion();
 
-        const stagingRoot = await this.stageArchive(owner, repo, target.name);
-        const remoteFiles = this.collectRemoteFiles(stagingRoot);
-        const remoteSet   = new Set(remoteFiles);
-        const localFiles  = walkLocal().filter(f => !shouldHardExclude(f));
-
-        let pluginDecisions = decidePlugins(localFiles, remoteSet, this.config.pluginManifest);
-        pluginDecisions = refinePluginDecisions(pluginDecisions, stagingRoot, this.config.pluginManifest);
-        const leavePlugins = new Set(
-            pluginDecisions.filter(d => d.action === 'leave').map(d => d.localPath)
-        );
-
-        if (baselineOnly) {
-            return this.runBaselineOnly({
-                target, stagingRoot, remoteFiles, localFiles,
-                leavePlugins, dryRun, force
-            });
-        }
-
-        const dirtyFiles: DirtyFile[] = [];
-        if (this.config.safeUpdate && baseline && !force) {
-            for (const [rel, entry] of Object.entries(baseline.files)) {
-                if (leavePlugins.has(pluginRoot(rel) || '')) continue;
-                if (shouldHardExclude(rel)) continue;
-                const full = path.join(process.cwd(), rel);
-                if (!fs.existsSync(full)) continue;
-
-                try {
-                    const current = await hashFile(full);
-                    if (current.hash !== entry.hash) {
-                        dirtyFiles.push({
-                            path: rel,
-                            baselineHash: entry.hash,
-                            currentHash: current.hash,
-                            category: isPluginPath(rel) ? 'plugin' : 'core'
-                        });
-                    }
-                } catch { }
+        const pluginsTxtRef = coreTarget?.name ?? baseline?.tag ?? null;
+        let officialPluginNames: string[] = [];
+        if (pluginsTxtRef) {
+            const body = await this.gh.getFileText(owner, repo, pluginsTxtRef, 'plugins.txt');
+            if (body) {
+                officialPluginNames = parsePluginsTxt(body);
+                log.info(`Tag ${pluginsTxtRef} plugins.txt → ${officialPluginNames.length} plugin(s)`);
+            } else {
+                log.info(`No plugins.txt on ref ${pluginsTxtRef} – no plugin updates from list`);
             }
         }
 
-        if (dirtyFiles.length > 0 && this.config.safeUpdate && !force) {
-            log.warn(`SafeUpdate blocked – ${dirtyFiles.length} modified file(s):`);
-            for (const d of dirtyFiles.slice(0, 15)) log.warn(`  • ${d.path}`);
-            if (dirtyFiles.length > 15) log.warn(`  … +${dirtyFiles.length - 15} more`);
-            return {
+        if (installPlugin) {
+            if (!pluginsTxtRef || officialPluginNames.length === 0 || !coreForCompat) {
+                const tags = (await this.gh.listTags(owner, repo))
+                    .filter(t => t.semver !== null)
+                    .sort((a, b) => b.semver!.compare(a.semver!));
+                const latest = tags[0] ?? null;
+                if (latest) {
+                    coreForCompat = coreForCompat ?? latest.semver;
+                    const body = await this.gh.getFileText(owner, repo, latest.name, 'plugins.txt');
+                    if (body) officialPluginNames = parsePluginsTxt(body);
+                    if (!coreTarget) coreTarget = latest;
+                }
+            }
+            return this.runInstallPlugin({
+                owner, repo, pluginName: installPlugin,
+                officialPluginNames, coreForCompat, baseline,
+                dryRun, force, coreTarget
+            });
+        }
+
+        if (!coreTarget?.semver) {
+            log.info('No newer core tag. Checking plugins against current core only…');
+            const pluginDecisions = await this.planPluginUpdates({
+                owner, repo,
+                officialPluginNames,
+                coreForCompat: coreForCompat!,
+                baseline,
+                force,
+                allowAdd: false
+            });
+            const toApply = pluginDecisions.filter(d => d.action === 'update' || d.action === 'add');
+            if (toApply.length === 0) {
+                return this.emptyPlan('No suitable core tag and no plugin updates', false, null);
+            }
+            const plan: UpdatePlan = {
                 fromTag: baseline?.tag ?? null,
-                toTag: target.name,
-                toCommit: target.commit,
-                allowed: false,
-                reason: `SafeUpdate blocked: ${dirtyFiles.length} user-modified file(s)`,
-                dirtyFiles,
+                toTag: baseline?.tag ?? currentSemVer?.toString() ?? '',
+                toCommit: baseline?.commit ?? '',
+                allowed: true,
+                reason: 'Plugin-only updates (core already current)',
+                dirtyFiles: [],
                 pluginDecisions,
                 filesToOverwrite: [],
                 filesToAdd: [],
                 filesToKeep: [],
                 dryRun,
-                baselineOnly: false
+                baselineOnly: false,
+                installPlugin: null
+            };
+            this.printPlan(plan);
+            if (dryRun) return plan;
+            await this.applyPluginDecisions(owner, repo, toApply, force);
+            await this.refreshBaselineAfterPlugins(baseline, toApply);
+            this.pruneBackups();
+            return plan;
+        }
+
+        const stagingRoot = await this.stageArchive(owner, repo, coreTarget.name);
+        const remoteFiles = this.collectRemoteFiles(stagingRoot);
+        const remoteSet = new Set(remoteFiles);
+        const localFiles = walkLocal().filter(f => !shouldHardExclude(f));
+
+        const dirtyCore: DirtyFile[] = [];
+        if (this.config.safeUpdate && baseline && !force) {
+            for (const [rel, entry] of Object.entries(baseline.files)) {
+                if (isPluginPath(rel)) continue;
+                if (shouldHardExclude(rel)) continue;
+                const full = path.join(process.cwd(), rel);
+                if (!fs.existsSync(full)) continue;
+                try {
+                    const current = await hashFile(full);
+                    if (current.hash !== entry.hash) {
+                        dirtyCore.push({
+                            path: rel,
+                            baselineHash: entry.hash,
+                            currentHash: current.hash,
+                            category: 'core'
+                        });
+                    }
+                } catch { /* ignore */ }
+            }
+        }
+
+        if (dirtyCore.length > 0 && this.config.safeUpdate && !force) {
+            log.warn(`SafeUpdate blocked core update – ${dirtyCore.length} modified core file(s):`);
+            for (const d of dirtyCore.slice(0, 15)) log.warn(`  • ${d.path}`);
+            return {
+                fromTag: baseline?.tag ?? null,
+                toTag: coreTarget.name,
+                toCommit: coreTarget.commit,
+                allowed: false,
+                reason: `SafeUpdate blocked: ${dirtyCore.length} user-modified core file(s)`,
+                dirtyFiles: dirtyCore,
+                pluginDecisions: [],
+                filesToOverwrite: [],
+                filesToAdd: [],
+                filesToKeep: [],
+                dryRun,
+                baselineOnly: false,
+                installPlugin: null
             };
         }
 
@@ -357,32 +374,38 @@ export class Updater {
         const filesToKeep: string[] = [];
 
         for (const rel of localFiles) {
-            const p = pluginRoot(rel);
-            if (p && leavePlugins.has(p)) { filesToKeep.push(rel); continue; }
+            if (isPluginPath(rel)) continue;
             if (remoteSet.has(rel)) filesToOverwrite.push(rel);
             else if (this.config.keepExtra) filesToKeep.push(rel);
         }
         for (const rel of remoteFiles) {
-            if (!localFiles.includes(rel)) {
-                const p = pluginRoot(rel);
-                if (p && leavePlugins.has(p)) continue;
-                filesToAdd.push(rel);
-            }
+            if (isPluginPath(rel)) continue;
+            if (!localFiles.includes(rel)) filesToAdd.push(rel);
         }
+
+        const pluginDecisions = await this.planPluginUpdates({
+            owner, repo,
+            officialPluginNames,
+            coreForCompat: coreTarget.semver,
+            baseline,
+            force,
+            allowAdd: false
+        });
 
         const plan: UpdatePlan = {
             fromTag: baseline?.tag ?? null,
-            toTag: target.name,
-            toCommit: target.commit,
+            toTag: coreTarget.name,
+            toCommit: coreTarget.commit,
             allowed: true,
-            reason: `Update to ${target.name}`,
-            dirtyFiles,
+            reason: `Update to ${coreTarget.name}`,
+            dirtyFiles: dirtyCore,
             pluginDecisions,
             filesToOverwrite,
             filesToAdd,
             filesToKeep,
             dryRun,
-            baselineOnly: false
+            baselineOnly: false,
+            installPlugin: null
         };
         this.printPlan(plan);
 
@@ -392,18 +415,46 @@ export class Updater {
         }
 
         await this.createBackup(baseline?.tag ?? 'unknown');
-        await this.applyFromStaging(stagingRoot, plan, leavePlugins);
+        await this.applyCoreFromStaging(stagingRoot, plan);
         await this.rebuild();
 
-        const managed = [...filesToOverwrite, ...filesToAdd].filter(f => {
-            const p = pluginRoot(f);
-            return !p || !leavePlugins.has(p);
-        });
+        const pluginsToApply = pluginDecisions.filter(d => d.action === 'update' || d.action === 'add');
+        await this.applyPluginDecisions(owner, repo, pluginsToApply, force);
+
+        const managedCore = [...filesToOverwrite, ...filesToAdd];
+        const newHashes = await computeLocalHashes(managedCore);
+        const mergedFiles: Record<string, BaselineFileEntry> = { ...newHashes };
+        if (baseline) {
+            for (const [rel, entry] of Object.entries(baseline.files)) {
+                if (!isPluginPath(rel)) continue;
+                const root = pluginRoot(rel);
+                const skipped = pluginDecisions.some(
+                    d => d.action === 'leave' || d.action === 'skip'
+                ) && root && pluginDecisions.some(
+                    d => (d.localPath === root || d.pluginId === root.split('/').pop()) &&
+                        (d.action === 'leave' || d.action === 'skip')
+                );
+                if (skipped && !mergedFiles[rel]) mergedFiles[rel] = entry;
+            }
+        }
+        for (const d of pluginsToApply) {
+            const root = d.localPath || `src/plugins/${d.pluginId}`;
+            const files = walkLocal(path.join(process.cwd(), root)).map(
+                f => path.join(root, f).replace(/\\/g, '/')
+            );
+        }
+        const allLocal = walkLocal().filter(f => !shouldHardExclude(f));
+        for (const d of pluginsToApply) {
+            const root = (d.localPath || `src/plugins/${d.pluginId}`).replace(/\\/g, '/');
+            const pluginFiles = allLocal.filter(f => f === root || f.startsWith(root + '/'));
+            Object.assign(mergedFiles, await computeLocalHashes(pluginFiles));
+        }
+
         writeBaseline({
-            tag: target.name,
-            commit: target.commit,
+            tag: coreTarget.name,
+            commit: coreTarget.commit,
             timestamp: new Date().toISOString(),
-            files: await computeLocalHashes(managed)
+            files: mergedFiles
         });
 
         if (this.config.postUpdateCmd) {
@@ -416,53 +467,318 @@ export class Updater {
             }
         }
         this.pruneBackups();
-        log.info(`Update to ${target.name} completed.`);
+        log.info(`Update to ${coreTarget.name} completed.`);
         return plan;
+    }
+
+    private normalizePluginArg(raw: string | null): string | null {
+        if (!raw) return null;
+        const t = raw.trim();
+        if (!t) return null;
+        return t.startsWith('plugin-') ? t.slice('plugin-'.length) : t;
+    }
+
+    private async planPluginUpdates(ctx: {
+        owner: string;
+        repo: string;
+        officialPluginNames: string[];
+        coreForCompat: SemVer;
+        baseline: Baseline | null;
+        force: boolean;
+        allowAdd: boolean;
+        onlyName?: string;
+    }): Promise<PluginDecision[]> {
+        const decisions: PluginDecision[] = [];
+        const names = ctx.onlyName
+            ? ctx.officialPluginNames.filter(n => n === ctx.onlyName)
+            : ctx.officialPluginNames;
+
+        for (const pluginName of names) {
+            const localRel = localPluginDir(pluginName);
+
+            if (!localRel && !ctx.allowAdd) {
+                decisions.push({
+                    pluginId: pluginName,
+                    localPath: `src/plugins/${pluginName}`,
+                    remotePath: null,
+                    action: 'skip',
+                    reason: 'Not installed locally – auto-install disabled (use --install-plugin)'
+                });
+                continue;
+            }
+
+            const tags = await this.gh.listPluginTags(ctx.owner, ctx.repo, pluginName);
+            if (tags.length === 0) {
+                decisions.push({
+                    pluginId: pluginName,
+                    localPath: localRel ?? `src/plugins/${pluginName}`,
+                    remotePath: null,
+                    action: 'skip',
+                    reason: `No tags matching plugin-${pluginName}-v* (branch fallback disabled)`
+                });
+                continue;
+            }
+
+            let selected: TagInfo | null = null;
+            let selectedReq = '';
+            for (const tag of tags) {
+                const manifestPath = `src/plugins/${pluginName}/${this.config.pluginManifest}`;
+                const text = await this.gh.getFileText(ctx.owner, ctx.repo, tag.name, manifestPath);
+                if (!text) continue;
+                const { ok, req } = manifestCompatible(text, ctx.coreForCompat);
+                if (ok) {
+                    selected = tag;
+                    selectedReq = req;
+                    break;
+                }
+                log.info(`  plugin ${pluginName}: ${tag.name} incompatible (requires ${req})`);
+            }
+
+            if (!selected) {
+                decisions.push({
+                    pluginId: pluginName,
+                    localPath: localRel ?? `src/plugins/${pluginName}`,
+                    remotePath: null,
+                    action: 'skip',
+                    reason: 'No compatible plugin tag for current core version'
+                });
+                continue;
+            }
+
+            const remoteMan = await this.gh.getFileText(
+                ctx.owner, ctx.repo, selected.name,
+                `src/plugins/${pluginName}/${this.config.pluginManifest}`
+            );
+            let remoteId: string | undefined;
+            try {
+                if (remoteMan) {
+                    const j = JSON.parse(remoteMan);
+                    remoteId = j.id || j.name;
+                }
+            } catch { /* ignore */ }
+
+            if (localRel) {
+                const localId = readLocalManifestId(localRel, this.config.pluginManifest);
+                if (localId && remoteId && localId !== remoteId) {
+                    decisions.push({
+                        pluginId: pluginName,
+                        localPath: localRel,
+                        remotePath: `src/plugins/${pluginName}`,
+                        action: 'leave',
+                        reason: `id mismatch (local="${localId}" vs remote="${remoteId}")`,
+                        localManifestId: localId,
+                        remoteManifestId: remoteId,
+                        selectedPluginTag: selected.name
+                    });
+                    continue;
+                }
+
+                if (this.config.safeUpdate && !ctx.force && ctx.baseline) {
+                    const dirty = await this.isPluginDirty(localRel, ctx.baseline);
+                    if (dirty) {
+                        decisions.push({
+                            pluginId: pluginName,
+                            localPath: localRel,
+                            remotePath: `src/plugins/${pluginName}`,
+                            action: 'leave',
+                            reason: 'SafeUpdate: local plugin files differ from baseline',
+                            localManifestId: localId,
+                            remoteManifestId: remoteId,
+                            selectedPluginTag: selected.name
+                        });
+                        continue;
+                    }
+                }
+
+                decisions.push({
+                    pluginId: pluginName,
+                    localPath: localRel,
+                    remotePath: `src/plugins/${pluginName}`,
+                    action: 'update',
+                    reason: `Compatible tag ${selected.name} (requires ${selectedReq})`,
+                    localManifestId: localId,
+                    remoteManifestId: remoteId,
+                    selectedPluginTag: selected.name
+                });
+            } else {
+                // allowAdd path (--install-plugin)
+                decisions.push({
+                    pluginId: pluginName,
+                    localPath: `src/plugins/${pluginName}`,
+                    remotePath: `src/plugins/${pluginName}`,
+                    action: 'add',
+                    reason: `Install from ${selected.name} (requires ${selectedReq})`,
+                    remoteManifestId: remoteId,
+                    selectedPluginTag: selected.name
+                });
+            }
+        }
+
+        return decisions;
+    }
+
+    private async isPluginDirty(pluginRel: string, baseline: Baseline): Promise<boolean> {
+        const prefix = pluginRel.replace(/\\/g, '/');
+        for (const [rel, entry] of Object.entries(baseline.files)) {
+            if (rel !== prefix && !rel.startsWith(prefix + '/')) continue;
+            const full = path.join(process.cwd(), rel);
+            if (!fs.existsSync(full)) continue;
+            try {
+                const cur = await hashFile(full);
+                if (cur.hash !== entry.hash) return true;
+            } catch { /* ignore */ }
+        }
+        return false;
+    }
+
+    private async runInstallPlugin(ctx: {
+        owner: string;
+        repo: string;
+        pluginName: string;
+        officialPluginNames: string[];
+        coreForCompat: SemVer | null;
+        baseline: Baseline | null;
+        dryRun: boolean;
+        force: boolean;
+        coreTarget: TagInfo | null;
+    }): Promise<UpdatePlan> {
+        const { pluginName, officialPluginNames, dryRun, force } = ctx;
+
+        if (!ctx.coreForCompat) {
+            return this.emptyPlan('Cannot resolve core version for plugin compatibility', false, pluginName);
+        }
+
+        if (!officialPluginNames.includes(pluginName)) {
+            log.warn(`Plugin "${pluginName}" is not listed in the tag's plugins.txt`);
+            return this.emptyPlan(
+                `Plugin "${pluginName}" not in tag plugins.txt – refusing install`,
+                false,
+                pluginName
+            );
+        }
+
+        const decisions = await this.planPluginUpdates({
+            owner: ctx.owner,
+            repo: ctx.repo,
+            officialPluginNames,
+            coreForCompat: ctx.coreForCompat,
+            baseline: ctx.baseline,
+            force,
+            allowAdd: true,
+            onlyName: pluginName
+        });
+
+        const plan: UpdatePlan = {
+            fromTag: ctx.baseline?.tag ?? null,
+            toTag: ctx.coreTarget?.name ?? ctx.baseline?.tag ?? '',
+            toCommit: ctx.coreTarget?.commit ?? ctx.baseline?.commit ?? '',
+            allowed: decisions.some(d => d.action === 'add' || d.action === 'update'),
+            reason: `Install/update plugin ${pluginName}`,
+            dirtyFiles: [],
+            pluginDecisions: decisions,
+            filesToOverwrite: [],
+            filesToAdd: [],
+            filesToKeep: [],
+            dryRun,
+            baselineOnly: false,
+            installPlugin: pluginName
+        };
+        this.printPlan(plan);
+
+        if (!plan.allowed) return plan;
+        if (dryRun) return plan;
+
+        const toApply = decisions.filter(d => d.action === 'add' || d.action === 'update');
+        await this.applyPluginDecisions(ctx.owner, ctx.repo, toApply, force);
+        await this.refreshBaselineAfterPlugins(ctx.baseline, toApply);
+        log.info(`Plugin ${pluginName} install/update finished.`);
+        return plan;
+    }
+
+    private async applyPluginDecisions(
+        owner: string,
+        repo: string,
+        decisions: PluginDecision[],
+        _force: boolean
+    ): Promise<void> {
+        for (const d of decisions) {
+            if (!d.selectedPluginTag || !d.remotePath) continue;
+            log.info(`Fetching plugin ${d.pluginId} from ${d.selectedPluginTag}…`);
+            const staging = await this.stageArchive(owner, repo, d.selectedPluginTag);
+            const srcRoot = path.join(staging, 'src', 'plugins', d.pluginId);
+            if (!fs.existsSync(srcRoot)) {
+                log.warn(`Tag ${d.selectedPluginTag} has no src/plugins/${d.pluginId} – skip`);
+                continue;
+            }
+            const destRoot = path.join(process.cwd(), d.localPath || path.join('src', 'plugins', d.pluginId));
+            fs.mkdirSync(path.dirname(destRoot), { recursive: true });
+            if (fs.existsSync(destRoot)) {
+                fs.rmSync(destRoot, { recursive: true, force: true });
+            }
+            await this.copyDir(srcRoot, destRoot);
+            log.info(`Applied plugin ${d.pluginId} → ${destRoot}`);
+        }
+    }
+
+    private async copyDir(src: string, dest: string): Promise<void> {
+        fs.mkdirSync(dest, { recursive: true });
+        for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+            const s = path.join(src, ent.name);
+            const d = path.join(dest, ent.name);
+            if (ent.isDirectory()) await this.copyDir(s, d);
+            else if (ent.isFile()) fs.copyFileSync(s, d);
+        }
+    }
+
+    private async refreshBaselineAfterPlugins(
+        baseline: Baseline | null,
+        applied: PluginDecision[]
+    ): Promise<void> {
+        const files: Record<string, BaselineFileEntry> = baseline ? { ...baseline.files } : {};
+        const allLocal = walkLocal().filter(f => !shouldHardExclude(f));
+        for (const d of applied) {
+            const root = (d.localPath || `src/plugins/${d.pluginId}`).replace(/\\/g, '/');
+            for (const k of Object.keys(files)) {
+                if (k === root || k.startsWith(root + '/')) delete files[k];
+            }
+            const pluginFiles = allLocal.filter(f => f === root || f.startsWith(root + '/'));
+            Object.assign(files, await computeLocalHashes(pluginFiles));
+        }
+        writeBaseline({
+            tag: baseline?.tag ?? readPackageVersion()?.toString() ?? 'unknown',
+            commit: baseline?.commit ?? '',
+            timestamp: new Date().toISOString(),
+            files
+        });
     }
 
     private async runBaselineOnly(ctx: {
         target: TagInfo;
         stagingRoot: string;
         remoteFiles: string[];
-        localFiles: string[];
-        leavePlugins: Set<string>;
         dryRun: boolean;
         force: boolean;
     }): Promise<UpdatePlan> {
-        const { target, stagingRoot, remoteFiles, localFiles, leavePlugins, dryRun } = ctx;
-
+        const { target, stagingRoot, remoteFiles, dryRun } = ctx;
         log.info(`Building baseline from nearest tag ${target.name}…`);
 
         const matching: Record<string, BaselineFileEntry> = {};
         const mismatched: string[] = [];
 
         for (const rel of remoteFiles) {
-            const p = pluginRoot(rel);
-            if (p && leavePlugins.has(p)) continue;
             if (shouldHardExclude(rel)) continue;
-
-            const localFull  = path.join(process.cwd(), rel);
+            const localFull = path.join(process.cwd(), rel);
             const remoteFull = path.join(stagingRoot, rel);
-
             if (!fs.existsSync(localFull) || !fs.existsSync(remoteFull)) continue;
-
             try {
-                const localResult  = await hashFile(localFull);
+                const localResult = await hashFile(localFull);
                 const remoteResult = await hashFile(remoteFull);
-
                 if (localResult.hash === remoteResult.hash) {
                     matching[rel] = { hash: localResult.hash, size: localResult.size };
                 } else {
                     mismatched.push(rel);
                 }
-            } catch {  }
-        }
-
-        log.info(`Matched ${Object.keys(matching).length} file(s) to tag ${target.name}`);
-        if (mismatched.length) {
-            log.info(`${mismatched.length} file(s) differ from that tag – treated as user-updated (excluded from baseline):`);
-            for (const m of mismatched.slice(0, 20)) log.info(`  • ${m}`);
-            if (mismatched.length > 20) log.info(`  … +${mismatched.length - 20} more`);
+            } catch { /* ignore */ }
         }
 
         const plan: UpdatePlan = {
@@ -482,14 +798,11 @@ export class Updater {
             filesToAdd: [],
             filesToKeep: mismatched,
             dryRun,
-            baselineOnly: true
+            baselineOnly: true,
+            installPlugin: null
         };
         this.printPlan(plan);
-
-        if (dryRun) {
-            log.info('Dry-run – baseline not written.');
-            return plan;
-        }
+        if (dryRun) return plan;
 
         writeBaseline({
             tag: target.name,
@@ -497,34 +810,36 @@ export class Updater {
             timestamp: new Date().toISOString(),
             files: matching
         });
-
         log.info(`Baseline-only complete for tag ${target.name}`);
         return plan;
     }
 
-    private emptyPlan(reason: string, baselineOnly = false): UpdatePlan {
+    private emptyPlan(
+        reason: string,
+        baselineOnly = false,
+        installPlugin: string | null = null
+    ): UpdatePlan {
         return {
             fromTag: null, toTag: '', toCommit: '',
             allowed: false, reason,
             dirtyFiles: [], pluginDecisions: [],
             filesToOverwrite: [], filesToAdd: [], filesToKeep: [],
-            dryRun: this.config.dryRun, baselineOnly
+            dryRun: this.config.dryRun, baselineOnly, installPlugin
         };
     }
 
     private printPlan(plan: UpdatePlan): void {
         log.info('── Plan ─────────────────────────────────────');
-        log.info(`  Mode        : ${plan.baselineOnly ? 'baseline-only' : 'update'}`);
+        log.info(`  Mode        : ${plan.baselineOnly ? 'baseline-only' : plan.installPlugin ? 'install-plugin' : 'update'}`);
         log.info(`  From        : ${plan.fromTag ?? '(none)'}`);
-        log.info(`  To / Against: ${plan.toTag}`);
+        log.info(`  To / Against: ${plan.toTag || '(n/a)'}`);
         log.info(`  Reason      : ${plan.reason}`);
-        if (!plan.baselineOnly) {
-            log.info(`  Overwrite   : ${plan.filesToOverwrite.length}`);
-            log.info(`  Add         : ${plan.filesToAdd.length}`);
-            log.info(`  Keep        : ${plan.filesToKeep.length}`);
-        } else {
-            log.info(`  Matched     : (see log above)`);
-            log.info(`  User-updated: ${plan.filesToKeep.length}`);
+        log.info(`  Core overwrite/add: ${plan.filesToOverwrite.length}/${plan.filesToAdd.length}`);
+        if (plan.pluginDecisions.length) {
+            log.info('  Plugins:');
+            for (const d of plan.pluginDecisions) {
+                log.info(`    [${d.action}] ${d.pluginId} – ${d.reason}${d.selectedPluginTag ? ` @ ${d.selectedPluginTag}` : ''}`);
+            }
         }
         log.info('────────────────────────────────────────────');
     }
@@ -554,7 +869,7 @@ export class Updater {
                 }
             }
         } finally {
-            try { fs.unlinkSync(archivePath); } catch {  }
+            try { fs.unlinkSync(archivePath); } catch { /* ignore */ }
         }
         return dest;
     }
@@ -575,10 +890,9 @@ export class Updater {
     }
 
     private async createBackup(tag: string): Promise<void> {
-        const ts  = new Date().toISOString().replace(/[:.]/g, '-');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const dir = path.join(BACKUP_DIR, `${ts}_${tag}`);
         fs.mkdirSync(dir, { recursive: true });
-
         for (const c of ['package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'tsconfig.json', 'index.js', 'index.d.ts']) {
             const src = path.join(process.cwd(), c);
             if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dir, c));
@@ -590,34 +904,27 @@ export class Updater {
         log.info(`Backup → ${dir}`);
     }
 
-    private async applyFromStaging(
-        stagingRoot: string,
-        plan: UpdatePlan,
-        leavePlugins: Set<string>
-    ): Promise<void> {
+    private async applyCoreFromStaging(stagingRoot: string, plan: UpdatePlan): Promise<void> {
         const all = [...plan.filesToOverwrite, ...plan.filesToAdd];
         for (const rel of all) {
-            const p = pluginRoot(rel);
-            if (p && leavePlugins.has(p)) continue;
-            const src  = path.join(stagingRoot, rel);
+            if (isPluginPath(rel)) continue;
+            const src = path.join(stagingRoot, rel);
             const dest = path.join(process.cwd(), rel);
             if (!fs.existsSync(src)) continue;
             fs.mkdirSync(path.dirname(dest), { recursive: true });
             fs.copyFileSync(src, dest);
         }
-        log.info(`Applied ${all.length} file(s)`);
+        log.info(`Applied ${all.length} core file(s)`);
     }
 
     private async rebuild(): Promise<void> {
         log.info('Rebuild sequence…');
         try {
             await execFileAsync('npm', ['run', 'clean'], { cwd: process.cwd(), timeout: 60_000 });
-        } catch {  }
-
+        } catch { /* ignore */ }
         try {
             await execFileAsync('npm', ['run', 'clean'], { cwd: process.cwd(), timeout: 60_000 });
-        } catch {  }
-
+        } catch { /* ignore */ }
         await execFileAsync('npm', ['run', 'build'], {
             cwd: process.cwd(),
             timeout: this.config.timeoutMs
@@ -634,11 +941,10 @@ export class Updater {
                     mtime: fs.statSync(path.join(BACKUP_DIR, name)).mtimeMs
                 }))
                 .sort((a, b) => b.mtime - a.mtime);
-
             for (const e of entries.slice(this.config.maxBackups)) {
                 fs.rmSync(e.full, { recursive: true, force: true });
             }
-        } catch {  }
+        } catch { /* ignore */ }
     }
 }
 
@@ -646,10 +952,12 @@ export async function runUpdater(options: {
     force?: boolean;
     dryRun?: boolean;
     baselineOnly?: boolean;
+    installPlugin?: string | null;
 } = {}): Promise<void> {
     const updater = new Updater();
     const plan = await updater.run(options);
 
     if (!plan.allowed && plan.dirtyFiles.length > 0) process.exitCode = 2;
+    else if (!plan.allowed) process.exitCode = plan.installPlugin ? 1 : 0;
     else process.exitCode = 0;
 }

@@ -61,9 +61,29 @@ export class GitHubClient {
 
         return raw.map(t => {
             let semver: SemVer | null = null;
-            try { semver = SemVer.parse(t.name); } catch {  }
+            try { semver = SemVer.parse(t.name); } catch { /* non-semver */ }
             return { name: t.name, commit: t.commit.sha, semver };
         });
+    }
+
+    async listPluginTags(owner: string, repo: string, pluginName: string): Promise<TagInfo[]> {
+        const prefix = `plugin-${pluginName}-v`;
+        const all = await this.listTags(owner, repo);
+        const matched = all.filter(t => t.name.startsWith(prefix) || t.name.startsWith(`plugin-${pluginName}-V`));
+
+        return matched
+            .map(t => {
+                const suffix = t.name.slice(prefix.length);
+                let semver: SemVer | null = null;
+                try { semver = SemVer.parse(suffix.startsWith('v') ? suffix : `v${suffix}`); } catch {
+                    try { semver = SemVer.parse(t.name.replace(/^plugin-[^-]+-v/i, '')); } catch { /* ignore */ }
+                }
+                return { ...t, semver };
+            })
+            .sort((a, b) => {
+                if (a.semver && b.semver) return b.semver.compare(a.semver);
+                return b.name.localeCompare(a.name, undefined, { numeric: true });
+            });
     }
 
     async getLatestAllowedTag(
@@ -117,6 +137,20 @@ export class GitHubClient {
         }
 
         return bestBelow ?? bestAbove ?? tags[0];
+    }
+
+    async getFileText(owner: string, repo: string, ref: string, filePath: string): Promise<string | null> {
+        const url =
+            `https://api.github.com/repos/${owner}/${repo}/contents/${filePath.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`;
+        try {
+            const data = await this.request<{ content?: string; encoding?: string; type?: string }>(url);
+            if (data.type !== 'file' || !data.content) return null;
+            const b64 = data.content.replace(/\n/g, '');
+            return Buffer.from(b64, 'base64').toString('utf-8');
+        } catch (e: any) {
+            if (String(e.message || e).includes('404')) return null;
+            throw e;
+        }
     }
 
     async downloadArchive(owner: string, repo: string, ref: string): Promise<Buffer> {

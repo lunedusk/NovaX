@@ -33,7 +33,19 @@ async function runUpdaterMode(): Promise<void> {
         const force = process.argv.includes('--force');
         const dryRun = process.argv.includes('--dry-run') || process.argv.includes('--dryRun');
         const baselineOnly = process.argv.includes('--baseline-only') || process.argv.includes('--baselineOnly');
-        await runUpdater({ force, dryRun, baselineOnly });
+        let installPlugin: string | null = null;
+        for (let i = 0; i < process.argv.length; i++) {
+            const a = process.argv[i];
+            if (a === '--install-plugin' || a === '--installPlugin') {
+                installPlugin = process.argv[i + 1] ?? null;
+                break;
+            }
+            if (a.startsWith('--install-plugin=') || a.startsWith('--installPlugin=')) {
+                installPlugin = a.split('=').slice(1).join('=') || null;
+                break;
+            }
+        }
+        await runUpdater({ force, dryRun, baselineOnly, installPlugin });
         await flushLogs();
         process.exit(process.exitCode ?? 0);
     } catch (error) {
@@ -65,7 +77,7 @@ async function runBotMode(): Promise<void> {
         private readonly log = getLogger('Bootstrap');
         private readonly client: InstanceType<typeof Client<true>>;
         private isShuttingDown = false;
-
+        
         constructor() {
             const intentsInput = secrets.getOptional('DiscordIntents')
                 ? secrets.get('DiscordIntents').split(',').map(s => s.trim())
@@ -73,17 +85,15 @@ async function runBotMode(): Promise<void> {
 
             this.client = new Client({
                 intents: intentBuilder.build(intentsInput),
-                partials: [
-                    Partials.Channel, Partials.Message, Partials.User,
-                    Partials.GuildMember, Partials.Reaction,
-                    Partials.ThreadMember, Partials.GuildScheduledEvent
-                ]
+                partials: [ Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction, Partials.ThreadMember, Partials.GuildScheduledEvent ]
             }) as InstanceType<typeof Client<true>>;
 
             eventManager.bindNativeEvents(this.client);
+            
             globalCatcher.init();
             wireErrorBridge();
             globalCatcher.registerTeardown(async () => await this.cleanupResources());
+
             this.setupProcessSignals();
         }
 
@@ -111,10 +121,10 @@ async function runBotMode(): Promise<void> {
 
                 this.log.info('Loading Configurations...');
                 await configManager.init(hotReloadEnabled);
-
+                
                 this.log.info('Loading Language Dictionary...');
                 await i18n.init(hotReloadEnabled);
-
+                
                 this.log.info('Initializing Databases...');
                 await initAllDatabases();
 
@@ -128,8 +138,9 @@ async function runBotMode(): Promise<void> {
                 this.log.info('Initializing Interaction Handler...');
                 interactionHandler.init();
 
+                
                 await this.login();
-
+                
                 if (this.isPrimaryShard) {
                     httpServer.init();
                     await httpServer.start(parseInt(secrets.getOptional('APIPort') || '3000'));
@@ -143,20 +154,20 @@ async function runBotMode(): Promise<void> {
                 }
 
                 await emojis.init(hotReloadEnabled);
-
+                
                 this.log.info('Syncing Commands...');
                 await interactionHandler.syncCommands(this.client, secrets.getOptional('GuildID'));
-
+                
                 const duration = ((performance.now() - start) / 1000).toFixed(2);
                 this.log.info(`NovaX fully initialized in ${duration}s.`);
-
+                
                 if (this.isPrimaryShard) {
                     this.log.info('Panel Status Override: Bot Online, Running, Active, Bot Ready, Logged in, Server up and running');
                 }
             } catch (error) {
                 this.log.error('Critical failure during bootstrap sequence:', error);
-                throw error;
-            }
+                throw error; 
+            }   
         }
 
         private async login(): Promise<void> {
@@ -188,11 +199,11 @@ async function runBotMode(): Promise<void> {
 
             try {
                 await pluginManager.shutdownAll().catch((e: unknown) => this.log.error('Plugin shutdown error:', e));
-
+                
                 if (this.isPrimaryShard) {
                     await httpServer.stop().catch((e: unknown) => this.log.error('HTTP Server shutdown error:', e));
                 }
-
+                
                 this.client.destroy();
                 await new Promise(r => setTimeout(r, 250));
                 await flushLogs();
@@ -218,7 +229,7 @@ async function runBotMode(): Promise<void> {
 
     try {
         minimalBootstrap();
-
+        
         const isSharded = secrets.getBoolean('isSharded', false);
 
         if (isSharded && !isSpawnedWorker) {
@@ -235,14 +246,13 @@ async function runBotMode(): Promise<void> {
             manager.on('shardCreate', shard => {
                 masterLog.info(`Successfully launched Shard #${shard.id}`);
             });
-
             let masterShuttingDown = false;
             const shutdownMaster = () => {
                 if (masterShuttingDown) return;
                 masterShuttingDown = true;
                 masterLog.warn('Shutting down. Broadcasting exit to fleet...');
                 manager.respawn = false;
-                setTimeout(() => process.exit(0), 2000);
+                setTimeout(() => process.exit(0), 2000); 
             };
             process.on('SIGTERM', shutdownMaster);
             process.on('SIGINT', shutdownMaster);
