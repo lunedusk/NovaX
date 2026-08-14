@@ -114,6 +114,22 @@ plugins/<plugin_id>/
 
 ---
 
+> **Distribution / updater note:** Official first-party plugins are published via
+> tags `plugin-<id>-v*` and listed in the core release’s `plugins.txt`.
+> The client updater installs new plugins under `src/plugins/<id>/`, or updates
+> whatever path already exists (`src/plugins/<id>/` or `plugins/<id>/`).
+> An update **replaces the entire plugin directory** for that id (files removed
+> upstream are deleted locally). User-modified plugin files are skipped when
+> SafeUpdate is on unless `--force` is used.
+> Do not store secrets or machine-local state only inside the plugin source tree;
+> use `configuration/` and `.data/` instead.
+>
+> To install a first-party plugin listed in the core tag’s `plugins.txt` but not
+> present locally:
+> `node --import ./core/dependency/index.mjs ./index.js --updater --install-plugin <id>`
+
+---
+
 ## 🔌 PLUGIN ENTRYPOINT — `index.ts`
 
 The entrypoint is the **single most critical file**. The plugin loader (`PluginManager`) imports this file and expects `Module.default` to be a class extending `BasePlugin`. It must be a no-argument constructor — `IHeart` is injected by the framework after instantiation via `_injectCore()`, never through the constructor.
@@ -189,6 +205,10 @@ Used as the unsigned fallback when no `manifest.nvx` is present. Must contain at
 > The `id` field is the **canonical plugin identifier**. It must be unique across all plugins and match the directory name. Mismatching this will silently break config file naming, lang key resolution, and registry lookups.
 >
 > `priority` controls boot order among independent plugins. Lower values load first (default `0`). Dependencies always override priority — if plugin B depends on A, A loads first regardless of their priority values.
+> `novax_version` is what the release bundler and the client
+> updater use for compatibility. A `plugin-<id>-v*` tag is applied only when the
+> range satisfies the running/target core version. The client updater uses **tags
+> only** — it does not fall back to branch tips.
 
 ---
 

@@ -26,36 +26,95 @@ NovaX operates an multi-stage bootstrap pipeline designed to enforce thread isol
 
 ---
 
+## Client Auto-Updater (summary)
+
+NovaX can update a deployed instance without a local git checkout:
+
+- **Core:** GitHub tags `vX.Y.Z` on the configured repository (major/minor always;
+  patch only if `DevBuilds=true`).
+- **First-party plugins:** Names from the **core tag’s** `plugins.txt`; each is
+  resolved via tags `plugin-<name>-v*` only (no branch-tip fallback). Compatibility
+  uses the plugin manifest’s `novax_version` / `engines.novax`.
+- **SafeUpdate:** Compares local files to a baseline (Blake2b-512). Dirty **core**
+  files block the core update; dirty **plugin** trees skip that plugin only.
+- **Apply:** Core files come from the core tag archive; each updated plugin folder
+  is fully replaced from its plugin tag. Runtime config under `configuration/` and
+  state under `.data/` are not part of the update payload.
+- **CLI (post-build):** `npm run updater`  
+  Flags: `--dry-run`, `--force`, `--baseline-only`, `--install-plugin <id>`.
+
+Full variable reference: Environment Variable Reference → **Auto Updater**.
+
+---
+
 ## 📂 Project Directory Layout
 
+NovaX distinguishes clearly between **source / development**, **build output**, and **runtime state**.  
+The production Docker image and the auto-updater only ship / replace the build artefacts.
+
+### Development / Source tree (what you work in)
 ```
 NovaX/
-├── .data/                       # Central cache space and compiled metadata mappings
-│   └── emojis.json              # Global dictionary mapping programmatic and static emoji assets
-├── configuration/               # Synchronized target directory for active configurations
-│   └── lang/                    # Central translated language tables (e.g., core_en-US.json5)
-├── core/                        # Compiled high-performance framework distribution binaries
-├── logs/                        # Session-isolated, rotation-managed file log sheets
-├── plugins/                     # Root space for custom, decoupled framework plugins
-│   └── <plugin_id>/             # Isolated folder segment containing a single plugin module
-│       ├── data/                # Static local data structures, localizations, and defaults
-│       │   ├── configuration/   # Default options parameters sheet (e.g., config.json5)
-│       │   │   └── lang/        # Standard fallback language definitions (e.g., en-US.json5)
-│       │   ├── emoji/           # Local graphic structures, image sets, or symbol folders
-│       │   └── emoji.json       # Structural lookup table link for remote emoji assets
-│       ├── src/                 # Main plugin development source code space
-│       │   ├── commands/        # Core slash commands extending abstract BaseCommand
-│       │   ├── events/          # Gateway observers and interactive mappings extending BaseEvent
-│       │   └── routes/          # Express network API interfaces extending BaseRoute
-│       │   └── handlers/        # Inter Plugin Handlers
-│       ├── manifest.json        # Manifest sheet indicating identifiers, author metadata, and requirements
-│       └── package.json         # Container configuration mapping sandbox-isolated dependencies
-├── src/                         # Internal framework master development directory
-├── common.json                  # Baseline framework parameter environmental layout config
-├── package.json                 # Global framework orchestration manifest metadata
-├── tsconfig.json                # Explicit compilation parameters and path aliases
-└── typedoc.json                 # Core system document layout generation configuration mapping
+├── .data/                          # Runtime cache & compiled metadata (generated, never commit)
+│   └── emojis.json
+├── configuration/                  # Synced runtime configs (generated / user-edited)
+│   └── lang/
+├── core/                           # Compiled framework binaries (tsc output – do not edit)
+├── docs/                           # Generated TypeDoc (optional, `npm run docs`)
+├── logs/                           # Session-isolated rotating logs (runtime)
+├── plugins/                        # Plugin workspaces
+│   └── <plugin_id>/                # kebab-case, must match manifest.id
+│       ├── index.ts                # REQUIRED – extends BasePlugin
+│       ├── manifest.json           # REQUIRED – identity + novax_version
+│       ├── manifest.nvx            # Optional signed manifest
+│       ├── package.json            # Only if the plugin has external deps
+│       ├── src/
+│       │   ├── commands/           # Slash + context-menu commands
+│       │   ├── events/             # Gateway events + component handlers
+│       │   ├── routes/             # Express routes
+│       │   └── handlers/           # Inter-plugin API surface
+│       └── data/
+│           ├── configuration/
+│           │   ├── config.json5    # Default schema (synced → configuration/)
+│           │   └── lang/
+│           │       └── en.json5    # Default translations
+│           ├── emoji/              # Local image assets (optional)
+│           └── emoji.json          # Remote emoji map (optional)
+├── scripts/                        # Utility scripts (present after build if copied)
+├── src/                            # Framework source (TypeScript) – **not present in production images**
+├── common.json                     # Alternative typed config source (Common777)
+├── package.json
+├── plugins.txt                     # First-party plugin list used by the auto-updater
+├── tsconfig.json
+├── typedoc.json
+├── Dockerfile
+├── docker-compose.yml
+└── .env / .env.example
 ```
+
+### Built / Production tree (what the Docker image and updater actually contain)
+```
+NovaX/                              # (or /app inside the container)
+├── .data/                          # Runtime only – volume-mount
+├── configuration/                  # Runtime only – volume-mount
+├── core/                           # Compiled framework (from `npm run build`)
+├── logs/                           # Runtime only – volume-mount
+├── plugins/                        # Runtime plugin folders (volume or baked)
+├── scripts/                        # Present only if the build pipeline copies it
+├── common.json
+├── index.js
+├── index.d.ts                      # optional
+├── package.json
+├── plugins.txt                     # Required by the auto-updater
+└── node_modules/                   # Production dependencies only (`npm ci --omit=dev`)
+```
+
+**Important notes**
+- `src/` is **source-only**. It is never shipped in a production image and may be absent after a clean build / updater run.
+- `core/` is pure compiled output. Do not document or edit its internal structure.
+- `plugins.txt` lives at the root and is the authoritative list of first-party plugins the updater will install/update.
+- Runtime directories (`.data/`, `configuration/`, `logs/`) must be volume-mounted; they are never part of the update payload.
+- Plugin updates **replace the entire plugin directory** (SafeUpdate respects dirty files unless `--force` is used).
 
 ---
 
