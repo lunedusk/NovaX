@@ -593,7 +593,9 @@ export class Updater {
                 allowAdd: false,
                 pluginTagPin
             });
-            const toApply = pluginDecisions.filter(d => d.action === 'update' || d.action === 'add');
+            const toApply = pluginDecisions.filter(
+                d => d.action === 'update' || d.action === 'add' || d.action === 'remove'
+            );
             if (toApply.length === 0) {
                 return this.emptyPlan('No suitable core tag and no plugin updates', false, null);
             }
@@ -686,6 +688,13 @@ export class Updater {
             if (!localFiles.includes(rel)) filesToAdd.push(rel);
         }
 
+        let coreIsDowngrade = false;
+        if (currentSemVer && coreTarget.semver) {
+            coreIsDowngrade = coreTarget.semver.compare(currentSemVer) < 0;
+        } else if (downgrade) {
+            coreIsDowngrade = true;
+        }
+
         const pluginDecisions = await this.planPluginUpdates({
             owner, repo,
             officialLines,
@@ -693,6 +702,7 @@ export class Updater {
             baseline,
             force,
             allowAdd: false,
+            allowRemoveIncompatible: coreIsDowngrade,
             pluginTagPin
         });
 
@@ -701,7 +711,9 @@ export class Updater {
             toTag: coreTarget.name,
             toCommit: coreTarget.commit,
             allowed: true,
-            reason: `Update to ${coreTarget.name}`,
+            reason: coreIsDowngrade
+                ? `Downgrade to ${coreTarget.name}`
+                : `Update to ${coreTarget.name}`,
             dirtyFiles: dirtyCore,
             pluginDecisions,
             filesToOverwrite,
@@ -730,7 +742,9 @@ export class Updater {
             throw e;
         }
 
-        const pluginsToApply = pluginDecisions.filter(d => d.action === 'update' || d.action === 'add');
+        const pluginsToApply = pluginDecisions.filter(
+            d => d.action === 'update' || d.action === 'add' || d.action === 'remove'
+        );
         await this.applyPluginDecisions(owner, repo, pluginsToApply, force);
 
         const managedCore = [...filesToOverwrite, ...filesToAdd];
@@ -878,6 +892,7 @@ export class Updater {
         baseline: Baseline | null;
         force: boolean;
         allowAdd: boolean;
+        allowRemoveIncompatible?: boolean;
         onlyName?: string;
         pluginTagPin?: string | null;
     }): Promise<PluginDecision[]> {
@@ -997,6 +1012,37 @@ export class Updater {
             }
 
             if (!selected) {
+                if (localRel && ctx.allowRemoveIncompatible) {
+                    if (this.config.safeUpdate && !ctx.force && ctx.baseline) {
+                        const dirty =
+                            (await this.isPluginDirty(localRel, ctx.baseline)) ||
+                            (await this.isPluginDirty(rtPath, ctx.baseline));
+                        if (dirty) {
+                            decisions.push({
+                                pluginId: pluginName,
+                                localPath: srcPath,
+                                runtimePath: rtPath,
+                                remotePath: null,
+                                action: 'leave',
+                                reason:
+                                    'No compatible plugin tag for older core, but SafeUpdate: local plugin is dirty – not removing',
+                                source: line
+                            });
+                            continue;
+                        }
+                    }
+                    decisions.push({
+                        pluginId: pluginName,
+                        localPath: srcPath,
+                        runtimePath: rtPath,
+                        remotePath: null,
+                        action: 'remove',
+                        reason:
+                            'No compatible plugin tag for target core – removing local install (downgrade)',
+                        source: line
+                    });
+                    continue;
+                }
                 decisions.push({
                     pluginId: pluginName,
                     localPath: localRel ?? srcPath,
@@ -1196,7 +1242,9 @@ export class Updater {
             return plan;
         }
 
-        const toApply = decisions.filter(d => d.action === 'add' || d.action === 'update');
+        const toApply = decisions.filter(
+            d => d.action === 'add' || d.action === 'update' || d.action === 'remove'
+        );
         await this.applyPluginDecisions(ctx.owner, ctx.repo, toApply, force);
         await this.refreshBaselineAfterPlugins(ctx.baseline, toApply);
         log.info(`Plugin ${pluginName} install/update finished.`);
@@ -1211,6 +1259,17 @@ export class Updater {
         _force: boolean
     ): Promise<void> {
         for (const d of decisions) {
+            if (d.action === 'remove') {
+                for (const rel of [sourcePluginPath(d.pluginId), runtimePluginPath(d.pluginId)]) {
+                    const full = path.join(process.cwd(), rel);
+                    if (fs.existsSync(full)) {
+                        fs.rmSync(full, { recursive: true, force: true });
+                        log.info(`Removed plugin ${d.pluginId} → ${rel}`);
+                    }
+                }
+                continue;
+            }
+
             if (!d.selectedPluginTag) continue;
 
             let pOwner = owner;
@@ -1260,6 +1319,7 @@ export class Updater {
                 for (const k of Object.keys(files)) {
                     if (k === root || k.startsWith(root + '/')) delete files[k];
                 }
+                if (d.action === 'remove') continue;
                 const pluginFiles = allLocal.filter(f => f === root || f.startsWith(root + '/'));
                 Object.assign(files, await computeLocalHashes(pluginFiles));
             }

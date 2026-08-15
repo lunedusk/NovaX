@@ -28,7 +28,7 @@ export interface PluginDecision {
     localPath: string;
     runtimePath: string;
     remotePath: string | null;
-    action: 'update' | 'leave' | 'add' | 'skip';
+    action: 'update' | 'leave' | 'add' | 'skip' | 'remove';
     reason: string;
     localManifestId?: string;
     remoteManifestId?: string;
