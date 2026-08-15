@@ -33,19 +33,27 @@ async function runUpdaterMode(): Promise<void> {
         const force = process.argv.includes('--force');
         const dryRun = process.argv.includes('--dry-run') || process.argv.includes('--dryRun');
         const baselineOnly = process.argv.includes('--baseline-only') || process.argv.includes('--baselineOnly');
+        const downgrade = process.argv.includes('--downgrade');
         let installPlugin: string | null = null;
+        let targetTag: string | null = null;
+        let pluginTag: string | null = null;
         for (let i = 0; i < process.argv.length; i++) {
             const a = process.argv[i];
             if (a === '--install-plugin' || a === '--installPlugin') {
                 installPlugin = process.argv[i + 1] ?? null;
-                break;
-            }
-            if (a.startsWith('--install-plugin=') || a.startsWith('--installPlugin=')) {
+            } else if (a.startsWith('--install-plugin=') || a.startsWith('--installPlugin=')) {
                 installPlugin = a.split('=').slice(1).join('=') || null;
-                break;
+            } else if (a === '--target') {
+                targetTag = process.argv[i + 1] ?? null;
+            } else if (a.startsWith('--target=')) {
+                targetTag = a.slice('--target='.length) || null;
+            } else if (a === '--plugin-tag' || a === '--pluginTag') {
+                pluginTag = process.argv[i + 1] ?? null;
+            } else if (a.startsWith('--plugin-tag=') || a.startsWith('--pluginTag=')) {
+                pluginTag = a.split('=').slice(1).join('=') || null;
             }
         }
-        await runUpdater({ force, dryRun, baselineOnly, installPlugin });
+        await runUpdater({ force, dryRun, baselineOnly, installPlugin, targetTag, downgrade, pluginTag });
         await flushLogs();
         process.exit(process.exitCode ?? 0);
     } catch (error) {
@@ -77,6 +85,7 @@ async function runBotMode(): Promise<void> {
         private readonly log = getLogger('Bootstrap');
         private readonly client: InstanceType<typeof Client<true>>;
         private isShuttingDown = false;
+        private stopBackgroundUpdater: (() => void) | null = null;
         
         constructor() {
             const intentsInput = secrets.getOptional('DiscordIntents')
@@ -163,6 +172,14 @@ async function runBotMode(): Promise<void> {
                 
                 if (this.isPrimaryShard) {
                     this.log.info('Panel Status Override: Bot Online, Running, Active, Bot Ready, Logged in, Server up and running');
+                    try {
+                        const { markUpdaterHealthy, startBackgroundUpdater } =
+                            await import('#core/manager/updater/index.js');
+                        markUpdaterHealthy();
+                        this.stopBackgroundUpdater = startBackgroundUpdater();
+                    } catch (e) {
+                        this.log.warn('Updater post-boot hooks failed:', e);
+                    }
                 }
             } catch (error) {
                 this.log.error('Critical failure during bootstrap sequence:', error);
@@ -198,6 +215,8 @@ async function runBotMode(): Promise<void> {
             this.log.info(`Tearing down resources for ${this.shardIdentifier}...`);
 
             try {
+                this.stopBackgroundUpdater?.();
+                this.stopBackgroundUpdater = null;
                 await pluginManager.shutdownAll().catch((e: unknown) => this.log.error('Plugin shutdown error:', e));
                 
                 if (this.isPrimaryShard) {
@@ -229,6 +248,20 @@ async function runBotMode(): Promise<void> {
 
     try {
         minimalBootstrap();
+
+        if (!isSpawnedWorker) {
+            try {
+                const { checkPendingRollbackOnBoot } = await import('#core/manager/updater/index.js');
+                const rolled = await checkPendingRollbackOnBoot();
+                if (rolled) {
+                    logger.warn('Auto-rollback completed – exiting for clean restart');
+                    await flushLogs();
+                    process.exit(0);
+                }
+            } catch (e) {
+                logger.warn('Pending-rollback check skipped:', e);
+            }
+        }
         
         const isSharded = secrets.getBoolean('isSharded', false);
 
