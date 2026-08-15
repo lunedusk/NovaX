@@ -18,6 +18,18 @@ err()     { echo -e "${RED}❌${NC} $1"; }
 section() { echo -e "\n${CYAN}── $1 ──${NC}"; }
 
 # ──────────────────────────────────────────────
+# Branch model
+#   main            → human-owned.    Update: pull --rebase (additive).
+#   plugin-template → workflow-owned. Update: hard-mirror to origin (destructive).
+#   plugin-<name>   → human + CI.     Update: merge core tag with -X theirs (additive).
+#
+# Usage:
+#   ./sync.sh                → update current branch per its type
+#   ./sync.sh --stash | -s   → auto-stash local changes first
+#   ./sync.sh --mirror-only  → only re-mirror plugin-template, then exit
+# ──────────────────────────────────────────────
+
+# ──────────────────────────────────────────────
 # 1. Safety checks
 # ──────────────────────────────────────────────
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -30,7 +42,6 @@ ORIGINAL_BRANCH=$CURRENT_BRANCH
 
 section "Local status (before sync)"
 
-# Unstaged / uncommitted report
 if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
   warn "You have local changes:"
   echo
@@ -58,14 +69,44 @@ git fetch --all --tags --prune --prune-tags
 ok "Fetch complete."
 
 # ──────────────────────────────────────────────
-# 3. Show remote vs local overview
+# 3. Re-mirror plugin-template (fixes the recurring divergence)
+# ──────────────────────────────────────────────
+mirror_plugin_template() {
+  if ! git rev-parse --verify "origin/plugin-template" >/dev/null 2>&1; then
+    warn "No origin/plugin-template to mirror – skipping."
+    return
+  fi
+
+  if [ "$CURRENT_BRANCH" = "plugin-template" ]; then
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+      warn "plugin-template has local changes; not mirroring (stash or discard first)."
+      return
+    fi
+    git reset --hard origin/plugin-template
+  else
+    git branch -f plugin-template origin/plugin-template
+  fi
+  ok "plugin-template mirrored to origin/plugin-template."
+}
+
+section "Mirroring plugin-template"
+mirror_plugin_template
+
+if [ "${1:-}" = "--mirror-only" ]; then
+  section "Final status"
+  git status -sb
+  ok "Mirror-only run finished."
+  exit 0
+fi
+
+# ──────────────────────────────────────────────
+# 4. Branch overview
 # ──────────────────────────────────────────────
 section "Branch overview"
 
 echo -e "Current branch: ${CYAN}${CURRENT_BRANCH}${NC}"
 echo
 
-# List local branches and their relationship to remote
 for branch in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
   remote_ref="origin/$branch"
   if git rev-parse --verify "$remote_ref" >/dev/null 2>&1; then
@@ -86,8 +127,7 @@ for branch in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
   fi
 done
 
-# Latest core tag
-LATEST_TAG=$(git describe --tags --match="v*" --abbrev=0 2>/dev/null || true)
+LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n1 || true)
 if [ -n "$LATEST_TAG" ]; then
   echo
   info "Latest core tag: ${CYAN}${LATEST_TAG}${NC}"
@@ -102,31 +142,34 @@ if [ -n "$LATEST_TAG" ]; then
 fi
 
 # ──────────────────────────────────────────────
-# 4. Update current branch
+# 5. Update the CURRENT branch, per its type
 # ──────────────────────────────────────────────
 section "Updating current branch: $CURRENT_BRANCH"
 
-if git rev-parse --verify "origin/$CURRENT_BRANCH" >/dev/null 2>&1; then
-  if git pull origin "$CURRENT_BRANCH" --rebase --autostash; then
-    ok "Branch $CURRENT_BRANCH is up to date with origin."
+if [ "$CURRENT_BRANCH" = "plugin-template" ]; then
+  ok "plugin-template is a mirror; already realigned to origin (no pull/merge)."
+
+elif [[ "$CURRENT_BRANCH" == plugin-* ]]; then
+  if git rev-parse --verify "origin/$CURRENT_BRANCH" >/dev/null 2>&1; then
+    if git pull origin "$CURRENT_BRANCH" --rebase --autostash; then
+      ok "Pulled latest $CURRENT_BRANCH from origin."
+    else
+      err "Pull/rebase failed on $CURRENT_BRANCH. Resolve conflicts then re-run."
+      exit 1
+    fi
   else
-    err "Pull/rebase failed on $CURRENT_BRANCH. Resolve conflicts then re-run."
-    exit 1
+    warn "No remote branch origin/$CURRENT_BRANCH – skipping pull."
   fi
-else
-  warn "No remote branch origin/$CURRENT_BRANCH – skipping pull."
-fi
 
-# ──────────────────────────────────────────────
-# 5. Plugin-branch core sync (optional)
-# ──────────────────────────────────────────────
-if [[ "$CURRENT_BRANCH" == plugin-* && "$CURRENT_BRANCH" != "plugin-template" ]]; then
   section "Plugin core sync"
-
   if [ -z "$LATEST_TAG" ]; then
-    err "No release tags found – cannot sync core."
+    err "No core release tags (v*) found – cannot sync core."
+  elif [ -f .core-version ] && [ "$(cat .core-version)" = "$LATEST_TAG" ]; then
+    ok "Already on core $LATEST_TAG – nothing to merge."
   else
     info "Merging core tag $LATEST_TAG into $CURRENT_BRANCH ..."
+    # NOTE: -X theirs = core wins every conflicting hunk. Right for engine files,
+    # but it overwrites YOUR edits on any file both core and your plugin changed.
     if git merge "$LATEST_TAG" --no-edit -X theirs -m "chore: sync core engine with $LATEST_TAG"; then
       echo "$LATEST_TAG" > .core-version
       git add .core-version
@@ -134,10 +177,23 @@ if [[ "$CURRENT_BRANCH" == plugin-* && "$CURRENT_BRANCH" != "plugin-template" ]]
         git commit -m "chore: update .core-version to $LATEST_TAG" || true
       ok "Core synced to $LATEST_TAG"
       warn "Run 'npm ci' (or 'npm install') to refresh dependencies."
+      info "Push with: git push origin $CURRENT_BRANCH"
     else
-      err "Merge conflict while syncing core. Fix manually."
+      err "Merge conflict while syncing core. Fix manually, then commit."
       exit 1
     fi
+  fi
+
+else
+  if git rev-parse --verify "origin/$CURRENT_BRANCH" >/dev/null 2>&1; then
+    if git pull origin "$CURRENT_BRANCH" --rebase --autostash; then
+      ok "Branch $CURRENT_BRANCH is up to date with origin."
+    else
+      err "Pull/rebase failed on $CURRENT_BRANCH. Resolve conflicts then re-run."
+      exit 1
+    fi
+  else
+    warn "No remote branch origin/$CURRENT_BRANCH – skipping pull."
   fi
 fi
 

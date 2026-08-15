@@ -1,6 +1,6 @@
 {
   "name": "@lunedusk/novax",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "The most versatile modular discord framework for Node.js (discord.js) in TypeScript",
   "main": "./index.js",
   "type": "module",
