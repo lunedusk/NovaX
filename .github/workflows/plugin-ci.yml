@@ -28,7 +28,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Node 20 is deprecated on GitHub-hosted runners; 22 matches engines >=20
+          node-version: '22'
 
       - name: Resolve plugin name
         id: meta
@@ -53,11 +54,16 @@ jobs:
           echo "version=$PLUGIN_VERSION" >> "$GITHUB_OUTPUT"
           echo "Plugin=${PLUGIN_NAME} version=${PLUGIN_VERSION}"
 
-      - name: Install & typecheck
+      - name: Install, typecheck & build
         run: |
           set -euo pipefail
           npm install
           npx tsc --noEmit
+          # pack script is: node --import ./core/dependency/index.mjs ./scripts/manifestPacker.js
+          # those paths only exist after compile + copy-assets
+          npm run build
+          test -f core/dependency/index.mjs
+          test -f scripts/manifestPacker.js
 
       - name: Pack signed .nvx
         env:
@@ -73,11 +79,7 @@ jobs:
           export PrivateKey="${PrivateKey:-$PLUGIN_SIGNING_KEY}"
           export PLUGIN_SIGNING_KEY="${PLUGIN_SIGNING_KEY:-$PrivateKey}"
 
-          if npm run | grep -qE '^\s+pack'; then
-            npm run pack -- "$PLUGIN" || npm run pack -- --plugin "$PLUGIN"
-          else
-            npx tsx src/scripts/manifestPacker.ts "$PLUGIN"
-          fi
+          npm run pack -- "$PLUGIN"
 
           if [ -f "src/plugins/${PLUGIN}/manifest.nvx" ]; then
             echo "✅ Signed: src/plugins/${PLUGIN}/manifest.nvx"
@@ -87,6 +89,9 @@ jobs:
             echo "✅ Copied .nvx into src/plugins/${PLUGIN}/"
           else
             echo "❌ manifest.nvx was not produced"
+            echo "Looked for src/plugins/${PLUGIN}/manifest.nvx and plugins/${PLUGIN}/manifest.nvx"
+            ls -la "src/plugins/${PLUGIN}" 2>/dev/null || true
+            ls -la "plugins/${PLUGIN}" 2>/dev/null || true
             exit 1
           fi
 
