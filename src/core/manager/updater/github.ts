@@ -66,18 +66,32 @@ export class GitHubClient {
         });
     }
 
+    async getTagByName(owner: string, repo: string, tagName: string): Promise<TagInfo | null> {
+        const tags = await this.listTags(owner, repo);
+        const found = tags.find(t => t.name === tagName || t.name === tagName.replace(/^v/i, '') || `v${t.name}` === tagName);
+        if (found) return found;
+        try {
+            const want = SemVer.parse(tagName);
+            return tags.find(t => t.semver && t.semver.isEqual(want)) ?? null;
+        } catch {
+            return null;
+        }
+    }
+
     async listPluginTags(owner: string, repo: string, pluginName: string): Promise<TagInfo[]> {
         const prefix = `plugin-${pluginName}-v`;
         const all = await this.listTags(owner, repo);
-        const matched = all.filter(t => t.name.startsWith(prefix) || t.name.startsWith(`plugin-${pluginName}-V`));
+        const matched = all.filter(
+            t => t.name.startsWith(prefix) || t.name.toLowerCase().startsWith(`plugin-${pluginName}-v`)
+        );
 
         return matched
             .map(t => {
-                const suffix = t.name.slice(prefix.length);
                 let semver: SemVer | null = null;
-                try { semver = SemVer.parse(suffix.startsWith('v') ? suffix : `v${suffix}`); } catch {
-                    try { semver = SemVer.parse(t.name.replace(/^plugin-[^-]+-v/i, '')); } catch { /* ignore */ }
-                }
+                try {
+                    const suffix = t.name.replace(new RegExp(`^plugin-${pluginName}-v`, 'i'), '');
+                    semver = SemVer.parse(suffix.startsWith('v') ? suffix : `v${suffix}`);
+                } catch { /* ignore */ }
                 return { ...t, semver };
             })
             .sort((a, b) => {
@@ -86,14 +100,22 @@ export class GitHubClient {
             });
     }
 
+    async listSemverTags(owner: string, repo: string): Promise<TagInfo[]> {
+        return (await this.listTags(owner, repo))
+            .filter(t => t.semver !== null)
+            .sort((a, b) => b.semver!.compare(a.semver!));
+    }
+
     async getLatestAllowedTag(
         owner: string,
         repo: string,
         current: SemVer | null,
-        devBuilds: boolean
+        devBuilds: boolean,
+        excludeTags?: Set<string>
     ): Promise<TagInfo | null> {
         const tags = (await this.listTags(owner, repo))
             .filter(t => t.semver !== null)
+            .filter(t => !excludeTags || !excludeTags.has(t.name))
             .sort((a, b) => b.semver!.compare(a.semver!));
 
         for (const tag of tags) {
@@ -147,6 +169,20 @@ export class GitHubClient {
             if (data.type !== 'file' || !data.content) return null;
             const b64 = data.content.replace(/\n/g, '');
             return Buffer.from(b64, 'base64').toString('utf-8');
+        } catch (e: any) {
+            if (String(e.message || e).includes('404')) return null;
+            throw e;
+        }
+    }
+
+    async getFileBytes(owner: string, repo: string, ref: string, filePath: string): Promise<Buffer | null> {
+        const url =
+            `https://api.github.com/repos/${owner}/${repo}/contents/${filePath.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`;
+        try {
+            const data = await this.request<{ content?: string; encoding?: string; type?: string }>(url);
+            if (data.type !== 'file' || !data.content) return null;
+            const b64 = data.content.replace(/\n/g, '');
+            return Buffer.from(b64, 'base64');
         } catch (e: any) {
             if (String(e.message || e).includes('404')) return null;
             throw e;

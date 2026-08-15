@@ -286,6 +286,43 @@ PrivateKey=MC4CAQAwBQYDK2VwBCIEI...
 
 ---
 
+### `PluginPublicKeys`
+
+Optional JSON map of **plugin id → Base64 SPKI public key**. When verifying a plugin's `.nvx` signature, the updater and boot-time integrity path resolve keys in this order:
+
+1. `PluginPublicKeys[pluginId]` if present  
+2. `PublicKey` env (or default Lunedusk key)
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `{}` (empty — all plugins use `PublicKey`) |
+| **Safe to Change** | Yes (requires restart) |
+| **Breaking Risk** | Medium — wrong key for a given id causes signature rejection for that plugin only |
+| **Recommended Action** | Use only when third-party or self-signed plugins need a different verify key than the global `PublicKey`. |
+
+```env
+# PluginPublicKeys={"my-plugin":"MCowBQYDK2VwAyEA...","other-plugin":"MCowBQYDK2VwAyEA..."}
+```
+
+---
+
+### `PLUGIN_SIGNING_KEY`
+
+**CI / GitHub Actions only.** Same material as `PrivateKey`, used by Plugin CI to sign `manifest.nvx` before creating `plugin-{id}-v*` tags. Workflows export it as `PrivateKey` for the packer.
+
+| | |
+|---|---|
+| **Required** | No on the bot host; **yes** as a GitHub secret for plugin-ci pack steps |
+| **Default** | *(none)* |
+| **Safe to Change** | Only with matching `PublicKey` / `PluginPublicKeys` |
+| **Breaking Risk** | **CRITICAL if leaked** — same as `PrivateKey` |
+| **Recommended Action** | Store as a repository secret named `PLUGIN_SIGNING_KEY`. Do not put it in production bot `.env`. The packer also accepts `PrivateKey` locally. |
+
+> ℹ️ Not read by the running bot. Documented here so operators know which secret Plugin CI expects.
+
+---
+
 ## 5. Discord Connection
 
 ### `DiscordToken`
@@ -776,11 +813,15 @@ node --import ./core/dependency/index.mjs ./index.js --updater
 node --import ./core/dependency/index.mjs ./index.js --updater --dry-run
 node --import ./core/dependency/index.mjs ./index.js --updater --force
 node --import ./core/dependency/index.mjs ./index.js --updater --baseline-only
+node --import ./core/dependency/index.mjs ./index.js --updater --target v0.1.12
+node --import ./core/dependency/index.mjs ./index.js --updater --downgrade
+node --import ./core/dependency/index.mjs ./index.js --updater --install-plugin error-reporter
+node --import ./core/dependency/index.mjs ./index.js --updater --install-plugin foo --plugin-tag plugin-foo-v1.2.0
 ```
 
 It only starts `common777` + `secrets` — it does **not** log into Discord, load plugins, or start the HTTP server.
 
-Updates are driven by **semver tags** (`vX.Y.Z`):
+### Version policy (core tags `vX.Y.Z`)
 
 | Change | Behaviour |
 |---|---|
@@ -788,7 +829,9 @@ Updates are driven by **semver tags** (`vX.Y.Z`):
 | Minor (`Y`) | Always allowed when updater is on |
 | Patch (`Z`) | Allowed **only** when `DevBuilds=true` |
 
-SafeUpdate compares local files to a **baseline** (Blake2b-512 hashes written after the last successful update), never to the newest remote tree. Plugins under `src/plugins/` and `plugins/` follow a manifest `id` decision tree and are never blindly overwritten.
+**Tags only** — the client never falls back to branch tips for version selection. Superseded tags listed in `takebacks.json` are skipped on normal updates (see below).
+
+SafeUpdate compares local files to a **baseline** (Blake2b-512 hashes written after the last successful update), never to the newest remote tree. Plugins are planned from the **core tag's `plugins.txt`** (not a local copy), follow a manifest `id` decision tree, and are never blindly overwritten. Applied plugins are written to **`src/plugins/{id}/`** and mirrored to **`plugins/{id}/`** (full tree, including `.js`).
 
 ---
 
@@ -801,8 +844,8 @@ Master switch for automatic / CLI-driven updates.
 | **Required** | No |
 | **Default** | `true` |
 | **Safe to Change** | Yes |
-| **Breaking Risk** | Low — disabling only stops the updater; the bot itself is unaffected |
-| **Recommended Action** | Leave `true` if you want CLI/`npm run updater` and any future background checks to work. Set `false` on machines that must never pull remote code. |
+| **Breaking Risk** | Low — disabling only stops automatic resolution; explicit `--target` / `--install-plugin` still work |
+| **Recommended Action** | Leave `true` if you want CLI/`npm run updater` to work. Set `false` on machines that must never pull remote code unless forced. |
 
 ```env
 AutoUpdater=true
@@ -867,14 +910,14 @@ UpdaterDefaultRepo=lunedusk/NovaX
 
 ### `UpdaterBranch`
 
-Secondary reference branch name (used only as a hint where tags are absent or for future extensions). Tag selection remains the primary update driver.
+Branch used when fetching optional repo files such as **`takebacks.json`** if no local copy exists. **Not** used to select core or plugin versions (those are **tags only**).
 
 | | |
 |---|---|
 | **Required** | No |
 | **Default** | `main` |
 | **Safe to Change** | Yes |
-| **Breaking Risk** | None for current tag-based flow |
+| **Breaking Risk** | None for tag-based version flow |
 | **Recommended Action** | Leave as `main` unless your default branch differs. |
 
 ```env
@@ -903,7 +946,7 @@ DevBuilds=false
 
 ### `SafeUpdate`
 
-When `true`, the updater refuses to apply a new tag if any managed local file differs from the last written baseline (content hash mismatch).
+When `true`, the updater refuses to apply a new tag if any managed local file differs from the last written baseline (content hash mismatch). Per-plugin dirty checks apply the same rule under each plugin root.
 
 | | |
 |---|---|
@@ -984,7 +1027,7 @@ How many successful pre-update backups to retain under `.data/updater/backups/`.
 | **Required** | No |
 | **Default** | `3` |
 | **Safe to Change** | Yes |
-| **Breaking Risk** | Low — lowering only reduces older backups |
+| **Breaking Risk** | Low — lowering only drops older backups |
 | **Recommended Action** | `3` is enough for most hosts. Increase on machines with spare disk if you want a longer rollback window. |
 
 ```env
@@ -1049,7 +1092,7 @@ Optional Discord channel Snowflake for future/post-update notifications (only me
 
 ### `UpdaterPluginManifest`
 
-Filename used inside each plugin folder for identity checks during updates.
+JSON filename used inside each plugin folder for identity / `novax_version` checks during updates (`.nvx` is preferred for cryptographic integrity when present).
 
 | | |
 |---|---|
@@ -1093,18 +1136,138 @@ UpdaterMode=standalone
 | `--dry-run` / `--dryRun` | Plan only |
 | `--force` | Bypass SafeUpdate for this run |
 | `--baseline-only` / `--baselineOnly` | Find exact or nearest tag, hash-match local files, write baseline; non-matching files are treated as user-updated and excluded from the baseline. No file overwrite. |
+| `--target <tag>` | Move core to an explicit tag (upgrade or downgrade). Can force a superseded tag. |
+| `--downgrade` | Prefer `takebacks.json` **recommend** for the current baseline tag; else baseline `previousTag`. Warns and exits if neither exists. |
+| `--install-plugin <id>` | Install or update one plugin listed in the **tag's** `plugins.txt` (never auto-installs others). |
+| `--plugin-tag <tag>` | With `--install-plugin`, pin that plugin to an exact tag (skips semver search). |
+
+---
+
+### `plugins.txt` (on the **core release tag**, not local)
+
+Source of truth for which plugins the updater may touch:
+
+```text
+plugin-error-reporter
+economy:lunedusk/novax-economy
+tickets:org/tickets-plugin@v2.0.0
+```
+
+| Line | Meaning |
+|---|---|
+| `plugin-foo` or `foo` | In-repo → tags `plugin-foo-v*` |
+| `name:owner/repo` | External GitHub plugin |
+| `name:owner/repo@v1.2.0` | External with pinned tag |
+
+Compatibility uses **`novax_version` only** (no `engines.novax`). Layouts L1 (`src/plugins/{id}`), L2 (repo root is the plugin), L3 (`plugins/{id}`) are detected from the archive; runtime always ends at `plugins/{id}/` after mirror.
+
+---
+
+### `takebacks.json` (repo root)
+
+Optional file (also fetchable from `UpdaterBranch` if missing locally). Active entries with `status` `superseded` or `withdrawn` are **skipped** on normal updates.
+
+```json
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "tag": "v0.1.12",
+      "status": "superseded",
+      "recommend": "v0.1.14",
+      "reason": "Critical fix",
+      "severity": "high",
+      "at": "2026-08-15T00:00:00.000Z",
+      "active": true
+    }
+  ]
+}
+```
+
+Ship `takebacks.example.json` as a template; rename or copy to `takebacks.json` when live. The Takebacks workflow can annotate GitHub Releases as `[SUPERSEDED]`.
+
+---
+
+
+### `UpdaterIntervalMs`
+
+Background mode poll interval in milliseconds.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `21600000` (6 hours) |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | None |
+| **Recommended Action** | Raise in production if you want rarer checks; minimum effective interval is clamped to 60s in code. |
+
+```env
+UpdaterIntervalMs=21600000
+```
+
+---
+
+### `UpdaterBackgroundApply`
+
+When `UpdaterMode=background`, whether a discovered update is **applied** (then the process exits `0` so Docker/`restart: unless-stopped` can restart on the new build). If `false`, only plans/logs.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `true` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Medium — apply triggers rebuild + process exit |
+| **Recommended Action** | Keep `true` under Docker with `restart: unless-stopped`. Set `false` for notify-only.
+
+```env
+UpdaterBackgroundApply=true
+```
+
+---
+
+### `UpdaterAutoRollback`
+
+After a core update, write a pending-health marker. If the bot fails to complete a full bootstrap twice (or the grace window elapses without a healthy mark), the next boot/updater run restores `previousTag` with `--force`.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `true` |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Medium — can move the tree backward after bad releases |
+| **Recommended Action** | Leave `true` on production. Disable only if you manage rollbacks manually via `--target` / `--downgrade`. |
+
+```env
+UpdaterAutoRollback=true
+```
+
+---
+
+### `UpdaterHealthGraceMs`
+
+How long after an update the pending-health marker may wait for a successful boot before age-based rollback is allowed (boot-attempt ≥ 2 still rolls back earlier).
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `900000` (15 minutes) |
+| **Safe to Change** | Yes |
+| **Breaking Risk** | Low |
+| **Recommended Action** | Increase on slow hosts; decrease if you want faster recovery from crash loops. |
+
+```env
+UpdaterHealthGraceMs=900000
+```
 
 ---
 
 ### First run / missing baseline
 
+
 If `.data/updater/baseline.json` is missing or unreadable:
 
-- Normal update path may still select the newest **allowed** tag, apply, rebuild, then write a new baseline.
+- Normal update path may still select the newest **allowed** tag, apply, rebuild, then write a new baseline (including `previousTag` when upgrading from an existing baseline).
 - `--baseline-only` selects the exact or nearest tag relative to the current baseline tag or `package.json` version, compares hashes, and writes a baseline from matching files only.
-```
-
----
 
 ## 14. Authentication & Tokens
 
@@ -1295,6 +1458,10 @@ hotReloadEnabled=false
 # TokenIssuer=novax
 # TokenAudience=dashboard
 
+# ── PLUGIN INTEGRITY (extra) ───────────────────────────────
+# Optional per-plugin verify keys (JSON object)
+# PluginPublicKeys={"my-plugin":"MCowBQYDK2VwAyEA..."}
+
 # ── AUTO UPDATER ────────────────────────────────────────────
 AutoUpdater=true
 # RepositoryUrl=                    # if set and fails → abort (no fallback)
@@ -1312,6 +1479,12 @@ UpdaterTimeoutMs=300000
 # UpdaterNotifyChannel=
 UpdaterPluginManifest=manifest.json
 UpdaterMode=standalone
+UpdaterIntervalMs=21600000
+UpdaterBackgroundApply=true
+UpdaterAutoRollback=true
+UpdaterHealthGraceMs=900000
+# CLI: --target, --downgrade, --install-plugin, --plugin-tag, --baseline-only
+# takebacks.json at repo root (optional) — see §13
 ```
 
 ---
@@ -1336,6 +1509,8 @@ UpdaterMode=standalone
 | `DisableDefaultSqlite` | No | `false` | Yes | **High** |
 | `PublicKey` | No | Lunedusk dev key | Only with `PrivateKey` | **High** |
 | `PrivateKey` | No | *(none)* | Only with `PublicKey` | Critical — keep secret |
+| `PluginPublicKeys` | No | `{}` | Yes | Medium |
+| `PLUGIN_SIGNING_KEY` | CI pack only | *(none)* | Only with matching public key | Critical if leaked |
 | `allowUnCertifiedPlugins` | No | `false` | Yes | Security risk |
 | `whitelistedPlugins` | No | *(empty)* | Yes | Medium security risk |
 | `DefaultLocale` | No | `en` | Yes | Low |
@@ -1362,6 +1537,10 @@ UpdaterMode=standalone
 | `UpdaterNotifyChannel` | No | *(empty)* | Yes | None |
 | `UpdaterPluginManifest` | No | `manifest.json` | Rarely | Medium |
 | `UpdaterMode` | No | `standalone` | Yes | Low |
+| `UpdaterIntervalMs` | No | `21600000` | Yes | None |
+| `UpdaterBackgroundApply` | No | `true` | Yes | Medium |
+| `UpdaterAutoRollback` | No | `true` | Yes | Medium |
+| `UpdaterHealthGraceMs` | No | `900000` | Yes | Low |
 
 \*Required only for private GitHub repositories.
 

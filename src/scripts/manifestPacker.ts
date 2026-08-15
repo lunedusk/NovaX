@@ -14,27 +14,60 @@ import { getLogger, flushLogs } from '#core/utils/logger.js';
 import { PackageManager } from '#core/helpers/integrity/manifest.js';
 import type { PluginManifest } from '#core/bases/Plugin.js';
 
+function resolvePrivateKey(): string | null {
+    const raw =
+        secrets.getOptional('PrivateKey') ||
+        process.env.PrivateKey ||
+        secrets.getOptional('PLUGIN_SIGNING_KEY') ||
+        process.env.PLUGIN_SIGNING_KEY ||
+        null;
+    return raw && String(raw).trim() ? String(raw).trim() : null;
+}
+
+function toPem(privKey: string): string {
+    if (privKey.includes('BEGIN PRIVATE KEY')) return privKey;
+    const formattedKey = privKey.match(/.{1,64}/g)?.join('\n');
+    return `-----BEGIN PRIVATE KEY-----\n${formattedKey}\n-----END PRIVATE KEY-----`;
+}
+
 class BinaryManifestPacker {
     private readonly log;
     private readonly privateKeyPem: string;
 
     constructor() {
         this.log = getLogger('BinaryPacker');
-        
-        let privKey = secrets.getOptional('PrivateKey') || process.env.PrivateKey;
 
+        const privKey = resolvePrivateKey();
         if (!privKey) {
-            this.log.error('Missing cryptographic key! Ensure PrivateKey is set in your .env file.');
+            this.log.error(
+                'Missing cryptographic key! Set PrivateKey or PLUGIN_SIGNING_KEY in .env / CI secrets.'
+            );
             process.exit(1);
         }
 
-        if (!privKey.includes('BEGIN PRIVATE KEY')) {
-            const formattedKey = privKey.match(/.{1,64}/g)?.join('\n');
-            privKey = `-----BEGIN PRIVATE KEY-----\n${formattedKey}\n-----END PRIVATE KEY-----`;
-        }
-
-        this.privateKeyPem = privKey;
+        this.privateKeyPem = toPem(privKey);
         this.log.info('Cryptographic engine initialized with Ed25519 PEM Key.');
+    }
+
+    private async resolvePluginDir(pluginId: string): Promise<string> {
+        const candidates = [
+            path.resolve(process.cwd(), 'plugins', pluginId),
+            path.resolve(process.cwd(), 'src', 'plugins', pluginId)
+        ];
+        for (const dir of candidates) {
+            const st = await fs.stat(dir).catch(() => null);
+            if (st?.isDirectory()) {
+                const man = path.join(dir, 'manifest.json');
+                try {
+                    await fs.access(man);
+                    return dir;
+                } catch { /* try next */ }
+            }
+        }
+        throw new Error(
+            `Plugin directory with manifest.json not found for "${pluginId}". ` +
+            `Tried: plugins/${pluginId}, src/plugins/${pluginId}`
+        );
     }
 
     public async pack(pluginId: string): Promise<void> {
@@ -43,16 +76,11 @@ class BinaryManifestPacker {
             process.exit(1);
         }
 
-        const pluginDir = path.resolve(process.cwd(), 'plugins', pluginId);
+        const pluginDir = await this.resolvePluginDir(pluginId);
         const sourceManifestPath = path.join(pluginDir, 'manifest.json');
 
         try {
-            const dirStat = await fs.stat(pluginDir).catch(() => null);
-            if (!dirStat || !dirStat.isDirectory()) {
-                throw new Error(`Plugin directory not found: ${pluginDir}`);
-            }
-
-            this.log.info(`Reading source metadata for plugin: [${pluginId}]`);
+            this.log.info(`Reading source metadata for plugin: [${pluginId}] @ ${pluginDir}`);
             const rawData = await fs.readFile(sourceManifestPath, 'utf-8');
             const metadata: PluginManifest = JSON.parse(rawData);
 
@@ -61,19 +89,18 @@ class BinaryManifestPacker {
             }
 
             this.log.info(`Generating Flatbuffer and calculating file hashes...`);
-            
+
             await PackageManager.pack(
-                pluginDir, 
-                this.privateKeyPem, 
-                metadata, 
+                pluginDir,
+                this.privateKeyPem,
+                metadata,
                 'manifest.nvx'
             );
 
             this.log.info('--------------------------------------------------');
             this.log.info(`Successfully locked and signed: ${pluginId}`);
-            this.log.info(`Output: plugins/${pluginId}/manifest.nvx`);
+            this.log.info(`Output: ${path.join(pluginDir, 'manifest.nvx')}`);
             this.log.info('--------------------------------------------------');
-
         } catch (error: any) {
             if (error.code === 'ENOENT') {
                 this.log.error(`Source manifest.json not found at: ${sourceManifestPath}`);
@@ -92,16 +119,19 @@ class BinaryManifestPacker {
 async function main() {
     try {
         secrets.assimilateEnv();
-        
+
         const logger = getLogger('Bootstrap');
         logger.info('Starting NovaX Binary Manifest Packer...');
-        
-        const args = process.argv.slice(2);
-        const pluginId = args[0];
+
+        const args = process.argv.slice(2).filter(a => !a.startsWith('-'));
+        let pluginId = args[0];
+        const pluginFlag = process.argv.findIndex(a => a === '--plugin' || a === '--pluginId');
+        if (pluginFlag >= 0 && process.argv[pluginFlag + 1]) {
+            pluginId = process.argv[pluginFlag + 1];
+        }
 
         const packer = new BinaryManifestPacker();
         await packer.pack(pluginId);
-        
     } catch (error) {
         console.error('FATAL APPLICATION CRASH:', error);
         process.exit(1);

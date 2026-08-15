@@ -1,0 +1,117 @@
+name: Takebacks Supersede
+
+on:
+  push:
+    branches: [main]
+    paths: ['takebacks.json']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Core tag to mark superseded (e.g. v0.1.12)'
+        required: true
+      recommend:
+        description: 'Recommended safe tag (e.g. v0.1.14)'
+        required: true
+      reason:
+        description: 'Short reason'
+        required: false
+        default: 'Superseded by maintainers'
+
+permissions:
+  contents: write
+
+jobs:
+  supersede:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure / update takebacks.json (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+          REC: ${{ github.event.inputs.recommend }}
+          REASON: ${{ github.event.inputs.reason }}
+        run: |
+          set -euo pipefail
+          export AT
+          AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          if [ ! -f takebacks.json ]; then
+            echo '{"schemaVersion":1,"entries":[]}' > takebacks.json
+          fi
+          node -e "
+            const fs = require('fs');
+            const tag = process.env.TAG;
+            const rec = process.env.REC;
+            const reason = process.env.REASON || 'Superseded';
+            const at = process.env.AT;
+            const data = JSON.parse(fs.readFileSync('takebacks.json', 'utf8'));
+            data.schemaVersion = data.schemaVersion || 1;
+            data.entries = data.entries || [];
+            const entry = {
+              tag, status: 'superseded', recommend: rec, reason,
+              severity: 'high', at, active: true
+            };
+            const i = data.entries.findIndex(e => e.tag === tag);
+            if (i >= 0) data.entries[i] = { ...data.entries[i], ...entry };
+            else data.entries.push(entry);
+            fs.writeFileSync('takebacks.json', JSON.stringify(data, null, 2) + '\n');
+          "
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add takebacks.json
+          git diff --cached --quiet || git commit -m "chore(takebacks): supersede ${TAG} → ${REC}"
+          git push || true
+
+      - name: List active superseded tags
+        id: plan
+        run: |
+          set -euo pipefail
+          if [ ! -f takebacks.json ]; then
+            echo "tags=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          TAGS=$(node -e "
+            const d = JSON.parse(require('fs').readFileSync('takebacks.json','utf8'));
+            const tags = (d.entries || [])
+              .filter(e => e.active !== false && (e.status === 'superseded' || e.status === 'withdrawn'))
+              .map(e => e.tag);
+            console.log(tags.join(' '));
+          ")
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+
+      - name: Annotate GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAGS="${{ steps.plan.outputs.tags }}"
+          if [ -z "$TAGS" ]; then
+            echo "No tags to annotate"
+            exit 0
+          fi
+          for TAG in $TAGS; do
+            REC=$(node -e "
+              const d=JSON.parse(require('fs').readFileSync('takebacks.json','utf8'));
+              const e=(d.entries||[]).find(x=>x.tag==='$TAG');
+              console.log((e&&e.recommend)||'');
+            ")
+            REASON=$(node -e "
+              const d=JSON.parse(require('fs').readFileSync('takebacks.json','utf8'));
+              const e=(d.entries||[]).find(x=>x.tag==='$TAG');
+              console.log((e&&e.reason)||'Superseded');
+            ")
+            TITLE="[SUPERSEDED] ${TAG}"
+            if [ -n "$REC" ]; then
+              TITLE="[SUPERSEDED] ${TAG} → use ${REC}"
+            fi
+            BODY=$(printf '## Superseded\n\nThis release is marked **superseded**.\n\n- **Recommend:** `%s`\n- **Reason:** %s\n\nThe client updater skips this tag on normal updates unless `--target` is forced.\n' "$REC" "$REASON")
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release edit "$TAG" --title "$TITLE" --notes "$BODY" || true
+              echo "Updated release $TAG"
+            else
+              echo "No GitHub Release for $TAG – client still skips via takebacks.json"
+            fi
+          done

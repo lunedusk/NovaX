@@ -2,19 +2,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getLogger } from '#core/utils/logger.js';
+import { getLogger, flushLogs } from '#core/utils/logger.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { SemVer, SemVerRange } from '#core/utils/semver.js';
 import { GitHubClient } from './github.js';
 import { hashFile } from '#core/helpers/hash/index.js';
+import { parsePluginsTxt } from './pluginsTxt.js';
 import type {
     Baseline,
     BaselineFileEntry,
     DirtyFile,
+    PendingHealth,
     PluginDecision,
+    PluginSourceLine,
     UpdatePlan,
     UpdaterConfig,
-    TagInfo
+    TagInfo,
+    TakebacksFile
 } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -24,11 +28,31 @@ const STATE_DIR   = path.join(process.cwd(), '.data', 'updater');
 const BASELINE    = path.join(STATE_DIR, 'baseline.json');
 const BACKUP_DIR  = path.join(STATE_DIR, 'backups');
 const STAGING_DIR = path.join(STATE_DIR, 'staging');
+const PENDING_HEALTH = path.join(STATE_DIR, 'pending-health.json');
 
 const HARD_EXCLUDES = new Set([
     'node_modules', '.git', '.data', 'logs', 'configuration',
     '.env', '.env.local', 'common.json'
 ]);
+
+function parsePluginPublicKeys(): Record<string, string> {
+    const raw = secrets.getOptional('PluginPublicKeys');
+    if (!raw) return {};
+    try {
+        const obj = JSON.parse(raw) as Record<string, string>;
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(obj)) {
+            if (typeof v === 'string' && v.trim()) out[k.trim()] = v.trim();
+        }
+        return out;
+    } catch {
+        log.warn('PluginPublicKeys is not valid JSON – ignoring');
+        return {};
+    }
+}
+
+const BUILTIN_PUBLIC_KEY =
+    'MCowBQYDK2VwAyEAxGjGVv/sK86Px3N7hLY1x1QxS5bugvrqPlo8MW95BwQ=';
 
 function loadConfig(): UpdaterConfig {
     return {
@@ -47,8 +71,47 @@ function loadConfig(): UpdaterConfig {
         postUpdateCmd:  secrets.getOptional('UpdaterPostUpdateCmd') || null,
         notifyChannel:  secrets.getOptional('UpdaterNotifyChannel') || null,
         pluginManifest: secrets.getOptional('UpdaterPluginManifest') || 'manifest.json',
-        mode:           (secrets.getOptional('UpdaterMode') as 'standalone' | 'background') || 'standalone'
+        mode:           (secrets.getOptional('UpdaterMode') as 'standalone' | 'background') || 'standalone',
+        pluginPublicKeys: parsePluginPublicKeys(),
+        publicKey: secrets.getOptional('PublicKey') || process.env.PublicKey || BUILTIN_PUBLIC_KEY,
+        intervalMs:     parseInt(secrets.getOptional('UpdaterIntervalMs') || String(6 * 60 * 60 * 1000), 10),
+        backgroundApply: secrets.getBoolean('UpdaterBackgroundApply', true),
+        autoRollback:   secrets.getBoolean('UpdaterAutoRollback', true),
+        healthGraceMs:  parseInt(secrets.getOptional('UpdaterHealthGraceMs') || String(15 * 60 * 1000), 10)
     };
+}
+
+function readPendingHealth(): PendingHealth | null {
+    try {
+        if (!fs.existsSync(PENDING_HEALTH)) return null;
+        return JSON.parse(fs.readFileSync(PENDING_HEALTH, 'utf-8')) as PendingHealth;
+    } catch {
+        return null;
+    }
+}
+
+function writePendingHealth(p: PendingHealth): void {
+    ensureDirs();
+    fs.writeFileSync(PENDING_HEALTH, JSON.stringify(p, null, 2), 'utf-8');
+}
+
+function clearPendingHealth(): void {
+    try {
+        if (fs.existsSync(PENDING_HEALTH)) fs.unlinkSync(PENDING_HEALTH);
+    } catch { /* ignore */ }
+}
+
+export function markUpdaterHealthy(): void {
+    const pending = readPendingHealth();
+    if (!pending) return;
+    pending.healthy = true;
+    writePendingHealth(pending);
+    clearPendingHealth();
+    log.info(`Updater health cleared (boot OK for ${pending.toTag})`);
+}
+
+export function getUpdaterConfig(): UpdaterConfig {
+    return loadConfig();
 }
 
 function ensureDirs(): void {
@@ -129,15 +192,12 @@ function readPackageVersion(): SemVer | null {
     }
 }
 
-function parsePluginsTxt(body: string): string[] {
-    const names: string[] = [];
-    for (const line of body.split(/\r?\n/)) {
-        const cleaned = line.replace(/#.*$/, '').trim();
-        if (!cleaned) continue;
-        const name = cleaned.startsWith('plugin-') ? cleaned.slice('plugin-'.length) : cleaned;
-        if (name) names.push(name);
-    }
-    return names;
+function sourcePluginPath(pluginId: string): string {
+    return path.join('src', 'plugins', pluginId).replace(/\\/g, '/');
+}
+
+function runtimePluginPath(pluginId: string): string {
+    return path.join('plugins', pluginId).replace(/\\/g, '/');
 }
 
 function localPluginDir(pluginName: string): string | null {
@@ -165,14 +225,47 @@ function readLocalManifestId(pluginRel: string, manifestName: string): string | 
 function manifestCompatible(manifestJson: string, coreVersion: SemVer): { ok: boolean; req: string } {
     try {
         const manifest = JSON.parse(manifestJson);
-        const req: string =
-            manifest.novax_version ||
-            (manifest.engines && manifest.engines.novax) ||
-            '*';
+        const req: string = manifest.novax_version || '*';
         const ok = SemVerRange.satisfies(coreVersion.toString(), req);
         return { ok, req: String(req) };
     } catch {
         return { ok: false, req: '?' };
+    }
+}
+
+function detectLayout(stagingRoot: string, pluginId: string): { layout: 'L1' | 'L2' | 'L3'; contentRoot: string } | null {
+    const l1 = path.join(stagingRoot, 'src', 'plugins', pluginId);
+    const l3 = path.join(stagingRoot, 'plugins', pluginId);
+    const l2 = stagingRoot;
+    const has = (dir: string) =>
+        fs.existsSync(path.join(dir, 'manifest.nvx')) || fs.existsSync(path.join(dir, 'manifest.json'));
+    if (has(l1)) return { layout: 'L1', contentRoot: l1 };
+    if (has(l3)) return { layout: 'L3', contentRoot: l3 };
+    if (has(l2)) return { layout: 'L2', contentRoot: l2 };
+    return null;
+}
+
+async function mirrorPluginToRuntime(pluginId: string): Promise<void> {
+    const src = path.join(process.cwd(), sourcePluginPath(pluginId));
+    const dest = path.join(process.cwd(), runtimePluginPath(pluginId));
+    if (!fs.existsSync(src)) {
+        log.warn(`Cannot mirror plugin ${pluginId}: missing ${sourcePluginPath(pluginId)}`);
+        return;
+    }
+    if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+    await copyDirRecursive(src, dest);
+    log.info(`Mirrored ${sourcePluginPath(pluginId)} → ${runtimePluginPath(pluginId)}`);
+}
+
+async function copyDirRecursive(src: string, dest: string): Promise<void> {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+        if (ent.name === 'node_modules' || ent.name === '.git') continue;
+        const s = path.join(src, ent.name);
+        const d = path.join(dest, ent.name);
+        if (ent.isSymbolicLink()) continue;
+        if (ent.isDirectory()) await copyDirRecursive(s, d);
+        else if (ent.isFile()) fs.copyFileSync(s, d);
     }
 }
 
@@ -190,16 +283,42 @@ export class Updater {
         dryRun?: boolean;
         baselineOnly?: boolean;
         installPlugin?: string | null;
+        targetTag?: string | null;
+        downgrade?: boolean;
+        pluginTag?: string | null;
     } = {}): Promise<UpdatePlan> {
         ensureDirs();
         const force         = options.force ?? false;
         const dryRun        = options.dryRun ?? this.config.dryRun;
         const baselineOnly  = options.baselineOnly ?? false;
         const installPlugin = this.normalizePluginArg(options.installPlugin ?? null);
+        const targetTag     = options.targetTag?.trim() || null;
+        const downgrade     = options.downgrade ?? false;
+        const pluginTagPin  = options.pluginTag?.trim() || null;
 
         log.info(
-            `Updater start (baselineOnly=${baselineOnly}, dryRun=${dryRun}, force=${force}, installPlugin=${installPlugin ?? '-'})`
+            `Updater start (baselineOnly=${baselineOnly}, dryRun=${dryRun}, force=${force}, ` +
+            `installPlugin=${installPlugin ?? '-'}, target=${targetTag ?? '-'}, downgrade=${downgrade})`
         );
+
+        if (
+            !this.config.autoUpdater &&
+            !targetTag &&
+            !downgrade &&
+            !installPlugin &&
+            !baselineOnly
+        ) {
+            log.warn(
+                'AutoUpdater=false – refusing automatic update ' +
+                '(--target / --downgrade / --install-plugin / --baseline-only still allowed)'
+            );
+            return this.emptyPlan('AutoUpdater disabled', baselineOnly, installPlugin);
+        }
+
+        if (this.config.autoRollback && !targetTag && !downgrade && !installPlugin && !baselineOnly) {
+            const rolled = await this.maybeAutoRollback();
+            if (rolled) return rolled;
+        }
 
         let owner: string;
         let repo: string;
@@ -243,7 +362,61 @@ export class Updater {
 
         let coreTarget: TagInfo | null = null;
         try {
-            coreTarget = await this.gh.getLatestAllowedTag(owner, repo, currentSemVer, this.config.devBuilds);
+            if (downgrade) {
+                let recommend: string | null = null;
+                const localTb = path.join(process.cwd(), 'takebacks.json');
+                if (fs.existsSync(localTb) && baseline?.tag) {
+                    try {
+                        const tb = JSON.parse(fs.readFileSync(localTb, 'utf-8')) as TakebacksFile;
+                        const ent = tb.entries?.find(
+                            e => e.tag === baseline.tag && e.active !== false && e.recommend
+                        );
+                        recommend = ent?.recommend ?? null;
+                    } catch { /* ignore */ }
+                }
+                const want = recommend || baseline?.previousTag || null;
+                if (!want) {
+                    log.warn('Downgrade: no recommend and no previousTag – nothing to do');
+                    return this.emptyPlan('No downgrade target available', false, installPlugin);
+                }
+                coreTarget = await this.gh.getTagByName(owner, repo, want);
+                if (!coreTarget) {
+                    log.warn(`Downgrade target tag not found: ${want}`);
+                    return this.emptyPlan(`Downgrade tag not found: ${want}`, false, installPlugin);
+                }
+                log.info(`Downgrade target: ${coreTarget.name}`);
+            } else if (targetTag) {
+                coreTarget = await this.gh.getTagByName(owner, repo, targetTag);
+                if (!coreTarget) {
+                    return this.emptyPlan(`Target tag not found: ${targetTag}`, false, installPlugin);
+                }
+                log.info(`Explicit target: ${coreTarget.name}`);
+            } else {
+                const takebacks = await this.loadTakebacksFile(owner, repo);
+                const yanked = this.yankedTagSet(takebacks);
+                if (yanked.size > 0) {
+                    log.info(`Takebacks: skipping ${yanked.size} superseded tag(s) on normal update`);
+                }
+
+                if (baseline?.tag && takebacks) {
+                    const cur = takebacks.entries?.find(
+                        e => e.tag === baseline.tag && e.active !== false && e.status === 'superseded' && e.recommend
+                    );
+                    if (cur?.recommend) {
+                        const rec = await this.gh.getTagByName(owner, repo, cur.recommend);
+                        if (rec && !yanked.has(rec.name)) {
+                            log.info(`Baseline ${baseline.tag} is superseded → recommend ${rec.name}`);
+                            coreTarget = rec;
+                        }
+                    }
+                }
+
+                if (!coreTarget) {
+                    coreTarget = await this.gh.getLatestAllowedTag(
+                        owner, repo, currentSemVer, this.config.devBuilds, yanked
+                    );
+                }
+            }
         } catch (e) {
             if (this.config.repositoryUrl) {
                 return this.emptyPlan(`RepositoryUrl unreachable: ${(e as Error).message}`, false, installPlugin);
@@ -255,19 +428,19 @@ export class Updater {
             coreTarget?.semver ?? currentSemVer ?? readPackageVersion();
 
         const pluginsTxtRef = coreTarget?.name ?? baseline?.tag ?? null;
-        let officialPluginNames: string[] = [];
+        let officialLines: PluginSourceLine[] = [];
         if (pluginsTxtRef) {
             const body = await this.gh.getFileText(owner, repo, pluginsTxtRef, 'plugins.txt');
             if (body) {
-                officialPluginNames = parsePluginsTxt(body);
-                log.info(`Tag ${pluginsTxtRef} plugins.txt → ${officialPluginNames.length} plugin(s)`);
+                officialLines = parsePluginsTxt(body);
+                log.info(`Tag ${pluginsTxtRef} plugins.txt → ${officialLines.length} plugin line(s)`);
             } else {
                 log.info(`No plugins.txt on ref ${pluginsTxtRef} – no plugin updates from list`);
             }
         }
 
         if (installPlugin) {
-            if (!pluginsTxtRef || officialPluginNames.length === 0 || !coreForCompat) {
+            if (!pluginsTxtRef || officialLines.length === 0 || !coreForCompat) {
                 const tags = (await this.gh.listTags(owner, repo))
                     .filter(t => t.semver !== null)
                     .sort((a, b) => b.semver!.compare(a.semver!));
@@ -275,14 +448,15 @@ export class Updater {
                 if (latest) {
                     coreForCompat = coreForCompat ?? latest.semver;
                     const body = await this.gh.getFileText(owner, repo, latest.name, 'plugins.txt');
-                    if (body) officialPluginNames = parsePluginsTxt(body);
+                    if (body) officialLines = parsePluginsTxt(body);
                     if (!coreTarget) coreTarget = latest;
                 }
             }
             return this.runInstallPlugin({
                 owner, repo, pluginName: installPlugin,
-                officialPluginNames, coreForCompat, baseline,
-                dryRun, force, coreTarget
+                officialLines, coreForCompat, baseline,
+                dryRun, force, coreTarget,
+                pluginTagPin
             });
         }
 
@@ -290,11 +464,12 @@ export class Updater {
             log.info('No newer core tag. Checking plugins against current core only…');
             const pluginDecisions = await this.planPluginUpdates({
                 owner, repo,
-                officialPluginNames,
+                officialLines,
                 coreForCompat: coreForCompat!,
                 baseline,
                 force,
-                allowAdd: false
+                allowAdd: false,
+                pluginTagPin
             });
             const toApply = pluginDecisions.filter(d => d.action === 'update' || d.action === 'add');
             if (toApply.length === 0) {
@@ -385,11 +560,12 @@ export class Updater {
 
         const pluginDecisions = await this.planPluginUpdates({
             owner, repo,
-            officialPluginNames,
+            officialLines,
             coreForCompat: coreTarget.semver,
             baseline,
             force,
-            allowAdd: false
+            allowAdd: false,
+            pluginTagPin
         });
 
         const plan: UpdatePlan = {
@@ -454,8 +630,21 @@ export class Updater {
             tag: coreTarget.name,
             commit: coreTarget.commit,
             timestamp: new Date().toISOString(),
+            previousTag: baseline?.tag ?? null,
+            previousCommit: baseline?.commit ?? null,
             files: mergedFiles
         });
+
+        if (this.config.autoRollback && baseline?.tag && baseline.tag !== coreTarget.name) {
+            writePendingHealth({
+                toTag: coreTarget.name,
+                previousTag: baseline.tag,
+                previousCommit: baseline.commit ?? null,
+                at: new Date().toISOString(),
+                healthy: false
+            });
+            log.info(`Pending health set for ${coreTarget.name} (rollback target ${baseline.tag})`);
+        }
 
         if (this.config.postUpdateCmd) {
             try {
@@ -478,113 +667,276 @@ export class Updater {
         return t.startsWith('plugin-') ? t.slice('plugin-'.length) : t;
     }
 
+    private async maybeAutoRollback(): Promise<UpdatePlan | null> {
+        const pending = readPendingHealth();
+        if (!pending || pending.healthy) return null;
+        if (!pending.previousTag) {
+            log.warn('Pending health has no previousTag – cannot auto-rollback');
+            clearPendingHealth();
+            return null;
+        }
+
+        const age = Date.now() - new Date(pending.at).getTime();
+        if (age < this.config.healthGraceMs) {
+            log.info(
+                `Pending health for ${pending.toTag} still in grace ` +
+                `(${Math.round(age / 1000)}s / ${Math.round(this.config.healthGraceMs / 1000)}s) – no rollback yet`
+            );
+            return null;
+        }
+
+        log.warn(
+            `Auto-rollback: ${pending.toTag} never marked healthy after grace – ` +
+            `restoring ${pending.previousTag}`
+        );
+        clearPendingHealth();
+        return this.run({
+            targetTag: pending.previousTag,
+            force: true,
+            dryRun: false
+        });
+    }
+
+    private async loadTakebacksFile(owner: string, repo: string): Promise<TakebacksFile | null> {
+        const local = path.join(process.cwd(), 'takebacks.json');
+        if (fs.existsSync(local)) {
+            try {
+                return JSON.parse(fs.readFileSync(local, 'utf-8')) as TakebacksFile;
+            } catch {
+                log.warn('Local takebacks.json unreadable');
+            }
+        }
+        try {
+            const body = await this.gh.getFileText(owner, repo, this.config.branch, 'takebacks.json');
+            if (body) return JSON.parse(body) as TakebacksFile;
+        } catch { /* optional */ }
+        return null;
+    }
+
+    private yankedTagSet(tb: TakebacksFile | null): Set<string> {
+        const s = new Set<string>();
+        if (!tb?.entries) return s;
+        for (const e of tb.entries) {
+            if (e.active === false) continue;
+            if (e.status === 'superseded' || e.status === 'withdrawn') {
+                if (e.tag) s.add(e.tag);
+            }
+        }
+        return s;
+    }
+
     private async planPluginUpdates(ctx: {
         owner: string;
         repo: string;
-        officialPluginNames: string[];
+        officialLines: PluginSourceLine[];
         coreForCompat: SemVer;
         baseline: Baseline | null;
         force: boolean;
         allowAdd: boolean;
         onlyName?: string;
+        pluginTagPin?: string | null;
     }): Promise<PluginDecision[]> {
         const decisions: PluginDecision[] = [];
-        const names = ctx.onlyName
-            ? ctx.officialPluginNames.filter(n => n === ctx.onlyName)
-            : ctx.officialPluginNames;
+        const lines = ctx.onlyName
+            ? ctx.officialLines.filter(l => l.id === ctx.onlyName)
+            : ctx.officialLines;
 
-        for (const pluginName of names) {
+        for (const line of lines) {
+            const pluginName = line.id;
             const localRel = localPluginDir(pluginName);
+            const srcPath = sourcePluginPath(pluginName);
+            const rtPath = runtimePluginPath(pluginName);
 
             if (!localRel && !ctx.allowAdd) {
                 decisions.push({
                     pluginId: pluginName,
-                    localPath: `src/plugins/${pluginName}`,
+                    localPath: srcPath,
+                    runtimePath: rtPath,
                     remotePath: null,
                     action: 'skip',
-                    reason: 'Not installed locally – auto-install disabled (use --install-plugin)'
+                    reason: 'Not installed locally – auto-install disabled (use --install-plugin)',
+                    source: line
                 });
                 continue;
             }
 
-            const tags = await this.gh.listPluginTags(ctx.owner, ctx.repo, pluginName);
-            if (tags.length === 0) {
-                decisions.push({
-                    pluginId: pluginName,
-                    localPath: localRel ?? `src/plugins/${pluginName}`,
-                    remotePath: null,
-                    action: 'skip',
-                    reason: `No tags matching plugin-${pluginName}-v* (branch fallback disabled)`
-                });
-                continue;
+            let pOwner = ctx.owner;
+            let pRepo = ctx.repo;
+            if (line.kind === 'external' && line.repo) {
+                try {
+                    ({ owner: pOwner, repo: pRepo } = GitHubClient.parseRepo(line.repo));
+                } catch (e) {
+                    decisions.push({
+                        pluginId: pluginName,
+                        localPath: localRel ?? srcPath,
+                        runtimePath: rtPath,
+                        remotePath: null,
+                        action: 'skip',
+                        reason: `Invalid external repo: ${(e as Error).message}`,
+                        source: line
+                    });
+                    continue;
+                }
             }
 
             let selected: TagInfo | null = null;
             let selectedReq = '';
-            for (const tag of tags) {
-                const manifestPath = `src/plugins/${pluginName}/${this.config.pluginManifest}`;
-                const text = await this.gh.getFileText(ctx.owner, ctx.repo, tag.name, manifestPath);
-                if (!text) continue;
-                const { ok, req } = manifestCompatible(text, ctx.coreForCompat);
-                if (ok) {
-                    selected = tag;
-                    selectedReq = req;
-                    break;
+
+            const effectivePin =
+                (ctx.onlyName && ctx.pluginTagPin) ? ctx.pluginTagPin :
+                line.pinnedTag;
+
+            if (effectivePin) {
+                selected = await this.gh.getTagByName(pOwner, pRepo, effectivePin);
+                if (!selected) {
+                    decisions.push({
+                        pluginId: pluginName,
+                        localPath: localRel ?? srcPath,
+                        runtimePath: rtPath,
+                        remotePath: null,
+                        action: 'skip',
+                        reason: `Pinned tag not found: ${effectivePin} (tags only)`,
+                        source: line
+                    });
+                    continue;
                 }
-                log.info(`  plugin ${pluginName}: ${tag.name} incompatible (requires ${req})`);
+            } else {
+                const pluginTags = line.kind === 'in-repo'
+                    ? await this.gh.listPluginTags(pOwner, pRepo, pluginName)
+                    : [
+                        ...(await this.gh.listPluginTags(pOwner, pRepo, pluginName)),
+                        ...(await this.gh.listSemverTags(pOwner, pRepo))
+                    ];
+                const seen = new Set<string>();
+                const tags = pluginTags.filter(t => {
+                    if (seen.has(t.name)) return false;
+                    seen.add(t.name);
+                    return true;
+                });
+
+                if (tags.length === 0) {
+                    decisions.push({
+                        pluginId: pluginName,
+                        localPath: localRel ?? srcPath,
+                        runtimePath: rtPath,
+                        remotePath: null,
+                        action: 'skip',
+                        reason: line.kind === 'in-repo'
+                            ? `No tags matching plugin-${pluginName}-v* (tags only)`
+                            : 'No semver / plugin-* tags on external repo (tags only)',
+                        source: line
+                    });
+                    continue;
+                }
+
+                for (const tag of tags) {
+                    const paths = [
+                        `src/plugins/${pluginName}/manifest.json`,
+                        `plugins/${pluginName}/manifest.json`,
+                        'manifest.json'
+                    ];
+                    let text: string | null = null;
+                    for (const mp of paths) {
+                        text = await this.gh.getFileText(pOwner, pRepo, tag.name, mp);
+                        if (text) break;
+                    }
+                    if (!text) continue;
+                    const { ok, req } = manifestCompatible(text, ctx.coreForCompat);
+                    if (ok) {
+                        selected = tag;
+                        selectedReq = req;
+                        break;
+                    }
+                    log.info(`  plugin ${pluginName}: ${tag.name} incompatible (requires ${req})`);
+                }
             }
 
             if (!selected) {
                 decisions.push({
                     pluginId: pluginName,
-                    localPath: localRel ?? `src/plugins/${pluginName}`,
+                    localPath: localRel ?? srcPath,
+                    runtimePath: rtPath,
                     remotePath: null,
                     action: 'skip',
-                    reason: 'No compatible plugin tag for current core version'
+                    reason: 'No compatible plugin tag for current core version (tags only)',
+                    source: line
                 });
                 continue;
             }
 
-            const remoteMan = await this.gh.getFileText(
-                ctx.owner, ctx.repo, selected.name,
-                `src/plugins/${pluginName}/${this.config.pluginManifest}`
-            );
+            const chosen = selected;
+
             let remoteId: string | undefined;
-            try {
-                if (remoteMan) {
+            let compatOk = true;
+            for (const mp of [
+                `src/plugins/${pluginName}/manifest.json`,
+                `plugins/${pluginName}/manifest.json`,
+                'manifest.json'
+            ]) {
+                const remoteMan = await this.gh.getFileText(pOwner, pRepo, chosen.name, mp);
+                if (!remoteMan) continue;
+                try {
                     const j = JSON.parse(remoteMan);
                     remoteId = j.id || j.name;
-                }
-            } catch { /* ignore */ }
+                    if (!selectedReq && j.novax_version) {
+                        const { ok, req } = manifestCompatible(remoteMan, ctx.coreForCompat);
+                        selectedReq = req;
+                        if (!ok && !line.pinnedTag) {
+                            compatOk = false;
+                        }
+                    }
+                    break;
+                } catch { /* ignore */ }
+            }
+            if (!compatOk) {
+                decisions.push({
+                    pluginId: pluginName,
+                    localPath: localRel ?? srcPath,
+                    runtimePath: rtPath,
+                    remotePath: null,
+                    action: 'skip',
+                    reason: 'Incompatible novax_version after manifest read',
+                    source: line
+                });
+                continue;
+            }
 
             if (localRel) {
-                const localId = readLocalManifestId(localRel, this.config.pluginManifest);
+                const localId =
+                    readLocalManifestId(localRel, this.config.pluginManifest) ||
+                    readLocalManifestId(localRel, 'manifest.json');
                 if (localId && remoteId && localId !== remoteId) {
                     decisions.push({
                         pluginId: pluginName,
-                        localPath: localRel,
+                        localPath: srcPath,
+                        runtimePath: rtPath,
                         remotePath: `src/plugins/${pluginName}`,
                         action: 'leave',
                         reason: `id mismatch (local="${localId}" vs remote="${remoteId}")`,
                         localManifestId: localId,
                         remoteManifestId: remoteId,
-                        selectedPluginTag: selected.name
+                        selectedPluginTag: chosen.name,
+                        source: line
                     });
                     continue;
                 }
 
                 if (this.config.safeUpdate && !ctx.force && ctx.baseline) {
-                    const dirty = await this.isPluginDirty(localRel, ctx.baseline);
+                    const dirty =
+                        (await this.isPluginDirty(localRel, ctx.baseline)) ||
+                        (await this.isPluginDirty(rtPath, ctx.baseline));
                     if (dirty) {
                         decisions.push({
                             pluginId: pluginName,
-                            localPath: localRel,
+                            localPath: srcPath,
+                            runtimePath: rtPath,
                             remotePath: `src/plugins/${pluginName}`,
                             action: 'leave',
                             reason: 'SafeUpdate: local plugin files differ from baseline',
                             localManifestId: localId,
                             remoteManifestId: remoteId,
-                            selectedPluginTag: selected.name
+                            selectedPluginTag: chosen.name,
+                            source: line
                         });
                         continue;
                     }
@@ -592,24 +944,27 @@ export class Updater {
 
                 decisions.push({
                     pluginId: pluginName,
-                    localPath: localRel,
+                    localPath: srcPath,
+                    runtimePath: rtPath,
                     remotePath: `src/plugins/${pluginName}`,
                     action: 'update',
-                    reason: `Compatible tag ${selected.name} (requires ${selectedReq})`,
+                    reason: `Compatible tag ${chosen.name}${selectedReq ? ` (requires ${selectedReq})` : ''}`,
                     localManifestId: localId,
                     remoteManifestId: remoteId,
-                    selectedPluginTag: selected.name
+                    selectedPluginTag: chosen.name,
+                    source: line
                 });
             } else {
-                // allowAdd path (--install-plugin)
                 decisions.push({
                     pluginId: pluginName,
-                    localPath: `src/plugins/${pluginName}`,
+                    localPath: srcPath,
+                    runtimePath: rtPath,
                     remotePath: `src/plugins/${pluginName}`,
                     action: 'add',
-                    reason: `Install from ${selected.name} (requires ${selectedReq})`,
+                    reason: `Install from ${chosen.name}${selectedReq ? ` (requires ${selectedReq})` : ''}`,
                     remoteManifestId: remoteId,
-                    selectedPluginTag: selected.name
+                    selectedPluginTag: chosen.name,
+                    source: line
                 });
             }
         }
@@ -635,20 +990,21 @@ export class Updater {
         owner: string;
         repo: string;
         pluginName: string;
-        officialPluginNames: string[];
+        officialLines: PluginSourceLine[];
         coreForCompat: SemVer | null;
         baseline: Baseline | null;
         dryRun: boolean;
         force: boolean;
         coreTarget: TagInfo | null;
+        pluginTagPin?: string | null;
     }): Promise<UpdatePlan> {
-        const { pluginName, officialPluginNames, dryRun, force } = ctx;
+        const { pluginName, officialLines, dryRun, force } = ctx;
 
         if (!ctx.coreForCompat) {
             return this.emptyPlan('Cannot resolve core version for plugin compatibility', false, pluginName);
         }
 
-        if (!officialPluginNames.includes(pluginName)) {
+        if (!officialLines.some(l => l.id === pluginName)) {
             log.warn(`Plugin "${pluginName}" is not listed in the tag's plugins.txt`);
             return this.emptyPlan(
                 `Plugin "${pluginName}" not in tag plugins.txt – refusing install`,
@@ -660,12 +1016,13 @@ export class Updater {
         const decisions = await this.planPluginUpdates({
             owner: ctx.owner,
             repo: ctx.repo,
-            officialPluginNames,
+            officialLines,
             coreForCompat: ctx.coreForCompat,
             baseline: ctx.baseline,
             force,
             allowAdd: true,
-            onlyName: pluginName
+            onlyName: pluginName,
+            pluginTagPin: ctx.pluginTagPin
         });
 
         const plan: UpdatePlan = {
@@ -702,21 +1059,28 @@ export class Updater {
         _force: boolean
     ): Promise<void> {
         for (const d of decisions) {
-            if (!d.selectedPluginTag || !d.remotePath) continue;
-            log.info(`Fetching plugin ${d.pluginId} from ${d.selectedPluginTag}…`);
-            const staging = await this.stageArchive(owner, repo, d.selectedPluginTag);
-            const srcRoot = path.join(staging, 'src', 'plugins', d.pluginId);
-            if (!fs.existsSync(srcRoot)) {
-                log.warn(`Tag ${d.selectedPluginTag} has no src/plugins/${d.pluginId} – skip`);
+            if (!d.selectedPluginTag) continue;
+
+            let pOwner = owner;
+            let pRepo = repo;
+            if (d.source?.kind === 'external' && d.source.repo) {
+                ({ owner: pOwner, repo: pRepo } = GitHubClient.parseRepo(d.source.repo));
+            }
+
+            log.info(`Fetching plugin ${d.pluginId} from ${pOwner}/${pRepo}@${d.selectedPluginTag}…`);
+            const staging = await this.stageArchive(pOwner, pRepo, d.selectedPluginTag);
+            const detected = detectLayout(staging, d.pluginId);
+            if (!detected) {
+                log.warn(`Tag ${d.selectedPluginTag} has no L1/L2/L3 layout for ${d.pluginId} – skip`);
                 continue;
             }
-            const destRoot = path.join(process.cwd(), d.localPath || path.join('src', 'plugins', d.pluginId));
-            fs.mkdirSync(path.dirname(destRoot), { recursive: true });
-            if (fs.existsSync(destRoot)) {
-                fs.rmSync(destRoot, { recursive: true, force: true });
-            }
-            await this.copyDir(srcRoot, destRoot);
-            log.info(`Applied plugin ${d.pluginId} → ${destRoot}`);
+
+            const destSrc = path.join(process.cwd(), sourcePluginPath(d.pluginId));
+            fs.mkdirSync(path.dirname(destSrc), { recursive: true });
+            if (fs.existsSync(destSrc)) fs.rmSync(destSrc, { recursive: true, force: true });
+            await this.copyDir(detected.contentRoot, destSrc);
+            log.info(`Applied plugin ${d.pluginId} → ${sourcePluginPath(d.pluginId)} (layout ${detected.layout})`);
+            await mirrorPluginToRuntime(d.pluginId);
         }
     }
 
@@ -737,17 +1101,23 @@ export class Updater {
         const files: Record<string, BaselineFileEntry> = baseline ? { ...baseline.files } : {};
         const allLocal = walkLocal().filter(f => !shouldHardExclude(f));
         for (const d of applied) {
-            const root = (d.localPath || `src/plugins/${d.pluginId}`).replace(/\\/g, '/');
-            for (const k of Object.keys(files)) {
-                if (k === root || k.startsWith(root + '/')) delete files[k];
+            for (const root of [
+                (d.localPath || sourcePluginPath(d.pluginId)).replace(/\\/g, '/'),
+                (d.runtimePath || runtimePluginPath(d.pluginId)).replace(/\\/g, '/')
+            ]) {
+                for (const k of Object.keys(files)) {
+                    if (k === root || k.startsWith(root + '/')) delete files[k];
+                }
+                const pluginFiles = allLocal.filter(f => f === root || f.startsWith(root + '/'));
+                Object.assign(files, await computeLocalHashes(pluginFiles));
             }
-            const pluginFiles = allLocal.filter(f => f === root || f.startsWith(root + '/'));
-            Object.assign(files, await computeLocalHashes(pluginFiles));
         }
         writeBaseline({
             tag: baseline?.tag ?? readPackageVersion()?.toString() ?? 'unknown',
             commit: baseline?.commit ?? '',
             timestamp: new Date().toISOString(),
+            previousTag: baseline?.previousTag ?? null,
+            previousCommit: baseline?.previousCommit ?? null,
             files
         });
     }
@@ -917,11 +1287,40 @@ export class Updater {
         log.info(`Applied ${all.length} core file(s)`);
     }
 
+    private async reinstallDependencies(): Promise<void> {
+        const cwd = process.cwd();
+        const hasLock =
+            fs.existsSync(path.join(cwd, 'package-lock.json')) ||
+            fs.existsSync(path.join(cwd, 'npm-shrinkwrap.json'));
+        const installTimeout = Math.max(this.config.timeoutMs, 600_000);
+
+        if (hasLock) {
+            log.info('Installing dependencies via npm ci (lockfile present)…');
+            try {
+                await execFileAsync('npm', ['ci'], {
+                    cwd,
+                    timeout: installTimeout,
+                    env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'production' }
+                });
+                log.info('npm ci finished');
+                return;
+            } catch (e) {
+                log.warn('npm ci failed – falling back to npm install', e);
+            }
+        }
+
+        log.info('Installing dependencies via npm install…');
+        await execFileAsync('npm', ['install'], {
+            cwd,
+            timeout: installTimeout,
+            env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'production' }
+        });
+        log.info('npm install finished');
+    }
+
     private async rebuild(): Promise<void> {
         log.info('Rebuild sequence…');
-        try {
-            await execFileAsync('npm', ['run', 'clean'], { cwd: process.cwd(), timeout: 60_000 });
-        } catch { /* ignore */ }
+        await this.reinstallDependencies();
         try {
             await execFileAsync('npm', ['run', 'clean'], { cwd: process.cwd(), timeout: 60_000 });
         } catch { /* ignore */ }
@@ -953,6 +1352,9 @@ export async function runUpdater(options: {
     dryRun?: boolean;
     baselineOnly?: boolean;
     installPlugin?: string | null;
+    targetTag?: string | null;
+    downgrade?: boolean;
+    pluginTag?: string | null;
 } = {}): Promise<void> {
     const updater = new Updater();
     const plan = await updater.run(options);
@@ -960,4 +1362,81 @@ export async function runUpdater(options: {
     if (!plan.allowed && plan.dirtyFiles.length > 0) process.exitCode = 2;
     else if (!plan.allowed) process.exitCode = plan.installPlugin ? 1 : 0;
     else process.exitCode = 0;
+}
+
+export async function checkPendingRollbackOnBoot(): Promise<boolean> {
+    const cfg = loadConfig();
+    if (!cfg.autoRollback) return false;
+
+    const pending = readPendingHealth();
+    if (!pending || pending.healthy || !pending.previousTag) return false;
+
+    const attempts = (pending.bootAttempts ?? 0) + 1;
+    pending.bootAttempts = attempts;
+    writePendingHealth(pending);
+
+    const age = Date.now() - new Date(pending.at).getTime();
+    const shouldRollback = attempts >= 2 || age >= cfg.healthGraceMs;
+
+    if (!shouldRollback) {
+        log.warn(
+            `Pending update ${pending.toTag} not yet healthy ` +
+            `(boot attempt ${attempts}, age ${Math.round(age / 1000)}s) – continuing boot`
+        );
+        return false;
+    }
+
+    log.error(
+        `Auto-rollback on boot: ${pending.toTag} failed health ` +
+        `(attempts=${attempts}) → ${pending.previousTag}`
+    );
+    clearPendingHealth();
+    const updater = new Updater();
+    const plan = await updater.run({
+        targetTag: pending.previousTag,
+        force: true,
+        dryRun: false
+    });
+    return plan.allowed;
+}
+
+export function startBackgroundUpdater(): () => void {
+    const cfg = loadConfig();
+    if (cfg.mode !== 'background' || !cfg.autoUpdater) {
+        log.info('Background updater not started (UpdaterMode/AutoUpdater)');
+        return () => {};
+    }
+
+    const interval = Math.max(60_000, cfg.intervalMs || 6 * 60 * 60 * 1000);
+    log.info(`Background updater every ${Math.round(interval / 1000)}s (apply=${cfg.backgroundApply})`);
+
+    let stopped = false;
+    let running = false;
+
+    const tick = async () => {
+        if (stopped || running) return;
+        running = true;
+        try {
+            const updater = new Updater();
+            const plan = await updater.run({ dryRun: !cfg.backgroundApply });
+            if (cfg.backgroundApply && plan.allowed && plan.toTag && plan.fromTag !== plan.toTag && !plan.dryRun) {
+                log.info(`Background update applied ${plan.fromTag} → ${plan.toTag}; exiting for restart`);
+                await flushLogs().catch(() => {});
+                process.exit(0);
+            }
+        } catch (e) {
+            log.error('Background updater tick failed', e);
+        } finally {
+            running = false;
+        }
+    };
+
+    const initial = setTimeout(() => { void tick(); }, 30_000);
+    const handle = setInterval(() => { void tick(); }, interval);
+
+    return () => {
+        stopped = true;
+        clearTimeout(initial);
+        clearInterval(handle);
+    };
 }

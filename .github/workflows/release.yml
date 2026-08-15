@@ -51,9 +51,6 @@ jobs:
         with:
           node-version: '20'
 
-      # ────────────────────────────────────────────────
-      # PHASE 2 – SLIM (core only)
-      # ────────────────────────────────────────────────
       - name: Build Slim Distributions
         if: steps.version_check.outputs.changed == 'true'
         env:
@@ -77,35 +74,28 @@ jobs:
           npx tsc
           npm run copy-assets
 
-          # ── Create distribution folder ──
           rm -rf slim_build
           mkdir -p slim_build
 
-          # Compiled output + declarations + assets from copy-assets
           for item in core plugins scripts index.js index.d.ts; do
             [ -e "$item" ] && mv "$item" slim_build/ || true
           done
 
-          # Essential scaffolding
           cp package.json package-lock.json slim_build/
           [ -f plugins.txt ] && cp plugins.txt slim_build/
+          [ -f takebacks.json ] && cp takebacks.json slim_build/
           [ -f Dockerfile ] && cp Dockerfile slim_build/
           [ -f docker-compose.yml ] && cp docker-compose.yml slim_build/
 
-          # All top-level markdown and shell scripts
           cp *.md slim_build/ 2>/dev/null || true
           cp *.sh slim_build/ 2>/dev/null || true
 
           echo "📦 Packaging Slim Compiled..."
           (cd slim_build && zip -q -r "../NovaX-v${VERSION}-Slim-Compiled.zip" .)
 
-          # Reset
           npm run clean || rm -rf core plugins scripts index.js index.d.ts
           rm -rf slim_build
 
-      # ────────────────────────────────────────────────
-      # PHASE 3 – Smart Plugin Bundler
-      # ────────────────────────────────────────────────
       - name: Inject Compatible Plugins
         if: steps.version_check.outputs.changed == 'true'
         env:
@@ -121,10 +111,20 @@ jobs:
           cat plugins.txt || true
           echo "────────────────────────────────────────"
 
-          while IFS= read -r branch || [ -n "$branch" ]; do
-            branch=$(echo "$branch" | sed 's/#.*//' | xargs)
-            [ -z "$branch" ] && continue
+          # Parse plugins.txt: in-repo names only for bundled inject.
+          # External lines (name:repo) are skipped here — client updater installs them.
+          while IFS= read -r raw || [ -n "$raw" ]; do
+            line=$(echo "$raw" | sed 's/#.*//' | xargs)
+            [ -z "$line" ] && continue
 
+            # External: name:owner/repo[@tag] → skip in core release bundle
+            if echo "$line" | grep -q ':'; then
+              echo "────────────────────────────────────────"
+              echo "Skipping external plugin line (client installs): $line"
+              continue
+            fi
+
+            branch="$line"
             PLUGIN_NAME=${branch#plugin-}
             echo "────────────────────────────────────────"
             echo "Processing: $branch → plugin name = '$PLUGIN_NAME'"
@@ -132,71 +132,76 @@ jobs:
             mapfile -t TAGS < <(git tag -l "plugin-${PLUGIN_NAME}-v*" | sort -V -r)
 
             SELECTED_REF=""
-            SELECTED_TYPE=""
 
-            if [ ${#TAGS[@]} -gt 0 ]; then
-              echo "  Found tags: ${TAGS[*]}"
-              for TAG in "${TAGS[@]}"; do
-                if ! MANIFEST=$(git show "$TAG:src/plugins/${PLUGIN_NAME}/manifest.json" 2>/dev/null); then
-                  echo "  ↳ $TAG → no manifest"
-                  continue
-                fi
-
-                COMPAT=$(node -e '
-                  const semver = require("semver");
-                  const manifest = JSON.parse(process.argv[1]);
-                  const core = process.argv[2];
-                  const req = manifest.novax_version || (manifest.engines && manifest.engines.novax) || "*";
-                  const ok = semver.satisfies(core, req, { includePrerelease: true });
-                  console.log(ok ? "yes|" + req : "no|" + req);
-                ' "$MANIFEST" "$VERSION")
-
-                STATUS=${COMPAT%%|*}
-                REQ=${COMPAT#*|}
-
-                if [ "$STATUS" = "yes" ]; then
-                  echo "  ✅ $TAG compatible (requires $REQ)"
-                  SELECTED_REF=$TAG
-                  SELECTED_TYPE="tag"
-                  break
-                else
-                  echo "  ↳ $TAG incompatible (requires $REQ)"
-                fi
-              done
-            else
-              echo "  ⚠️  No tags matching plugin-${PLUGIN_NAME}-v*"
+            if [ ${#TAGS[@]} -eq 0 ]; then
+              echo "  ⚠️  No tags matching plugin-${PLUGIN_NAME}-v* — skip (tags only, no branch fallback)"
+              continue
             fi
 
-            # Fallback to branch tip when no compatible tag exists
-            if [ -z "$SELECTED_REF" ]; then
-              if git rev-parse --verify "origin/$branch" >/dev/null 2>&1; then
-                echo "  ↪️  Falling back to origin/$branch"
-                if git show "origin/$branch:src/plugins/${PLUGIN_NAME}/manifest.json" >/dev/null 2>&1; then
-                  SELECTED_REF="origin/$branch"
-                  SELECTED_TYPE="branch"
-                else
-                  echo "  ❌ Branch has no manifest – skipping"
-                  continue
-                fi
+            echo "  Found tags: ${TAGS[*]}"
+            for TAG in "${TAGS[@]}"; do
+              MANIFEST=""
+              # Prefer L1 path, then L3
+              if MANIFEST=$(git show "$TAG:src/plugins/${PLUGIN_NAME}/manifest.json" 2>/dev/null); then
+                :
+              elif MANIFEST=$(git show "$TAG:plugins/${PLUGIN_NAME}/manifest.json" 2>/dev/null); then
+                :
+              elif MANIFEST=$(git show "$TAG:manifest.json" 2>/dev/null); then
+                :
               else
-                echo "  ❌ Branch origin/$branch does not exist – skipping"
+                echo "  ↳ $TAG → no manifest.json"
                 continue
               fi
+
+              # novax_version ONLY (no engines.novax)
+              COMPAT=$(node -e '
+                const semver = require("semver");
+                const manifest = JSON.parse(process.argv[1]);
+                const core = process.argv[2];
+                const req = manifest.novax_version || "*";
+                const ok = semver.satisfies(core, req, { includePrerelease: true });
+                console.log(ok ? "yes|" + req : "no|" + req);
+              ' "$MANIFEST" "$VERSION")
+
+              STATUS=${COMPAT%%|*}
+              REQ=${COMPAT#*|}
+
+              if [ "$STATUS" = "yes" ]; then
+                echo "  ✅ $TAG compatible (requires $REQ)"
+                SELECTED_REF=$TAG
+                break
+              else
+                echo "  ↳ $TAG incompatible (requires $REQ)"
+              fi
+            done
+
+            if [ -z "$SELECTED_REF" ]; then
+              echo "  ❌ No compatible plugin tag – skip (tags only, no branch fallback)"
+              continue
             fi
 
-            echo "  📥 Injecting $SELECTED_TYPE $SELECTED_REF → src/plugins/$PLUGIN_NAME"
+            echo "  📥 Injecting tag $SELECTED_REF → src/plugins/$PLUGIN_NAME"
             rm -rf "src/plugins/$PLUGIN_NAME"
-            git archive "$SELECTED_REF" "src/plugins/$PLUGIN_NAME" | tar -x
-            echo "  ✅ Injected"
+            # Archive may contain src/plugins/... or plugins/... depending on tag layout
+            if git archive "$SELECTED_REF" "src/plugins/${PLUGIN_NAME}" 2>/dev/null | tar -x 2>/dev/null; then
+              echo "  ✅ Injected (L1 src/plugins path)"
+            elif git archive "$SELECTED_REF" "plugins/${PLUGIN_NAME}" 2>/dev/null | tar -x 2>/dev/null; then
+              mkdir -p "src/plugins"
+              rm -rf "src/plugins/${PLUGIN_NAME}"
+              mv "plugins/${PLUGIN_NAME}" "src/plugins/${PLUGIN_NAME}"
+              echo "  ✅ Injected (L3 plugins path → src/plugins)"
+            else
+              # L2: whole tree is the plugin
+              mkdir -p "src/plugins/${PLUGIN_NAME}"
+              git archive "$SELECTED_REF" | tar -x -C "src/plugins/${PLUGIN_NAME}"
+              echo "  ✅ Injected (L2 root layout)"
+            fi
           done < plugins.txt
 
           echo "────────────────────────────────────────"
           echo "Final plugins present:"
           ls -1 src/plugins/ || true
 
-      # ────────────────────────────────────────────────
-      # PHASE 4 – BUNDLED
-      # ────────────────────────────────────────────────
       - name: Build Bundled Distributions
         if: steps.version_check.outputs.changed == 'true'
         env:
@@ -220,7 +225,6 @@ jobs:
           npx tsc
           npm run copy-assets
 
-          # ── Create distribution folder ──
           rm -rf bundled_build
           mkdir -p bundled_build
 
@@ -230,10 +234,10 @@ jobs:
 
           cp package.json package-lock.json bundled_build/
           [ -f plugins.txt ] && cp plugins.txt bundled_build/
+          [ -f takebacks.json ] && cp takebacks.json bundled_build/
           [ -f Dockerfile ] && cp Dockerfile bundled_build/
           [ -f docker-compose.yml ] && cp docker-compose.yml bundled_build/
 
-          # All top-level markdown and shell scripts
           cp *.md bundled_build/ 2>/dev/null || true
           cp *.sh bundled_build/ 2>/dev/null || true
 
@@ -295,14 +299,13 @@ jobs:
 
           TAG_NAME="v${VERSION}"
 
-          git add docs/ *.md plugins.txt || true
+          git add docs/ *.md plugins.txt takebacks.json || true
           if ! git diff --cached --quiet; then
             git commit -S -m "[CHORE] Update Docs & Version References to ${TAG_NAME}"
           fi
 
           git tag -s "${TAG_NAME}" -m "Release ${TAG_NAME}"
 
-          # Push with the PAT so other workflows (Sync Plugin Template) are triggered
           git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" main
           git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" "${TAG_NAME}"
           gh workflow run "sync_template.yml" -f tag="${TAG_NAME}"

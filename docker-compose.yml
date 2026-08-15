@@ -1,6 +1,4 @@
 # ##--- AI GENERATED FILE ---##
-version: "3.9"
-
 services:
   novax:
     container_name: novax
@@ -10,25 +8,39 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      TZ: UTC
-      DefaultLocale: "${DefaultLocale:-en}"
-      APIPort: "${APIPort:-3000}"
-      DiscordToken: "${DiscordToken}"
-      DiscordIntents: "${DiscordIntents:-default}"
-      LogLevel: "${LogLevel:-info}"
-      Database: "${Database}"
+      TZ: ${TZ:-UTC}
+      DefaultLocale: ${DefaultLocale:-en}
+      APIPort: ${APIPort:-3000}
+      DiscordToken: ${DiscordToken}
+      DiscordIntents: ${DiscordIntents:-default}
+      LogLevel: ${LogLevel:-info}
+      Database: ${Database:-}
+      AutoUpdater: ${AutoUpdater:-true}
+      UpdaterMode: ${UpdaterMode:-background}
+      UpdaterBackgroundApply: ${UpdaterBackgroundApply:-true}
+      UpdaterAutoRollback: ${UpdaterAutoRollback:-true}
+      UpdaterIntervalMs: ${UpdaterIntervalMs:-21600000}
+      SafeUpdate: ${SafeUpdate:-true}
+      DevBuilds: ${DevBuilds:-false}
     ports:
       - "${APIPort:-3000}:${APIPort:-3000}"
     env_file:
       - .env
     volumes:
-      - ./configuration:/app/configuration
+      - ./plugins:/app/plugins
       - ./.data:/app/.data
       - ./logs:/app/logs
-      - ./plugins:/app/plugins
+      - ./configuration:/app/configuration
+      - ./takebacks.json:/app/takebacks.json:ro
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:'+(process.env.APIPort||3000)+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 25s
+      start_period: 40s

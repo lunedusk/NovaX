@@ -7,18 +7,34 @@ export interface Baseline {
     tag: string;
     commit: string;
     timestamp: string;
+    previousTag?: string | null;
+    previousCommit?: string | null;
     files: Record<string, BaselineFileEntry>;
 }
+
+export type PluginLineKind = 'in-repo' | 'external';
+export interface PluginSourceLine {
+    id: string;
+    kind: PluginLineKind;
+    repo: string | null;
+    pinnedTag: string | null;
+    raw: string;
+}
+
+export type PluginLayout = 'L1' | 'L2' | 'L3';
 
 export interface PluginDecision {
     pluginId: string;
     localPath: string;
+    runtimePath: string;
     remotePath: string | null;
     action: 'update' | 'leave' | 'add' | 'skip';
     reason: string;
     localManifestId?: string;
     remoteManifestId?: string;
     selectedPluginTag?: string;
+    layout?: PluginLayout;
+    source?: PluginSourceLine;
 }
 
 export interface DirtyFile {
@@ -42,6 +58,8 @@ export interface UpdatePlan {
     dryRun: boolean;
     baselineOnly: boolean;
     installPlugin: string | null;
+    targetTag?: string | null;
+    downgrade?: boolean;
 }
 
 export interface UpdaterConfig {
@@ -61,10 +79,39 @@ export interface UpdaterConfig {
     notifyChannel: string | null;
     pluginManifest: string;
     mode: 'standalone' | 'background';
+    pluginPublicKeys: Record<string, string>;
+    publicKey: string | null;
+    intervalMs: number;
+    backgroundApply: boolean;
+    autoRollback: boolean;
+    healthGraceMs: number;
+}
+export interface PendingHealth {
+    toTag: string;
+    previousTag: string | null;
+    previousCommit?: string | null;
+    at: string;
+    healthy?: boolean;
+    bootAttempts?: number;
 }
 
 export interface TagInfo {
     name: string;
     commit: string;
     semver: import('#core/utils/semver.js').SemVer | null;
+}
+
+export interface TakebackEntry {
+    tag: string;
+    status: 'superseded' | 'withdrawn';
+    recommend?: string | null;
+    reason?: string;
+    severity?: string;
+    at?: string | null;
+    active?: boolean;
+}
+
+export interface TakebacksFile {
+    schemaVersion: number;
+    entries: TakebackEntry[];
 }
