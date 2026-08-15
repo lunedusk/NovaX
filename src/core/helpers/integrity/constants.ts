@@ -1,2 +1,1 @@
-export const HASH_ALGORITHM = 'blake2b512';
-export const SIGNATURE_LENGTH = 64;
+export { HASH_ALGORITHM, SIGNATURE_LENGTH } from '#core/helpers/hash/constants.js';
