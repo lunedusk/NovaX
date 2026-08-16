@@ -21,8 +21,16 @@ section() { echo -e "\n${CYAN}── $1 ──${NC}"; }
 # Branch model (one script, all branches)
 #   main            → pull --rebase (additive)
 #   plugin-template → hard-mirror to origin (destructive, workflow-owned)
-#   plugin-<name>   → pull, then merge latest core tag with -X theirs (additive)
+#   plugin-<name>   → CI-OWNED. sync.sh does NOT rewrite these. It only reports
+#                     status and fast-forwards when it can. Merging core into a
+#                     plugin branch is now the plugin CI's job, never this script's.
 #   new origin/*    → auto-created locally, then synced by its type
+#
+# Why the change: a previous version merged the latest core tag into plugin-*
+# branches with `-X theirs`, which silently discarded plugin edits on any file
+# both core and the plugin touched. Combined with CI pushing to the same branch,
+# that produced a permanently diverged, content-wiped plugin-error-reporter.
+# Plugin branches are now owned by CI end-to-end; sync.sh stays hands-off.
 #
 # Usage:
 #   ./sync.sh                → sync ALL branches, return to start
@@ -85,6 +93,29 @@ done
 [ "$NEW_COUNT" -eq 0 ] && info "No new remote branches."
 
 # ──────────────────────────────────────────────
+# Guard: a plugin-<name> branch must actually contain that plugin, and must NOT
+# carry a plugin-template sync commit. Catches the exact corruption that wiped
+# plugin-error-reporter (a "sync plugin-template" commit landing on a plugin
+# branch). Returns non-zero if the branch looks wrong.
+# ──────────────────────────────────────────────
+plugin_branch_is_sane() {
+  local branch="$1"
+  local plugin="${branch#plugin-}"
+
+  # A plugin-template commit has no business on a real plugin branch.
+  if git log --oneline -30 "origin/$branch" 2>/dev/null | grep -qi "sync plugin-template"; then
+    err "$branch carries a 'sync plugin-template' commit — wrong content type."
+    return 1
+  fi
+
+  # The plugin's own folder should exist on the branch.
+  if ! git cat-file -e "origin/$branch:src/plugins/${plugin}/manifest.json" 2>/dev/null; then
+    warn "$branch has no src/plugins/${plugin}/manifest.json — can't confirm identity."
+  fi
+  return 0
+}
+
+# ──────────────────────────────────────────────
 # 4. Sync each local branch by its type
 # ──────────────────────────────────────────────
 sync_one() {
@@ -104,29 +135,30 @@ sync_one() {
     ok "plugin-template mirrored to origin."
 
   elif [[ "$branch" == plugin-* ]]; then
-    # Real plugin branch: pull CI commits, then layer in latest core tag.
-    if ! git pull origin "$branch" --rebase --autostash; then
-      err "Pull failed on $branch. Resolve conflicts, then re-run."
+    # CI-OWNED plugin branch. sync.sh no longer rebases or merges core here —
+    # that job belongs to plugin CI. We only fast-forward when safe and report.
+    if ! plugin_branch_is_sane "$branch"; then
+      err "$branch failed identity check — leaving it untouched. Inspect it manually."
       return 1
     fi
-    if [ -z "$LATEST_TAG" ]; then
-      warn "No core tag to merge into $branch."
-    elif [ -f .core-version ] && [ "$(cat .core-version)" = "$LATEST_TAG" ]; then
-      ok "$branch already on core $LATEST_TAG."
+
+    local ahead behind
+    ahead=$(git rev-list --count "origin/$branch".."$branch" 2>/dev/null || echo 0)
+    behind=$(git rev-list --count "$branch".."origin/$branch" 2>/dev/null || echo 0)
+
+    if [ "$ahead" -eq 0 ] && [ "$behind" -eq 0 ]; then
+      ok "$branch already matches origin (CI-owned, nothing to do)."
+    elif [ "$ahead" -eq 0 ] && [ "$behind" -gt 0 ]; then
+      # Pure fast-forward: take CI's new commits, no rewrite, no merge.
+      git merge --ff-only "origin/$branch" \
+        && ok "$branch fast-forwarded to origin (${behind} CI commits)." \
+        || { err "$branch could not fast-forward. Inspect manually."; return 1; }
     else
-      info "Merging core $LATEST_TAG into $branch ..."
-      # -X theirs: core wins conflicts. Right for engine files; can overwrite
-      # your edits on files both core and the plugin changed.
-      if git merge "$LATEST_TAG" --no-edit -X theirs -m "chore: sync core engine with $LATEST_TAG"; then
-        echo "$LATEST_TAG" > .core-version
-        git add .core-version
-        git commit --amend --no-edit 2>/dev/null || \
-          git commit -m "chore: update .core-version to $LATEST_TAG" || true
-        ok "$branch synced to core $LATEST_TAG (push when ready: git push origin $branch)"
-      else
-        err "Merge conflict in $branch. Fix manually, then commit."
-        return 1
-      fi
+      # Diverged: DO NOT auto-resolve. This is the state that caused the wipe.
+      err "$branch has DIVERGED (${ahead} ahead, ${behind} behind). sync.sh will not touch it."
+      err "  CI owns this branch. If your local is junk:  git reset --hard origin/$branch"
+      err "  If you have real local work:  inspect with  git log origin/$branch..$branch"
+      return 1
     fi
 
   else
