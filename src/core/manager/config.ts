@@ -58,8 +58,7 @@ export class ConfigManager {
         data: unknown
     ): Promise<{ ok: true; data: unknown } | { ok: false; message: string }> {
         const pluginId = inferPluginIdFromConfigName(name);
-        const customSchema = await loadPluginConfigSchema(pluginId, name);
-        const schema = customSchema ?? defaultPluginConfigSchema;
+        const schema = await loadPluginConfigSchema(pluginId, name);
         const rules = await loadPluginConfigRules(pluginId, name);
 
         const result = await validateValue(data, {

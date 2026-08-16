@@ -76,8 +76,7 @@ export class LangLoader {
 
     private async validateLang(pluginId: string, filePath: string, data: unknown, locale?: string) {
         const loc = locale || path.basename(filePath, '.json5');
-        const custom = await loadPluginLangSchema(pluginId, loc);
-        const schema = custom ?? langDocumentSchema;
+        const schema = await loadPluginLangSchema(pluginId, loc);
         const rules = await loadPluginLangRules(pluginId, loc);
         const result = await validateValue(data, {
             kind: 'lang',

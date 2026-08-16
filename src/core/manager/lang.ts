@@ -287,8 +287,7 @@ export class LanguageManager {
             const data = JSON5.parse(raw);
 
             const pluginId = pluginIdFromLangNamespace(meta.namespace);
-            const customLangSchema = await loadPluginLangSchema(pluginId, meta.locale);
-            const schema = customLangSchema ?? langDocumentSchema;
+            const schema = await loadPluginLangSchema(pluginId, meta.locale);
             const rules = await loadPluginLangRules(pluginId, meta.locale);
             const validated = await validateValue(data, {
                 kind: 'lang',
