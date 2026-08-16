@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: sync-plugin-template
+  cancel-in-progress: false
+
 jobs:
   sync-template:
     runs-on: ubuntu-latest
@@ -22,6 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup Git Identity
         run: |
@@ -35,22 +40,45 @@ jobs:
           set -euo pipefail
 
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          echo "Making plugin-template exactly match $TAG"
+          echo "Making plugin-template match $TAG (linear, no force-push)"
 
-          # Move to the template branch (create it if missing)
-          git checkout -B plugin-template
+          # Make sure the tag actually exists locally before we rely on it.
+          if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            git fetch --tags origin "${TAG}"
+          fi
+          git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null \
+            || { echo "::error::Tag ${TAG} not found"; exit 1; }
 
-          # Hard-reset so the branch is identical to the release tag
-          git reset --hard "$TAG"
+          # Check out the existing plugin-template branch, or create it from the
+          # tag on the very first run (nothing to preserve in that case).
+          if git ls-remote --exit-code --heads origin plugin-template >/dev/null 2>&1; then
+            git checkout -B plugin-template origin/plugin-template
+          else
+            git checkout -B plugin-template "${TAG}"
+          fi
 
-          # Record which core version this template is based on
-          echo "$TAG" > .core-version
-          git add .core-version
-          git commit -m "chore: sync plugin-template to $TAG" || true
+          # Make the working tree identical to the tag's tree WITHOUT rewriting
+          # history: replace tracked contents with the tag, then drop anything
+          # the tag no longer has. This is the key difference from reset --hard —
+          # we commit *onto* plugin-template instead of moving the branch pointer.
+          git read-tree -u --reset "${TAG}"
 
-          # Clear the GITHUB_TOKEN header injected by actions/checkout
+          # Stamp which core version this template is based on.
+          echo "${TAG}" > .core-version
+          git add -A
+
+          # Commit only if something actually changed (re-running the same tag
+          # is a no-op and should exit cleanly, not error).
+          if git diff --cached --quiet; then
+            echo "plugin-template already matches ${TAG}; nothing to do."
+            exit 0
+          fi
+          git commit -m "chore: sync plugin-template to ${TAG}"
+
+          # Clear the GITHUB_TOKEN header injected by actions/checkout so our PAT
+          # is used (needed to push workflow files).
           git config --unset-all http.https://github.com/.extraheader || true
 
-          # Push with PAT (required for workflow files + force update)
+          # Push with the PAT. No --force: history is linear so this fast-forwards.
           git remote set-url origin "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git"
-          git push --force origin plugin-template
+          git push origin plugin-template

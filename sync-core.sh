@@ -42,6 +42,7 @@ info "Plugin : ${CYAN}${PLUGIN_NAME}${NC}"
 # ──────────────────────────────────────────────
 # 2. Dirty tree check
 # ──────────────────────────────────────────────
+STASHED=false
 if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
   warn "Uncommitted changes:"
   git status -sb
@@ -54,7 +55,6 @@ if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --o
     err "Working tree dirty. Commit/stash first, or re-run with --stash"
   fi
 else
-  STASHED=false
   ok "Working tree clean"
 fi
 
@@ -70,22 +70,37 @@ if [ -z "$LATEST_TAG" ]; then
 fi
 info "Latest core tag: ${CYAN}${LATEST_TAG}${NC}"
 
+# Fast-path: .core-version already records this tag. (We sync paths, not the
+# tag commit itself, so a merge-base ancestry check is meaningless here — the
+# recorded marker is the correct signal.)
 if [ -f .core-version ] && [ "$(cat .core-version)" = "$LATEST_TAG" ]; then
-  if git merge-base --is-ancestor "$LATEST_TAG" HEAD 2>/dev/null; then
-    ok "Already on $LATEST_TAG – nothing to do."
-    [ "$STASHED" = true ] && warn "Stash present → git stash pop"
-    exit 0
-  fi
+  ok "Already on $LATEST_TAG (per .core-version) – nothing to do."
+  [ "$STASHED" = true ] && warn "Stash present → git stash pop"
+  exit 0
 fi
 
 # ──────────────────────────────────────────────
-# 4. Protect current plugin (backup)
+# 4. Protect current plugin (backup) + restore-on-ANY-exit trap
 # ──────────────────────────────────────────────
 BACKUP_DIR=$(mktemp -d)
 info "Backing up your plugin → $BACKUP_DIR/$PLUGIN_NAME"
 cp -a "$PLUGIN_DIR" "$BACKUP_DIR/$PLUGIN_NAME"
 
-# Also remember any other local-only plugins so we never delete them
+# If ANYTHING below fails, restore the plugin before exiting so we never leave
+# the working tree with the plugin deleted. Cleared on success in step 6.
+RESTORE_ON_EXIT=true
+cleanup() {
+  if [ "${RESTORE_ON_EXIT:-false}" = true ] && [ -d "$BACKUP_DIR/$PLUGIN_NAME" ]; then
+    warn "Aborting — restoring your plugin from backup."
+    rm -rf "$PLUGIN_DIR"
+    mkdir -p "$(dirname "$PLUGIN_DIR")"
+    cp -a "$BACKUP_DIR/$PLUGIN_NAME" "$PLUGIN_DIR"
+  fi
+  rm -rf "$BACKUP_DIR"
+}
+trap cleanup EXIT
+
+# Remember any other local-only plugins so we never delete them
 # (portable: macOS ships bash 3.2 which lacks `mapfile`)
 LOCAL_PLUGINS=()
 while IFS= read -r line; do
@@ -95,7 +110,7 @@ done < <(ls -1 src/plugins/ 2>/dev/null || true)
 # ──────────────────────────────────────────────
 # 5. Bring in core files from the tag (path checkout, NOT a full merge)
 # ──────────────────────────────────────────────
-# Adjust this list if your core layout differs
+# Adjust this list if your core layout differs.
 CORE_PATHS=(
   package.json
   package-lock.json
@@ -109,12 +124,25 @@ CORE_PATHS=(
 )
 
 info "Checking out core paths from $LATEST_TAG ..."
+MISSING_PATHS=()
 for path in "${CORE_PATHS[@]}"; do
   if git cat-file -e "$LATEST_TAG:$path" 2>/dev/null; then
+    # Remove first so files deleted upstream don't linger, then take the tag's copy.
+    rm -rf "$path"
     git checkout "$LATEST_TAG" -- "$path"
     echo "  • $path"
+  else
+    MISSING_PATHS+=("$path")
   fi
 done
+
+# Loudly flag declared core paths that no longer exist on the tag — this is how
+# a core restructure silently stops being synced.
+if [ "${#MISSING_PATHS[@]}" -gt 0 ]; then
+  warn "These CORE_PATHS were NOT found on $LATEST_TAG (core may have moved them):"
+  for p in "${MISSING_PATHS[@]}"; do echo "     - $p"; done
+  warn "Update CORE_PATHS in sync-core.sh if the core layout changed."
+fi
 
 # Update ONLY sibling plugins that exist on the tag,
 # never touch the current plugin, never delete local-only ones.
@@ -128,18 +156,25 @@ if git cat-file -e "$LATEST_TAG:src/plugins" 2>/dev/null; then
     if [ "$p" = "$PLUGIN_NAME" ]; then
       continue   # never overwrite the plugin we're developing
     fi
+    # Clean checkout: remove stale files, then take the tag's version.
+    rm -rf "src/plugins/$p"
     git checkout "$LATEST_TAG" -- "src/plugins/$p"
     echo "  • src/plugins/$p"
   done
 fi
 
 # ──────────────────────────────────────────────
-# 6. Restore current plugin (guaranteed)
+# 6. Restore current plugin (guaranteed) + disarm trap
 # ──────────────────────────────────────────────
 rm -rf "$PLUGIN_DIR"
+mkdir -p "$(dirname "$PLUGIN_DIR")"
 cp -a "$BACKUP_DIR/$PLUGIN_NAME" "$PLUGIN_DIR"
 ok "Restored your plugin: src/plugins/$PLUGIN_NAME"
+
+# Success path: don't let the trap "restore" over our good state; just clean up.
+RESTORE_ON_EXIT=false
 rm -rf "$BACKUP_DIR"
+trap - EXIT
 
 # Ensure no local-only plugins were removed
 for p in "${LOCAL_PLUGINS[@]}"; do
@@ -153,7 +188,6 @@ done
 # ──────────────────────────────────────────────
 echo "$LATEST_TAG" > .core-version
 git add -A
-git add .core-version
 
 if git diff --cached --quiet; then
   ok "Already fully synced to $LATEST_TAG"

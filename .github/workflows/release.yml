@@ -51,6 +51,18 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Smart Update Docs & Version References (core)
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          OLD_VER: ${{ steps.version_check.outputs.old_version }}
+          NEW_VER: ${{ steps.version_check.outputs.version }}
+        run: |
+          if grep -q '"docs"' package.json; then
+            npm install
+            npm run docs || true
+          fi
+          node .github/scripts/bump-doc-versions.js
+
       - name: Build Slim Distributions
         if: steps.version_check.outputs.changed == 'true'
         env:
@@ -295,6 +307,14 @@ jobs:
           echo "Final plugins present (Bundled inject):"
           ls -1 src/plugins/ || true
 
+      - name: Smart Update Docs & Version References (injected plugins)
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          OLD_VER: ${{ steps.version_check.outputs.old_version }}
+          NEW_VER: ${{ steps.version_check.outputs.version }}
+        run: |
+          node .github/scripts/bump-doc-versions.js
+
       - name: Build Bundled Distributions
         if: steps.version_check.outputs.changed == 'true'
         env:
@@ -339,32 +359,6 @@ jobs:
 
           npm run clean || rm -rf core plugins scripts index.js index.d.ts
           rm -rf bundled_build
-
-      - name: Smart Update Docs & Version References
-        if: steps.version_check.outputs.changed == 'true'
-        env:
-          OLD_VER: ${{ steps.version_check.outputs.old_version }}
-          NEW_VER: ${{ steps.version_check.outputs.version }}
-        run: |
-          if grep -q '"docs"' package.json; then
-            npm run docs || true
-          fi
-
-          node -e '
-            const fs = require("fs");
-            const oldVer = process.env.OLD_VER;
-            const newVer = process.env.NEW_VER;
-            const files = fs.readdirSync(".").filter(f => f.endsWith(".md"));
-            for (const file of files) {
-              let content = fs.readFileSync(file, "utf8");
-              const regex = new RegExp("(?<!\\d)" + oldVer.replace(/\\./g, "\\\\.") + "(?!\\d)", "g");
-              if (regex.test(content)) {
-                content = content.replace(regex, newVer);
-                fs.writeFileSync(file, content);
-                console.log("Updated", file);
-              }
-            }
-          '
 
       - name: Import GPG Key
         if: steps.version_check.outputs.changed == 'true'
