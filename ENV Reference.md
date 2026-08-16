@@ -1,6 +1,6 @@
 # NovaX — Environment Variable Reference
 
-> **Framework Version:** NovaX v0.1.18
+> **Framework Version:** NovaX v0.1.20
 > **Last Updated:** 2026
 > **Node.js Requirement:** ≥ 20
 
