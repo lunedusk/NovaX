@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { getLogger } from '#core/utils/logger.js';
+import { commonConfigSchema } from '#core/validation/index.js';
 
 const log = getLogger('Internal:Common777');
 
@@ -131,7 +131,24 @@ class Common777 {
             }
 
             const raw = fs.readFileSync(this.filePath, 'utf-8');
-            this.data = JSON.parse(raw) as CommonConfig;
+            let parsed: unknown;
+            try {
+                parsed = JSON.parse(raw);
+            } catch (e) {
+                log.error(`common.json parse error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+
+            const schemaResult = commonConfigSchema.safeParse(parsed);
+            if (!schemaResult.success) {
+                const issues = schemaResult.error.issues.map(i =>
+                    i.path.length ? `${i.path.join('.')}: ${i.message}` : i.message
+                );
+                log.error(`common.json schema validation failed: ${issues.join('; ')}`);
+                process.exit(1);
+            }
+
+            this.data = schemaResult.data as CommonConfig;
 
             if (!this.data.__info__) {
                 this.data.__info__ = {
@@ -141,7 +158,6 @@ class Common777 {
             }
 
             this.data.__info__ = this.validateInfo(this.data.__info__);
-
             this.data.__info__.version = pkgVersion;
 
             this.applyEnvConfig(this.data);

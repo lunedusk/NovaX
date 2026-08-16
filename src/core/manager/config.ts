@@ -4,6 +4,14 @@ import JSON5 from 'json5';
 import { FileWatcher, type WatchEvent } from '#core/watcher/index.js';
 import { getLogger } from '#core/utils/logger.js';
 import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import {
+    defaultPluginConfigSchema,
+    formatIssues,
+    inferPluginIdFromConfigName,
+    loadPluginConfigRules,
+    loadPluginConfigSchema,
+    validateValue
+} from '#core/validation/index.js';
 
 const log = getLogger('ConfigManager');
 
@@ -13,6 +21,7 @@ export class ConfigManager {
     private readonly targetDir: string;
     private watcher: FileWatcher | null = null;
     private isReloading = false;
+    private readonly configValidationFailures = new Map<string, string[]>();
 
     constructor(targetDir?: string) {
         this.targetDir = targetDir ? path.resolve(targetDir) : path.join(process.cwd(), 'configuration');
@@ -20,15 +29,12 @@ export class ConfigManager {
 
     private resolveObjectPlaceholders(obj: any): any {
         if (!obj) return obj;
-        
         if (typeof obj === 'string') {
             return resolveGlobalPlaceholders(obj);
         }
-        
         if (Array.isArray(obj)) {
             return obj.map(item => this.resolveObjectPlaceholders(item));
         }
-        
         if (typeof obj === 'object') {
             for (const key in obj) {
                 if (Object.prototype.hasOwnProperty.call(obj, key)) {
@@ -39,19 +45,56 @@ export class ConfigManager {
         return obj;
     }
 
+    private recordConfigFailure(pluginId: string | null, name: string): void {
+        if (!pluginId) return;
+        const list = this.configValidationFailures.get(pluginId) ?? [];
+        if (!list.includes(name)) list.push(name);
+        this.configValidationFailures.set(pluginId, list);
+    }
+
+    private async validateConfigObject(
+        name: string,
+        filePath: string,
+        data: unknown
+    ): Promise<{ ok: true; data: unknown } | { ok: false; message: string }> {
+        const pluginId = inferPluginIdFromConfigName(name);
+        const customSchema = await loadPluginConfigSchema(pluginId, name);
+        const schema = customSchema ?? defaultPluginConfigSchema;
+        const rules = await loadPluginConfigRules(pluginId, name);
+
+        const result = await validateValue(data, {
+            kind: 'config',
+            filePath,
+            name,
+            pluginId
+        }, schema, rules);
+
+        if (!result.ok) {
+            this.recordConfigFailure(pluginId, name);
+            return { ok: false, message: formatIssues(result.issues) };
+        }
+        return { ok: true, data: result.data };
+    }
+
+    public getConfigValidationFailures(): ReadonlyMap<string, readonly string[]> {
+        return this.configValidationFailures;
+    }
+
+    public hasConfigValidationFailure(pluginId: string): boolean {
+        const list = this.configValidationFailures.get(pluginId);
+        return !!list && list.length > 0;
+    }
+
     public async init(hotReload: boolean = false): Promise<void> {
         log.info('Initializing Configuration Manager...');
-        
         await fs.mkdir(this.targetDir, { recursive: true });
         await this.loadAll();
 
         if (hotReload) {
             this.watcher = new FileWatcher(this.targetDir, { includePatterns: ['**/*.json5'] });
-            
             this.watcher.on('events', (events: WatchEvent[]) => this.handleWatchEvents(events).catch(err => {
                 log.error(`Fatal error in Config Watcher: ${(err as Error).message}`);
             }));
-            
             this.watcher.start();
             log.info('Configuration Manager hot-reload active.');
         }
@@ -60,7 +103,6 @@ export class ConfigManager {
     private async handleWatchEvents(events: WatchEvent[]): Promise<void> {
         for (const event of events) {
             const name = path.basename(event.path, '.json5');
-            
             if (event.type === 'deleted') {
                 this.cache.delete(name);
                 const liveRef = this.liveConfigs.get(name);
@@ -83,19 +125,23 @@ export class ConfigManager {
 
     public async reloadFile(name: string): Promise<boolean> {
         const filePath = path.join(this.targetDir, `${name}.json5`);
-        
         try {
             const rawContent = await fs.readFile(filePath, 'utf-8');
             let parsed = JSON5.parse(rawContent);
 
+            const validated = await this.validateConfigObject(name, filePath, parsed);
+            if (!validated.ok) {
+                log.error(`Config validation failed [${name}.json5]: ${validated.message}`);
+                const pid = inferPluginIdFromConfigName(name);
+                if (pid) log.error(`[${pid}] Plugin will be DISABLED due to invalid configuration.`);
+                return false;
+            }
+            parsed = validated.data;
             parsed = this.resolveObjectPlaceholders(parsed);
-
             this.cache.set(name, parsed);
             this.updateLiveReference(name, parsed);
-            
             log.debug(`Successfully reloaded configuration: [${name}.json5]`);
             return true;
-
         } catch (error: unknown) {
             const err = error as NodeJS.ErrnoException;
             if (err.code === 'ENOENT') {
@@ -114,7 +160,6 @@ export class ConfigManager {
     private async loadAll(): Promise<boolean> {
         if (this.isReloading) return false;
         this.isReloading = true;
-
         try {
             const entries = await fs.readdir(this.targetDir, { withFileTypes: true });
             const newCache = new Map<string, unknown>();
@@ -122,14 +167,20 @@ export class ConfigManager {
 
             for (const entry of entries) {
                 if (entry.isDirectory() || !entry.name.endsWith('.json5')) continue;
-
                 const configName = entry.name.replace('.json5', '');
+                const filePath = path.join(this.targetDir, entry.name);
                 try {
-                    const rawContent = await fs.readFile(path.join(this.targetDir, entry.name), 'utf-8');
+                    const rawContent = await fs.readFile(filePath, 'utf-8');
                     let parsed = JSON5.parse(rawContent);
-                    
+                    const validated = await this.validateConfigObject(configName, filePath, parsed);
+                    if (!validated.ok) {
+                        log.error(`Config validation failed [${entry.name}]: ${validated.message}`);
+                        const pid = inferPluginIdFromConfigName(configName);
+                        if (pid) log.error(`[${pid}] Plugin will be DISABLED due to invalid configuration.`);
+                        continue;
+                    }
+                    parsed = validated.data;
                     parsed = this.resolveObjectPlaceholders(parsed);
-                    
                     newCache.set(configName, parsed);
                     this.updateLiveReference(configName, parsed);
                     loadedCount++;
@@ -138,11 +189,9 @@ export class ConfigManager {
                     log.error(`Failed to parse config file [${entry.name}]: ${err.message}`);
                 }
             }
-
             this.cache = newCache;
             log.info(`Successfully loaded ${loadedCount} configuration files.`);
             return true;
-
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             log.error(`Critical failure reading configurations: ${err.message}`);
@@ -168,10 +217,8 @@ export class ConfigManager {
         }
         for (const key in source) {
             if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-            
             const sourceVal = source[key];
             const targetVal = target[key];
-
             if (sourceVal && typeof sourceVal === 'object' && !Array.isArray(sourceVal)) {
                 if (!targetVal || typeof targetVal !== 'object' || Array.isArray(targetVal)) {
                     target[key] = {};

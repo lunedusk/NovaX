@@ -28,7 +28,7 @@ export interface PluginDecision {
     localPath: string;
     runtimePath: string;
     remotePath: string | null;
-    action: 'update' | 'leave' | 'add' | 'skip';
+    action: 'update' | 'leave' | 'add' | 'skip' | 'remove';
     reason: string;
     localManifestId?: string;
     remoteManifestId?: string;
@@ -86,6 +86,7 @@ export interface UpdaterConfig {
     autoRollback: boolean;
     healthGraceMs: number;
 }
+
 export interface PendingHealth {
     toTag: string;
     previousTag: string | null;
@@ -114,4 +115,46 @@ export interface TakebackEntry {
 export interface TakebacksFile {
     schemaVersion: number;
     entries: TakebackEntry[];
+}
+export interface UpdateReceipt {
+    schemaVersion: 1;
+    id: string;
+    at: string;
+    durationMs: number;
+    mode: 'update' | 'baseline-only' | 'install-plugin' | 'plugin-only' | 'restore-backup' | 'list-backups' | 'other';
+    allowed: boolean;
+    dryRun: boolean;
+    reason: string;
+    fromTag: string | null;
+    toTag: string;
+    toCommit: string;
+    installPlugin: string | null;
+    targetTag?: string | null;
+    downgrade?: boolean;
+    core: {
+        overwrite: number;
+        add: number;
+        keep: number;
+        dirtyBlocked: number;
+    };
+    plugins: Array<{
+        id: string;
+        action: PluginDecision['action'];
+        reason: string;
+        tag?: string;
+    }>;
+    backupDir?: string | null;
+    pendingHealthWritten?: boolean;
+    restoredFrom?: string | null;
+    depsInstall?: 'npm-ci' | 'npm-install' | 'skipped' | 'failed' | null;
+}
+
+export interface BackupInfo {
+    id: string;
+    dir: string;
+    tag: string;
+    createdAt: string;
+    mtimeMs: number;
+    hasCore: boolean;
+    hasPackageJson: boolean;
 }
