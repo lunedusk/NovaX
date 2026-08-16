@@ -202,3 +202,4 @@ Skill.md
 .CODE_OF_CONDUCT.md
 .CONTRIBUTING.md
 .claude-flow/**/*
+!.github/scripts/bump-doc-versions.js

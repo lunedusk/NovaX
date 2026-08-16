@@ -1,6 +1,13 @@
-# 🌌 Project NovaX Enterprise Framework (v0.1.15)
+# 🌌 Project NovaX Enterprise Framework (v0.1.18)
 
 NovaX is a corporate-grade, highly optimized, completely modular application platform engineered in TypeScript on a strict ECMAScript Module (ESM) architecture. Built to support high-throughput, fault-tolerant Discord application infrastructures, NovaX features automated plugin workspace dependency sandboxing, cryptographic code-integrity and anti-tamper audits, a performance-tuned polyglot storage abstraction router, and an immutable context-injected dependency broker (`IHeart`) that eliminates global singletons while maintaining performance profiles.
+
+---
+
+## License
+NovaX is licensed under the **PolyForm Noncommercial License 1.0.0**. This means you are free to use and modify the framework for personal and non-commercial purposes, but you cannot sell it, claim it as your own, or use it for commercial gain without written permission.
+
+**Note on Plugins:** Any independent plugins, commands, or extensions you create using the NovaX framework remain your intellectual property. You retain full ownership of your original plugin code.
 
 ---
 

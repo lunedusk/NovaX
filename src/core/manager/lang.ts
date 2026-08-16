@@ -6,23 +6,226 @@ import { getLogger } from '#core/utils/logger.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { emojis } from './emoji.js';
 import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import {
+    formatIssues,
+    langDocumentSchema,
+    loadPluginLangRules,
+    loadPluginLangSchema,
+    validateValue
+} from '#core/validation/index.js';
 
 const log = getLogger('LanguageManager');
-const SUPPORTED_LOCALES = new Set(['en', 'es', 'fr', 'de']);
+const SUPPORTED_LOCALES = new Set([
+  'ab',  // Abkhazian
+  'aa',  // Afar
+  'af',  // Afrikaans
+  'ak',  // Akan
+  'sq',  // Albanian
+  'am',  // Amharic
+  'ar',  // Arabic
+  'an',  // Aragonese
+  'hy',  // Armenian
+  'as',  // Assamese
+  'av',  // Avaric
+  'ay',  // Aymara
+  'az',  // Azerbaijani
+  'bm',  // Bambara
+  'ba',  // Bashkir
+  'eu',  // Basque
+  'be',  // Belarusian
+  'bn',  // Bengali
+  'bi',  // Bislama
+  'bs',  // Bosnian
+  'br',  // Breton
+  'bg',  // Bulgarian
+  'my',  // Burmese
+  'ca',  // Catalan
+  'ch',  // Chamorro
+  'ce',  // Chechen
+  'ny',  // Chichewa
+  'zh',  // Chinese
+  'cv',  // Chuvash
+  'kw',  // Cornish
+  'co',  // Corsican
+  'cr',  // Cree
+  'hr',  // Croatian
+  'cs',  // Czech
+  'da',  // Danish
+  'dv',  // Divehi
+  'nl',  // Dutch
+  'dz',  // Dzongkha
+  'en',  // English
+  'et',  // Estonian
+  'ee',  // Ewe
+  'fo',  // Faroese
+  'fj',  // Fijian
+  'fi',  // Finnish
+  'fr',  // French
+  'fy',  // Western Frisian
+  'ff',  // Fulah
+  'gd',  // Gaelic (Scottish)
+  'gl',  // Galician
+  'lg',  // Ganda
+  'ka',  // Georgian
+  'de',  // German
+  'el',  // Greek (modern)
+  'kl',  // Kalaallisut (Greenlandic)
+  'gn',  // Guarani
+  'gu',  // Gujarati
+  'ht',  // Haitian
+  'ha',  // Hausa
+  'he',  // Hebrew
+  'hz',  // Herero
+  'hi',  // Hindi
+  'ho',  // Hiri Motu
+  'hu',  // Hungarian
+  'is',  // Icelandic
+  'ig',  // Igbo
+  'id',  // Indonesian
+  'iu',  // Inuktitut
+  'ik',  // Inupiaq
+  'ga',  // Irish
+  'it',  // Italian
+  'ja',  // Japanese
+  'jv',  // Javanese
+  'kn',  // Kannada
+  'kr',  // Kanuri
+  'ks',  // Kashmiri
+  'kk',  // Kazakh
+  'km',  // Central Khmer
+  'ki',  // Kikuyu
+  'rw',  // Kinyarwanda
+  'ky',  // Kyrgyz
+  'kv',  // Komi
+  'kg',  // Kongo
+  'ko',  // Korean
+  'kj',  // Kuanyama
+  'ku',  // Kurdish
+  'lo',  // Lao
+  'lv',  // Latvian
+  'li',  // Limburgan
+  'ln',  // Lingala
+  'lt',  // Lithuanian
+  'lu',  // Luba-Katanga
+  'lb',  // Luxembourgish
+  'mk',  // Macedonian
+  'mg',  // Malagasy
+  'ms',  // Malay
+  'ml',  // Malayalam
+  'mt',  // Maltese
+  'gv',  // Manx
+  'mi',  // Maori
+  'mr',  // Marathi
+  'mh',  // Marshallese
+  'mn',  // Mongolian
+  'na',  // Nauru
+  'nv',  // Navajo
+  'nd',  // North Ndebele
+  'nr',  // South Ndebele
+  'ng',  // Ndonga
+  'ne',  // Nepali
+  'no',  // Norwegian
+  'nb',  // Norwegian Bokmål
+  'nn',  // Norwegian Nynorsk
+  'oc',  // Occitan
+  'oj',  // Ojibwa
+  'or',  // Oriya
+  'om',  // Oromo
+  'os',  // Ossetian
+  'ps',  // Pashto
+  'fa',  // Persian
+  'pl',  // Polish
+  'pt',  // Portuguese
+  'pa',  // Punjabi
+  'qu',  // Quechua
+  'ro',  // Romanian
+  'rm',  // Romansh
+  'rn',  // Rundi
+  'ru',  // Russian
+  'se',  // Northern Sami
+  'sm',  // Samoan
+  'sg',  // Sango
+  'sc',  // Sardinian
+  'sr',  // Serbian
+  'sn',  // Shona
+  'sd',  // Sindhi
+  'si',  // Sinhala
+  'sk',  // Slovak
+  'sl',  // Slovenian
+  'so',  // Somali
+  'st',  // Southern Sotho
+  'es',  // Spanish
+  'su',  // Sundanese
+  'sw',  // Swahili
+  'ss',  // Swati
+  'sv',  // Swedish
+  'tl',  // Tagalog
+  'ty',  // Tahitian
+  'tg',  // Tajik
+  'ta',  // Tamil
+  'tt',  // Tatar
+  'te',  // Telugu
+  'th',  // Thai
+  'bo',  // Tibetan
+  'ti',  // Tigrinya
+  'to',  // Tonga
+  'ts',  // Tsonga
+  'tn',  // Tswana
+  'tr',  // Turkish
+  'tk',  // Turkmen
+  'tw',  // Twi
+  'ug',  // Uighur
+  'uk',  // Ukrainian
+  'ur',  // Urdu
+  'uz',  // Uzbek
+  've',  // Venda
+  'vi',  // Vietnamese
+  'wa',  // Walloon
+  'cy',  // Welsh
+  'wo',  // Wolof
+  'xh',  // Xhosa
+  'ii',  // Sichuan Yi
+  'yi',  // Yiddish
+  'yo',  // Yoruba
+  'za',  // Zhuang
+  'zu',  // Zulu
+
+  'en-US', // English (United States)
+  'en-GB', // English (United Kingdom)
+  'en-AU', // English (Australia)
+  'en-CA', // English (Canada)
+  'es-ES', // Spanish (Spain)
+  'es-MX', // Spanish (Mexico)
+  'es-AR', // Spanish (Argentina)
+  'pt-BR', // Portuguese (Brazil)
+  'pt-PT', // Portuguese (Portugal)
+  'fr-FR', // French (France)
+  'fr-CA', // French (Canada)
+  'de-DE', // German (Germany)
+  'de-AT', // German (Austria)
+  'de-CH', // German (Switzerland)
+  'zh-CN', // Chinese (Simplified, China)
+  'zh-TW', // Chinese (Traditional, Taiwan)
+  'zh-HK', // Chinese (Hong Kong)
+]);
+
 
 export type TranslationVars = Record<string, string | number | boolean>;
 export type CompiledTranslation = (vars?: TranslationVars) => string;
+
+function pluginIdFromLangNamespace(namespace: string): string | null {
+    return namespace || null;
+}
 
 export class LanguageManager {
     private static readonly INTERPOLATION_REGEX = /\{\{\s*([^}]+)\s*\}\}/g;
 
     private readonly dictionary = new Map<string, Map<string, Map<string, CompiledTranslation>>>();
-    
     private readonly liveNamespaces = new Map<string, Map<string, Record<string, CompiledTranslation>>>();
-    
     private readonly targetDir: string;
     private watcher: FileWatcher | null = null;
     private readonly loadLocks = new Set<string>();
+    private readonly langValidationFailures = new Map<string, string[]>();
 
     constructor(targetDir?: string) {
         this.targetDir = targetDir ? path.resolve(targetDir) : path.join(process.cwd(), 'configuration', 'lang');
@@ -30,22 +233,18 @@ export class LanguageManager {
 
     public async init(hotReload: boolean = false): Promise<void> {
         log.info('Initializing Language Manager...');
-        
         await fs.mkdir(this.targetDir, { recursive: true });
-        
+        this.langValidationFailures.clear();
         const files = await fs.readdir(this.targetDir);
         let loadedCount = 0;
-
         const loadPromises = files
             .filter(file => file.endsWith('.json5'))
-            .map(file => this.loadFile(path.join(this.targetDir, file)).then(() => loadedCount++));
-
+            .map(file => this.loadFile(path.join(this.targetDir, file)).then(ok => { if (ok) loadedCount++; }));
         await Promise.all(loadPromises);
         log.info(`Language Manager initialized with ${loadedCount} namespaces.`);
 
         if (hotReload) {
             this.watcher = new FileWatcher(this.targetDir, { includePatterns: ['**/*.json5'] });
-            
             this.watcher.on('events', async (events: WatchEvent[]) => {
                 for (const event of events) {
                     if (event.type === 'deleted') {
@@ -59,7 +258,6 @@ export class LanguageManager {
                     }
                 }
             });
-            
             this.watcher.start();
             log.info(`Language Manager hot-reload active.`);
         }
@@ -68,32 +266,52 @@ export class LanguageManager {
     private parseFilename(filename: string): { namespace: string; locale: string } | null {
         const baseName = path.basename(filename, '.json5');
         const lastUnderscoreIdx = baseName.lastIndexOf('_');
-        
         if (lastUnderscoreIdx === -1) {
             log.warn(`Invalid language file format [${baseName}]. Expected: 'namespace_locale.json5'`);
             return null;
         }
-
         const namespace = baseName.substring(0, lastUnderscoreIdx);
         const locale = baseName.substring(lastUnderscoreIdx + 1);
-
         if (!SUPPORTED_LOCALES.has(locale)) {
             log.warn(`Unknown locale code '${locale}' in file ${filename}. Using as custom locale.`);
         }
-
         return { namespace, locale };
     }
 
-    private async loadFile(filePath: string): Promise<void> {
+    private async loadFile(filePath: string): Promise<boolean> {
         const meta = this.parseFilename(filePath);
-        if (!meta) return;
+        if (!meta) return false;
 
         try {
             const raw = await fs.readFile(filePath, 'utf-8');
             const data = JSON5.parse(raw);
 
+            const pluginId = pluginIdFromLangNamespace(meta.namespace);
+            const customLangSchema = await loadPluginLangSchema(pluginId, meta.locale);
+            const schema = customLangSchema ?? langDocumentSchema;
+            const rules = await loadPluginLangRules(pluginId, meta.locale);
+            const validated = await validateValue(data, {
+                kind: 'lang',
+                filePath,
+                name: path.basename(filePath),
+                pluginId,
+                locale: meta.locale,
+                namespace: meta.namespace
+            }, schema, rules);
+
+            if (!validated.ok) {
+                log.error(
+                    `Lang validation failed [${path.basename(filePath)}]: ${formatIssues(validated.issues)}`
+                );
+                this.recordLangFailure(pluginId, path.basename(filePath));
+                if (pluginId) {
+                    log.error(`[${pluginId}] Plugin will be DISABLED due to invalid language file.`);
+                }
+                return false;
+            }
+
             const flatMap = new Map<string, CompiledTranslation>();
-            this.flattenAndCompile(data, '', flatMap);
+            this.flattenAndCompile(validated.data as Record<string, unknown>, '', flatMap);
 
             if (!this.dictionary.has(meta.locale)) {
                 this.dictionary.set(meta.locale, new Map());
@@ -104,39 +322,32 @@ export class LanguageManager {
                 this.liveNamespaces.set(meta.locale, new Map());
             }
             const localeMap = this.liveNamespaces.get(meta.locale)!;
-            
             if (!localeMap.has(meta.namespace)) {
                 localeMap.set(meta.namespace, {});
             }
-            
             const liveRef = localeMap.get(meta.namespace)!;
             for (const key in liveRef) {
                 if (Object.prototype.hasOwnProperty.call(liveRef, key)) delete liveRef[key];
             }
             Object.assign(liveRef, Object.fromEntries(flatMap));
-
             log.debug(`Loaded [${meta.locale}] namespace: '${meta.namespace}' (${flatMap.size} keys)`);
-
+            return true;
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             log.error(`Failed to parse ${path.basename(filePath)}: ${err.message}`);
+            return false;
         }
     }
 
     private unloadPath(filePath: string): void {
         const meta = this.parseFilename(filePath);
         if (!meta) return;
-
         const localeMap = this.dictionary.get(meta.locale);
         if (localeMap) {
             localeMap.delete(meta.namespace);
             log.info(`Unloaded [${meta.locale}] namespace: '${meta.namespace}'`);
-
-            if (localeMap.size === 0) {
-                this.dictionary.delete(meta.locale);
-            }
+            if (localeMap.size === 0) this.dictionary.delete(meta.locale);
         }
-
         const liveLocaleMap = this.liveNamespaces.get(meta.locale);
         const liveRef = liveLocaleMap?.get(meta.namespace);
         if (liveRef) {
@@ -149,9 +360,7 @@ export class LanguageManager {
     public getLoadedNamespaces(): string[] {
         const namespaces = new Set<string>();
         for (const localeMap of this.liveNamespaces.values()) {
-            for (const ns of localeMap.keys()) {
-                namespaces.add(ns);
-            }
+            for (const ns of localeMap.keys()) namespaces.add(ns);
         }
         return Array.from(namespaces);
     }
@@ -159,9 +368,7 @@ export class LanguageManager {
     private flattenAndCompile(obj: Record<string, unknown>, prefix = '', res: Map<string, CompiledTranslation>): void {
         for (const [key, value] of Object.entries(obj)) {
             if (key === '__proto__' || key === 'constructor') continue;
-
             const newKey = prefix ? `${prefix}.${key}` : key;
-            
             if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
                 this.flattenAndCompile(value as Record<string, unknown>, newKey, res);
             } else {
@@ -174,37 +381,26 @@ export class LanguageManager {
         if (!template.includes('{{')) {
             return () => resolveGlobalPlaceholders(emojis.parse(template));
         }
-
         const parts: Array<string | { varName: string }> = [];
         let lastIndex = 0;
         let match;
-
         LanguageManager.INTERPOLATION_REGEX.lastIndex = 0;
-
         while ((match = LanguageManager.INTERPOLATION_REGEX.exec(template)) !== null) {
-            if (match.index > lastIndex) {
-                parts.push(template.slice(lastIndex, match.index));
-            }
+            if (match.index > lastIndex) parts.push(template.slice(lastIndex, match.index));
             parts.push({ varName: match[1].trim() });
             lastIndex = match.index + match[0].length;
         }
-
-        if (lastIndex < template.length) {
-            parts.push(template.slice(lastIndex));
-        }
-
+        if (lastIndex < template.length) parts.push(template.slice(lastIndex));
         return (vars?: TranslationVars) => {
             let result = '';
             for (let i = 0; i < parts.length; i++) {
                 const part = parts[i];
-                if (typeof part === 'string') {
-                    result += part;
-                } else {
+                if (typeof part === 'string') result += part;
+                else {
                     const val = vars?.[part.varName];
                     result += val !== undefined ? String(val) : `{{${part.varName}}}`;
                 }
             }
-            
             return resolveGlobalPlaceholders(emojis.parse(result));
         };
     }
@@ -214,12 +410,10 @@ export class LanguageManager {
         const targetLocale = locale || masterLocale;
         const filename = `${namespace}_${targetLocale}.json5`;
         const filePath = path.join(this.targetDir, filename);
-
         try {
             await fs.access(filePath);
             log.debug(`Manually reloading language file: [${filename}]`);
-            await this.loadFile(filePath);
-            return true;
+            return await this.loadFile(filePath);
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             log.error(`Manual reload failed for [${filename}]: ${err.message}`);
@@ -229,23 +423,18 @@ export class LanguageManager {
 
     public async reloadAll(): Promise<boolean> {
         log.info('Initiating global language cache refresh...');
-        
         try {
             const files = await fs.readdir(this.targetDir);
             const targetFiles = files.filter(file => file.endsWith('.json5'));
-
             if (targetFiles.length === 0) {
                 log.warn('ReloadAll aborted: No language files found in target directory.');
                 return false;
             }
-
-            const results = await Promise.allSettled(
+            const results = await Promise.all(
                 targetFiles.map(file => this.loadFile(path.join(this.targetDir, file)))
             );
-
-            const failed = results.filter(r => r.status === 'rejected').length;
-            const success = results.filter(r => r.status === 'fulfilled').length;
-
+            const success = results.filter(Boolean).length;
+            const failed = results.length - success;
             log.info(`Global reload complete. Success: ${success}, Failed: ${failed}`);
             return failed === 0;
         } catch (error: unknown) {
@@ -281,7 +470,6 @@ export class LanguageManager {
     public getNamespace(namespace: string, locale?: string): Readonly<Record<string, CompiledTranslation>> {
         const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
         const targetLocale = locale || masterLocale;
-
         if (!this.liveNamespaces.has(targetLocale)) {
             this.liveNamespaces.set(targetLocale, new Map());
         }
@@ -295,25 +483,38 @@ export class LanguageManager {
     public get(namespace: string, key: string, variables?: TranslationVars, requestedLocale?: string): string {
         const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
         const targetLocale = requestedLocale || masterLocale;
-
         const fallbacks = [targetLocale];
         const baseLocale = targetLocale.split('-')[0];
-        
         if (baseLocale !== targetLocale) fallbacks.push(baseLocale);
         if (masterLocale !== targetLocale && masterLocale !== baseLocale) fallbacks.push(masterLocale);
         if (!fallbacks.includes('en')) fallbacks.push('en');
-
         for (let i = 0; i < fallbacks.length; i++) {
             const loc = fallbacks[i];
             const compiledFn = this.dictionary.get(loc)?.get(namespace)?.get(key);
-            
-            if (compiledFn) {
-                return compiledFn(variables);
-            }
+            if (compiledFn) return compiledFn(variables);
         }
-
         log.warn(`Missing translation key: [${namespace}] -> '${key}'`);
         return `${namespace}:${key}`;
+    }
+
+    private recordLangFailure(pluginId: string | null, fileLabel: string): void {
+        if (!pluginId) return;
+        const list = this.langValidationFailures.get(pluginId) ?? [];
+        if (!list.includes(fileLabel)) list.push(fileLabel);
+        this.langValidationFailures.set(pluginId, list);
+    }
+
+    public getLangValidationFailures(): ReadonlyMap<string, readonly string[]> {
+        return this.langValidationFailures;
+    }
+
+    public hasLangValidationFailure(pluginId: string): boolean {
+        const list = this.langValidationFailures.get(pluginId);
+        return !!list && list.length > 0;
+    }
+
+    public clearLangValidationFailures(): void {
+        this.langValidationFailures.clear();
     }
 }
 

@@ -25,6 +25,17 @@ const isUpdaterOnly =
     process.env.UpdaterOnly === '1' ||
     process.env.UPDATER_ONLY === '1';
 
+function readArgValue(names: string[]): string | null {
+    for (let i = 0; i < process.argv.length; i++) {
+        const a = process.argv[i];
+        for (const name of names) {
+            if (a === name) return process.argv[i + 1] ?? null;
+            if (a.startsWith(name + '=')) return a.slice(name.length + 1) || null;
+        }
+    }
+    return null;
+}
+
 async function runUpdaterMode(): Promise<void> {
     const logger = getLogger('Bootstrap');
     try {
@@ -34,26 +45,23 @@ async function runUpdaterMode(): Promise<void> {
         const dryRun = process.argv.includes('--dry-run') || process.argv.includes('--dryRun');
         const baselineOnly = process.argv.includes('--baseline-only') || process.argv.includes('--baselineOnly');
         const downgrade = process.argv.includes('--downgrade');
-        let installPlugin: string | null = null;
-        let targetTag: string | null = null;
-        let pluginTag: string | null = null;
-        for (let i = 0; i < process.argv.length; i++) {
-            const a = process.argv[i];
-            if (a === '--install-plugin' || a === '--installPlugin') {
-                installPlugin = process.argv[i + 1] ?? null;
-            } else if (a.startsWith('--install-plugin=') || a.startsWith('--installPlugin=')) {
-                installPlugin = a.split('=').slice(1).join('=') || null;
-            } else if (a === '--target') {
-                targetTag = process.argv[i + 1] ?? null;
-            } else if (a.startsWith('--target=')) {
-                targetTag = a.slice('--target='.length) || null;
-            } else if (a === '--plugin-tag' || a === '--pluginTag') {
-                pluginTag = process.argv[i + 1] ?? null;
-            } else if (a.startsWith('--plugin-tag=') || a.startsWith('--pluginTag=')) {
-                pluginTag = a.split('=').slice(1).join('=') || null;
-            }
-        }
-        await runUpdater({ force, dryRun, baselineOnly, installPlugin, targetTag, downgrade, pluginTag });
+        const listBackups = process.argv.includes('--list-backups') || process.argv.includes('--listBackups');
+        const installPlugin = readArgValue(['--install-plugin', '--installPlugin']);
+        const targetTag = readArgValue(['--target']);
+        const pluginTag = readArgValue(['--plugin-tag', '--pluginTag']);
+        const restoreBackup = readArgValue(['--restore-backup', '--restoreBackup']);
+
+        await runUpdater({
+            force,
+            dryRun,
+            baselineOnly,
+            installPlugin,
+            targetTag,
+            downgrade,
+            pluginTag,
+            listBackups,
+            restoreBackup
+        });
         await flushLogs();
         process.exit(process.exitCode ?? 0);
     } catch (error) {
@@ -133,6 +141,13 @@ async function runBotMode(): Promise<void> {
                 
                 this.log.info('Loading Language Dictionary...');
                 await i18n.init(hotReloadEnabled);
+
+                try {
+                    const { logDisabledPlugins } = await import('#core/validation/pluginGate.js');
+                    logDisabledPlugins();
+                } catch (e) {
+                    this.log.warn('Validation gate log skipped:', e);
+                }
                 
                 this.log.info('Initializing Databases...');
                 await initAllDatabases();

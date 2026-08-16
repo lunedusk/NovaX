@@ -11,11 +11,13 @@ import { parsePluginsTxt } from './pluginsTxt.js';
 import type {
     Baseline,
     BaselineFileEntry,
+    BackupInfo,
     DirtyFile,
     PendingHealth,
     PluginDecision,
     PluginSourceLine,
     UpdatePlan,
+    UpdateReceipt,
     UpdaterConfig,
     TagInfo,
     TakebacksFile
@@ -29,6 +31,7 @@ const BASELINE    = path.join(STATE_DIR, 'baseline.json');
 const BACKUP_DIR  = path.join(STATE_DIR, 'backups');
 const STAGING_DIR = path.join(STATE_DIR, 'staging');
 const PENDING_HEALTH = path.join(STATE_DIR, 'pending-health.json');
+const RECEIPTS_DIR = path.join(STATE_DIR, 'receipts');
 
 const HARD_EXCLUDES = new Set([
     'node_modules', '.git', '.data', 'logs', 'configuration',
@@ -114,8 +117,113 @@ export function getUpdaterConfig(): UpdaterConfig {
     return loadConfig();
 }
 
+function receiptId(at: Date = new Date()): string {
+    return at.toISOString().replace(/[:.]/g, '-');
+}
+
+function planMode(plan: UpdatePlan): UpdateReceipt['mode'] {
+    if (plan.baselineOnly) return 'baseline-only';
+    if (plan.installPlugin) return 'install-plugin';
+    if (
+        plan.filesToOverwrite.length === 0 &&
+        plan.filesToAdd.length === 0 &&
+        plan.pluginDecisions.some(d => d.action === 'update' || d.action === 'add')
+    ) {
+        return 'plugin-only';
+    }
+    if (plan.toTag || plan.allowed) return 'update';
+    return 'other';
+}
+
+function writeReceipt(
+    plan: UpdatePlan,
+    extra: {
+        durationMs: number;
+        backupDir?: string | null;
+        pendingHealthWritten?: boolean;
+        restoredFrom?: string | null;
+        depsInstall?: UpdateReceipt['depsInstall'];
+        mode?: UpdateReceipt['mode'];
+    }
+): string {
+    ensureDirs();
+    const at = new Date();
+    const id = receiptId(at);
+    const receipt: UpdateReceipt = {
+        schemaVersion: 1,
+        id,
+        at: at.toISOString(),
+        durationMs: extra.durationMs,
+        mode: extra.mode ?? planMode(plan),
+        allowed: plan.allowed,
+        dryRun: plan.dryRun,
+        reason: plan.reason,
+        fromTag: plan.fromTag,
+        toTag: plan.toTag,
+        toCommit: plan.toCommit,
+        installPlugin: plan.installPlugin,
+        targetTag: plan.targetTag ?? null,
+        downgrade: plan.downgrade ?? false,
+        core: {
+            overwrite: plan.filesToOverwrite.length,
+            add: plan.filesToAdd.length,
+            keep: plan.filesToKeep.length,
+            dirtyBlocked: plan.dirtyFiles.length
+        },
+        plugins: plan.pluginDecisions.map(d => ({
+            id: d.pluginId,
+            action: d.action,
+            reason: d.reason,
+            tag: d.selectedPluginTag
+        })),
+        backupDir: extra.backupDir ?? null,
+        pendingHealthWritten: extra.pendingHealthWritten ?? false,
+        restoredFrom: extra.restoredFrom ?? null,
+        depsInstall: extra.depsInstall ?? null
+    };
+    const file = path.join(RECEIPTS_DIR, `${id}.json`);
+    fs.writeFileSync(file, JSON.stringify(receipt, null, 2), 'utf-8');
+    log.info(`Receipt → ${file}`);
+    return file;
+}
+
+function listBackupInfos(): BackupInfo[] {
+    ensureDirs();
+    if (!fs.existsSync(BACKUP_DIR)) return [];
+    const out: BackupInfo[] = [];
+    for (const name of fs.readdirSync(BACKUP_DIR)) {
+        const dir = path.join(BACKUP_DIR, name);
+        let st: fs.Stats;
+        try {
+            st = fs.statSync(dir);
+        } catch {
+            continue;
+        }
+        if (!st.isDirectory()) continue;
+        const us = name.indexOf('_');
+        const tag = us >= 0 ? name.slice(us + 1) : name;
+        const createdAt = us >= 0 ? name.slice(0, us).replace(/-/g, (m, i, s) => {
+            return m;
+        }) : name;
+        out.push({
+            id: name,
+            dir,
+            tag,
+            createdAt: name.slice(0, Math.max(us, 0)) || name,
+            mtimeMs: st.mtimeMs,
+            hasCore: fs.existsSync(path.join(dir, 'core')),
+            hasPackageJson: fs.existsSync(path.join(dir, 'package.json'))
+        });
+    }
+    return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+export function listBackups(): BackupInfo[] {
+    return listBackupInfos();
+}
+
 function ensureDirs(): void {
-    for (const d of [STATE_DIR, BACKUP_DIR, STAGING_DIR]) {
+    for (const d of [STATE_DIR, BACKUP_DIR, STAGING_DIR, RECEIPTS_DIR]) {
         fs.mkdirSync(d, { recursive: true });
     }
 }
@@ -286,8 +394,11 @@ export class Updater {
         targetTag?: string | null;
         downgrade?: boolean;
         pluginTag?: string | null;
+        listBackups?: boolean;
+        restoreBackup?: string | null;
     } = {}): Promise<UpdatePlan> {
         ensureDirs();
+        const runStartedAt = Date.now();
         const force         = options.force ?? false;
         const dryRun        = options.dryRun ?? this.config.dryRun;
         const baselineOnly  = options.baselineOnly ?? false;
@@ -295,6 +406,15 @@ export class Updater {
         const targetTag     = options.targetTag?.trim() || null;
         const downgrade     = options.downgrade ?? false;
         const pluginTagPin  = options.pluginTag?.trim() || null;
+        const listBackupsOpt = options.listBackups ?? false;
+        const restoreBackupId = options.restoreBackup?.trim() || null;
+
+        if (listBackupsOpt) {
+            return this.listBackupsAndLog();
+        }
+        if (restoreBackupId) {
+            return this.restoreFromBackup(restoreBackupId, dryRun);
+        }
 
         log.info(
             `Updater start (baselineOnly=${baselineOnly}, dryRun=${dryRun}, force=${force}, ` +
@@ -306,7 +426,9 @@ export class Updater {
             !targetTag &&
             !downgrade &&
             !installPlugin &&
-            !baselineOnly
+            !baselineOnly &&
+            !listBackupsOpt &&
+            !restoreBackupId
         ) {
             log.warn(
                 'AutoUpdater=false – refusing automatic update ' +
@@ -471,7 +593,9 @@ export class Updater {
                 allowAdd: false,
                 pluginTagPin
             });
-            const toApply = pluginDecisions.filter(d => d.action === 'update' || d.action === 'add');
+            const toApply = pluginDecisions.filter(
+                d => d.action === 'update' || d.action === 'add' || d.action === 'remove'
+            );
             if (toApply.length === 0) {
                 return this.emptyPlan('No suitable core tag and no plugin updates', false, null);
             }
@@ -491,10 +615,14 @@ export class Updater {
                 installPlugin: null
             };
             this.printPlan(plan);
-            if (dryRun) return plan;
+            if (dryRun) {
+                writeReceipt(plan, { durationMs: Date.now() - runStartedAt });
+                return plan;
+            }
             await this.applyPluginDecisions(owner, repo, toApply, force);
             await this.refreshBaselineAfterPlugins(baseline, toApply);
             this.pruneBackups();
+            writeReceipt(plan, { durationMs: Date.now() - runStartedAt });
             return plan;
         }
 
@@ -527,7 +655,7 @@ export class Updater {
         if (dirtyCore.length > 0 && this.config.safeUpdate && !force) {
             log.warn(`SafeUpdate blocked core update – ${dirtyCore.length} modified core file(s):`);
             for (const d of dirtyCore.slice(0, 15)) log.warn(`  • ${d.path}`);
-            return {
+            const blocked: UpdatePlan = {
                 fromTag: baseline?.tag ?? null,
                 toTag: coreTarget.name,
                 toCommit: coreTarget.commit,
@@ -542,6 +670,8 @@ export class Updater {
                 baselineOnly: false,
                 installPlugin: null
             };
+            writeReceipt(blocked, { durationMs: Date.now() - runStartedAt });
+            return blocked;
         }
 
         const filesToOverwrite: string[] = [];
@@ -558,6 +688,13 @@ export class Updater {
             if (!localFiles.includes(rel)) filesToAdd.push(rel);
         }
 
+        let coreIsDowngrade = false;
+        if (currentSemVer && coreTarget.semver) {
+            coreIsDowngrade = coreTarget.semver.compare(currentSemVer) < 0;
+        } else if (downgrade) {
+            coreIsDowngrade = true;
+        }
+
         const pluginDecisions = await this.planPluginUpdates({
             owner, repo,
             officialLines,
@@ -565,6 +702,7 @@ export class Updater {
             baseline,
             force,
             allowAdd: false,
+            allowRemoveIncompatible: coreIsDowngrade,
             pluginTagPin
         });
 
@@ -573,7 +711,9 @@ export class Updater {
             toTag: coreTarget.name,
             toCommit: coreTarget.commit,
             allowed: true,
-            reason: `Update to ${coreTarget.name}`,
+            reason: coreIsDowngrade
+                ? `Downgrade to ${coreTarget.name}`
+                : `Update to ${coreTarget.name}`,
             dirtyFiles: dirtyCore,
             pluginDecisions,
             filesToOverwrite,
@@ -587,14 +727,24 @@ export class Updater {
 
         if (dryRun) {
             log.info('Dry-run – no changes written.');
+            writeReceipt(plan, { durationMs: Date.now() - runStartedAt });
             return plan;
         }
 
-        await this.createBackup(baseline?.tag ?? 'unknown');
+        const backupDir = await this.createBackup(baseline?.tag ?? 'unknown');
         await this.applyCoreFromStaging(stagingRoot, plan);
-        await this.rebuild();
+        let depsInstall: UpdateReceipt['depsInstall'] = null;
+        try {
+            await this.rebuild();
+            depsInstall = fs.existsSync(path.join(process.cwd(), 'package-lock.json')) ? 'npm-ci' : 'npm-install';
+        } catch (e) {
+            depsInstall = 'failed';
+            throw e;
+        }
 
-        const pluginsToApply = pluginDecisions.filter(d => d.action === 'update' || d.action === 'add');
+        const pluginsToApply = pluginDecisions.filter(
+            d => d.action === 'update' || d.action === 'add' || d.action === 'remove'
+        );
         await this.applyPluginDecisions(owner, repo, pluginsToApply, force);
 
         const managedCore = [...filesToOverwrite, ...filesToAdd];
@@ -657,6 +807,15 @@ export class Updater {
         }
         this.pruneBackups();
         log.info(`Update to ${coreTarget.name} completed.`);
+        const pendingWritten = !!(
+            this.config.autoRollback && baseline?.tag && baseline.tag !== coreTarget.name
+        );
+        writeReceipt(plan, {
+            durationMs: Date.now() - runStartedAt,
+            backupDir,
+            depsInstall,
+            pendingHealthWritten: pendingWritten
+        });
         return plan;
     }
 
@@ -733,6 +892,7 @@ export class Updater {
         baseline: Baseline | null;
         force: boolean;
         allowAdd: boolean;
+        allowRemoveIncompatible?: boolean;
         onlyName?: string;
         pluginTagPin?: string | null;
     }): Promise<PluginDecision[]> {
@@ -852,6 +1012,37 @@ export class Updater {
             }
 
             if (!selected) {
+                if (localRel && ctx.allowRemoveIncompatible) {
+                    if (this.config.safeUpdate && !ctx.force && ctx.baseline) {
+                        const dirty =
+                            (await this.isPluginDirty(localRel, ctx.baseline)) ||
+                            (await this.isPluginDirty(rtPath, ctx.baseline));
+                        if (dirty) {
+                            decisions.push({
+                                pluginId: pluginName,
+                                localPath: srcPath,
+                                runtimePath: rtPath,
+                                remotePath: null,
+                                action: 'leave',
+                                reason:
+                                    'No compatible plugin tag for older core, but SafeUpdate: local plugin is dirty – not removing',
+                                source: line
+                            });
+                            continue;
+                        }
+                    }
+                    decisions.push({
+                        pluginId: pluginName,
+                        localPath: srcPath,
+                        runtimePath: rtPath,
+                        remotePath: null,
+                        action: 'remove',
+                        reason:
+                            'No compatible plugin tag for target core – removing local install (downgrade)',
+                        source: line
+                    });
+                    continue;
+                }
                 decisions.push({
                     pluginId: pluginName,
                     localPath: localRel ?? srcPath,
@@ -1042,13 +1233,22 @@ export class Updater {
         };
         this.printPlan(plan);
 
-        if (!plan.allowed) return plan;
-        if (dryRun) return plan;
+        if (!plan.allowed) {
+            writeReceipt(plan, { durationMs: 0 });
+            return plan;
+        }
+        if (dryRun) {
+            writeReceipt(plan, { durationMs: 0 });
+            return plan;
+        }
 
-        const toApply = decisions.filter(d => d.action === 'add' || d.action === 'update');
+        const toApply = decisions.filter(
+            d => d.action === 'add' || d.action === 'update' || d.action === 'remove'
+        );
         await this.applyPluginDecisions(ctx.owner, ctx.repo, toApply, force);
         await this.refreshBaselineAfterPlugins(ctx.baseline, toApply);
         log.info(`Plugin ${pluginName} install/update finished.`);
+        writeReceipt(plan, { durationMs: 0 });
         return plan;
     }
 
@@ -1059,6 +1259,17 @@ export class Updater {
         _force: boolean
     ): Promise<void> {
         for (const d of decisions) {
+            if (d.action === 'remove') {
+                for (const rel of [sourcePluginPath(d.pluginId), runtimePluginPath(d.pluginId)]) {
+                    const full = path.join(process.cwd(), rel);
+                    if (fs.existsSync(full)) {
+                        fs.rmSync(full, { recursive: true, force: true });
+                        log.info(`Removed plugin ${d.pluginId} → ${rel}`);
+                    }
+                }
+                continue;
+            }
+
             if (!d.selectedPluginTag) continue;
 
             let pOwner = owner;
@@ -1108,6 +1319,7 @@ export class Updater {
                 for (const k of Object.keys(files)) {
                     if (k === root || k.startsWith(root + '/')) delete files[k];
                 }
+                if (d.action === 'remove') continue;
                 const pluginFiles = allLocal.filter(f => f === root || f.startsWith(root + '/'));
                 Object.assign(files, await computeLocalHashes(pluginFiles));
             }
@@ -1172,7 +1384,10 @@ export class Updater {
             installPlugin: null
         };
         this.printPlan(plan);
-        if (dryRun) return plan;
+        if (dryRun) {
+            writeReceipt(plan, { durationMs: 0 });
+            return plan;
+        }
 
         writeBaseline({
             tag: target.name,
@@ -1181,6 +1396,7 @@ export class Updater {
             files: matching
         });
         log.info(`Baseline-only complete for tag ${target.name}`);
+        writeReceipt(plan, { durationMs: 0 });
         return plan;
     }
 
@@ -1259,7 +1475,7 @@ export class Updater {
         return files;
     }
 
-    private async createBackup(tag: string): Promise<void> {
+    private async createBackup(tag: string): Promise<string> {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const dir = path.join(BACKUP_DIR, `${ts}_${tag}`);
         fs.mkdirSync(dir, { recursive: true });
@@ -1272,6 +1488,124 @@ export class Updater {
             await execFileAsync('cp', ['-a', coreSrc, path.join(dir, 'core')]).catch(() => {});
         }
         log.info(`Backup → ${dir}`);
+        return dir;
+    }
+
+    private async restoreFromBackup(backupId: string, dryRun: boolean): Promise<UpdatePlan> {
+        const t0 = Date.now();
+        ensureDirs();
+        const infos = listBackupInfos();
+        const match = infos.find(b => b.id === backupId || b.dir === backupId || b.id.startsWith(backupId));
+        if (!match) {
+            const plan = this.emptyPlan(`Backup not found: ${backupId}`, false, null);
+            writeReceipt(plan, { durationMs: Date.now() - t0, mode: 'restore-backup' });
+            return plan;
+        }
+
+        const plan: UpdatePlan = {
+            fromTag: readBaseline()?.tag ?? null,
+            toTag: match.tag || backupId,
+            toCommit: '',
+            allowed: true,
+            reason: `Restore backup ${match.id}`,
+            dirtyFiles: [],
+            pluginDecisions: [],
+            filesToOverwrite: [],
+            filesToAdd: [],
+            filesToKeep: [],
+            dryRun,
+            baselineOnly: false,
+            installPlugin: null
+        };
+        this.printPlan(plan);
+        if (dryRun) {
+            log.info(`Dry-run restore would copy from ${match.dir}`);
+            writeReceipt(plan, { durationMs: Date.now() - t0, mode: 'restore-backup', restoredFrom: match.id });
+            return plan;
+        }
+
+        const safety = await this.createBackup(`pre-restore_${readBaseline()?.tag ?? 'current'}`);
+
+        const cwd = process.cwd();
+        for (const c of ['package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'tsconfig.json', 'index.js', 'index.d.ts']) {
+            const src = path.join(match.dir, c);
+            if (fs.existsSync(src)) {
+                fs.copyFileSync(src, path.join(cwd, c));
+                plan.filesToOverwrite.push(c);
+            }
+        }
+        const bakCore = path.join(match.dir, 'core');
+        if (fs.existsSync(bakCore)) {
+            const destCore = path.join(cwd, 'core');
+            if (fs.existsSync(destCore)) fs.rmSync(destCore, { recursive: true, force: true });
+            await execFileAsync('cp', ['-a', bakCore, destCore]);
+            plan.filesToOverwrite.push('core/');
+        }
+
+        let deps: UpdateReceipt['depsInstall'] = 'skipped';
+        try {
+            await this.rebuild();
+            deps = fs.existsSync(path.join(cwd, 'package-lock.json')) ? 'npm-ci' : 'npm-install';
+        } catch (e) {
+            log.error('Rebuild after restore failed', e);
+            plan.allowed = false;
+            plan.reason = `Restore copied files but rebuild failed: ${(e as Error).message}`;
+            writeReceipt(plan, {
+                durationMs: Date.now() - t0,
+                mode: 'restore-backup',
+                restoredFrom: match.id,
+                backupDir: safety,
+                depsInstall: 'failed'
+            });
+            return plan;
+        }
+
+        const prev = readBaseline();
+        writeBaseline({
+            tag: match.tag.startsWith('v') || /^\d/.test(match.tag) ? match.tag : (prev?.tag ?? match.tag),
+            commit: prev?.commit ?? '',
+            timestamp: new Date().toISOString(),
+            previousTag: prev?.tag ?? null,
+            previousCommit: prev?.commit ?? null,
+            files: prev?.files ?? {}
+        });
+
+        log.info(`Restored from backup ${match.id}`);
+        writeReceipt(plan, {
+            durationMs: Date.now() - t0,
+            mode: 'restore-backup',
+            restoredFrom: match.id,
+            backupDir: safety,
+            depsInstall: deps
+        });
+        return plan;
+    }
+
+    private listBackupsAndLog(): UpdatePlan {
+        const t0 = Date.now();
+        const infos = listBackupInfos();
+        if (infos.length === 0) {
+            log.info('No backups under .data/updater/backups/');
+        } else {
+            log.info(`── Backups (${infos.length}) ─────────────────────`);
+            for (const b of infos) {
+                log.info(
+                    `  ${b.id}  tag=${b.tag}  core=${b.hasCore ? 'yes' : 'no'}  pkg=${b.hasPackageJson ? 'yes' : 'no'}`
+                );
+            }
+            log.info('────────────────────────────────────────────');
+            log.info('Restore: npm run updater -- --restore-backup <id>');
+        }
+        const plan = this.emptyPlan(
+            infos.length ? `Listed ${infos.length} backup(s)` : 'No backups found',
+            false,
+            null
+        );
+        // Listing is informational success
+        (plan as UpdatePlan).allowed = true;
+        (plan as UpdatePlan).reason = infos.length ? `Listed ${infos.length} backup(s)` : 'No backups found';
+        writeReceipt(plan, { durationMs: Date.now() - t0, mode: 'list-backups' });
+        return plan;
     }
 
     private async applyCoreFromStaging(stagingRoot: string, plan: UpdatePlan): Promise<void> {
@@ -1355,6 +1689,8 @@ export async function runUpdater(options: {
     targetTag?: string | null;
     downgrade?: boolean;
     pluginTag?: string | null;
+    listBackups?: boolean;
+    restoreBackup?: string | null;
 } = {}): Promise<void> {
     const updater = new Updater();
     const plan = await updater.run(options);

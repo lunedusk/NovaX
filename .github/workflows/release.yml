@@ -49,7 +49,19 @@ jobs:
         if: steps.version_check.outputs.changed == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+
+      - name: Smart Update Docs & Version References (core)
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          OLD_VER: ${{ steps.version_check.outputs.old_version }}
+          NEW_VER: ${{ steps.version_check.outputs.version }}
+        run: |
+          if grep -q '"docs"' package.json; then
+            npm install
+            npm run docs || true
+          fi
+          node .github/scripts/bump-doc-versions.js
 
       - name: Build Slim Distributions
         if: steps.version_check.outputs.changed == 'true'
@@ -96,10 +108,11 @@ jobs:
           npm run clean || rm -rf core plugins scripts index.js index.d.ts
           rm -rf slim_build
 
-      - name: Inject Compatible Plugins
+      - name: Inject Compatible Plugins (in-repo + lunedusk/* only)
         if: steps.version_check.outputs.changed == 'true'
         env:
           VERSION: ${{ steps.version_check.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           npm install semver --no-save
@@ -111,49 +124,81 @@ jobs:
           cat plugins.txt || true
           echo "────────────────────────────────────────"
 
-          # Parse plugins.txt: in-repo names only for bundled inject.
-          # External lines (name:repo) are skipped here — client updater installs them.
-          while IFS= read -r raw || [ -n "$raw" ]; do
-            line=$(echo "$raw" | sed 's/#.*//' | xargs)
-            [ -z "$line" ] && continue
-
-            # External: name:owner/repo[@tag] → skip in core release bundle
-            if echo "$line" | grep -q ':'; then
-              echo "────────────────────────────────────────"
-              echo "Skipping external plugin line (client installs): $line"
-              continue
+          # Returns 0 if this plugins.txt line is allowed in the Bundled pack.
+          # Allowed:
+          #   - in-repo name / plugin-* branch (no colon)  → always first-party
+          #   - external name:owner/repo[@tag] only if owner is lunedusk (case-insensitive)
+          is_bundled_allowed() {
+            local line="$1"
+            if ! echo "$line" | grep -q ':'; then
+              return 0
             fi
+            # Strip optional name prefix: take side after first colon
+            local spec="${line#*:}"
+            # Drop @pin if present
+            local repo_part="${spec%%@*}"
+            # owner/repo
+            local owner="${repo_part%%/*}"
+            owner=$(echo "$owner" | tr '[:upper:]' '[:lower:]')
+            if [ "$owner" = "lunedusk" ]; then
+              return 0
+            fi
+            return 1
+          }
 
-            branch="$line"
-            PLUGIN_NAME=${branch#plugin-}
-            echo "────────────────────────────────────────"
-            echo "Processing: $branch → plugin name = '$PLUGIN_NAME'"
+          inject_from_git_archive() {
+            local REF="$1"
+            local PLUGIN_NAME="$2"
+            local REPO_DIR="${3:-.}"
 
-            mapfile -t TAGS < <(git tag -l "plugin-${PLUGIN_NAME}-v*" | sort -V -r)
+            rm -rf "src/plugins/$PLUGIN_NAME"
+            if (cd "$REPO_DIR" && git archive "$REF" "src/plugins/${PLUGIN_NAME}" 2>/dev/null) | tar -x 2>/dev/null; then
+              echo "  ✅ Injected (L1 src/plugins path)"
+            elif (cd "$REPO_DIR" && git archive "$REF" "plugins/${PLUGIN_NAME}" 2>/dev/null) | tar -x 2>/dev/null; then
+              mkdir -p "src/plugins"
+              rm -rf "src/plugins/${PLUGIN_NAME}"
+              mv "plugins/${PLUGIN_NAME}" "src/plugins/${PLUGIN_NAME}"
+              echo "  ✅ Injected (L3 plugins path → src/plugins)"
+            else
+              mkdir -p "src/plugins/${PLUGIN_NAME}"
+              (cd "$REPO_DIR" && git archive "$REF") | tar -x -C "src/plugins/${PLUGIN_NAME}"
+              echo "  ✅ Injected (L2 root layout)"
+            fi
+          }
 
-            SELECTED_REF=""
+          pick_compatible_tag() {
+            # Args: PLUGIN_NAME VERSION REPO_DIR
+            # Prints selected tag ref or empty
+            local PLUGIN_NAME="$1"
+            local CORE_VER="$2"
+            local REPO_DIR="$3"
+            local SELECTED_REF=""
+
+            mapfile -t TAGS < <(cd "$REPO_DIR" && git tag -l "plugin-${PLUGIN_NAME}-v*" | sort -V -r)
 
             if [ ${#TAGS[@]} -eq 0 ]; then
-              echo "  ⚠️  No tags matching plugin-${PLUGIN_NAME}-v* — skip (tags only, no branch fallback)"
-              continue
+              # Also try plain v* for L2 single-plugin repos
+              mapfile -t TAGS < <(cd "$REPO_DIR" && git tag -l "v*" | sort -V -r)
             fi
 
-            echo "  Found tags: ${TAGS[*]}"
+            if [ ${#TAGS[@]} -eq 0 ]; then
+              echo ""
+              return 0
+            fi
+
             for TAG in "${TAGS[@]}"; do
               MANIFEST=""
-              # Prefer L1 path, then L3
-              if MANIFEST=$(git show "$TAG:src/plugins/${PLUGIN_NAME}/manifest.json" 2>/dev/null); then
+              if MANIFEST=$(cd "$REPO_DIR" && git show "$TAG:src/plugins/${PLUGIN_NAME}/manifest.json" 2>/dev/null); then
                 :
-              elif MANIFEST=$(git show "$TAG:plugins/${PLUGIN_NAME}/manifest.json" 2>/dev/null); then
+              elif MANIFEST=$(cd "$REPO_DIR" && git show "$TAG:plugins/${PLUGIN_NAME}/manifest.json" 2>/dev/null); then
                 :
-              elif MANIFEST=$(git show "$TAG:manifest.json" 2>/dev/null); then
+              elif MANIFEST=$(cd "$REPO_DIR" && git show "$TAG:manifest.json" 2>/dev/null); then
                 :
               else
-                echo "  ↳ $TAG → no manifest.json"
+                echo "  ↳ $TAG → no manifest.json" >&2
                 continue
               fi
 
-              # novax_version ONLY (no engines.novax)
               COMPAT=$(node -e '
                 const semver = require("semver");
                 const manifest = JSON.parse(process.argv[1]);
@@ -161,19 +206,93 @@ jobs:
                 const req = manifest.novax_version || "*";
                 const ok = semver.satisfies(core, req, { includePrerelease: true });
                 console.log(ok ? "yes|" + req : "no|" + req);
-              ' "$MANIFEST" "$VERSION")
+              ' "$MANIFEST" "$CORE_VER")
 
               STATUS=${COMPAT%%|*}
               REQ=${COMPAT#*|}
 
               if [ "$STATUS" = "yes" ]; then
-                echo "  ✅ $TAG compatible (requires $REQ)"
+                echo "  ✅ $TAG compatible (requires $REQ)" >&2
                 SELECTED_REF=$TAG
                 break
               else
-                echo "  ↳ $TAG incompatible (requires $REQ)"
+                echo "  ↳ $TAG incompatible (requires $REQ)" >&2
               fi
             done
+
+            echo "$SELECTED_REF"
+          }
+
+          while IFS= read -r raw || [ -n "$raw" ]; do
+            line=$(echo "$raw" | sed 's/#.*//' | xargs)
+            [ -z "$line" ] && continue
+
+            echo "────────────────────────────────────────"
+            echo "Line: $line"
+
+            if ! is_bundled_allowed "$line"; then
+              echo "  ⏭️  Skip non-lunedusk external (Bundled packs in-repo + lunedusk/* only)"
+              continue
+            fi
+
+            # ── External: name:owner/repo[@optionalTag]
+            if echo "$line" | grep -q ':'; then
+              PLUGIN_NAME="${line%%:*}"
+              SPEC="${line#*:}"
+              REPO_SPEC="${SPEC%%@*}"
+              PIN_TAG=""
+              if echo "$SPEC" | grep -q '@'; then
+                PIN_TAG="${SPEC#*@}"
+              fi
+              OWNER=$(echo "${REPO_SPEC%%/*}" | tr '[:upper:]' '[:lower:]')
+              if [ "$OWNER" != "lunedusk" ]; then
+                echo "  ⏭️  Skip external owner='$OWNER' (not lunedusk)"
+                continue
+              fi
+
+              echo "  External lunedusk plugin: $PLUGIN_NAME ← $REPO_SPEC"
+              TMP_DIR=$(mktemp -d)
+              cleanup_tmp() { rm -rf "$TMP_DIR"; }
+              trap cleanup_tmp EXIT
+
+              if ! git clone --depth 1 "https://github.com/${REPO_SPEC}.git" "$TMP_DIR/repo" 2>/dev/null; then
+                # deepen for tags
+                git clone "https://github.com/${REPO_SPEC}.git" "$TMP_DIR/repo"
+              fi
+              # fetch tags
+              git -C "$TMP_DIR/repo" fetch --tags --force 2>/dev/null || true
+
+              if [ -n "$PIN_TAG" ]; then
+                SELECTED_REF="$PIN_TAG"
+                echo "  Using pinned tag: $SELECTED_REF"
+              else
+                SELECTED_REF=$(pick_compatible_tag "$PLUGIN_NAME" "$VERSION" "$TMP_DIR/repo")
+              fi
+
+              if [ -z "$SELECTED_REF" ]; then
+                echo "  ❌ No compatible tag for $PLUGIN_NAME in $REPO_SPEC — skip"
+                trap - EXIT
+                cleanup_tmp
+                continue
+              fi
+
+              # Ensure tag is present locally
+              git -C "$TMP_DIR/repo" checkout "$SELECTED_REF" 2>/dev/null || \
+                git -C "$TMP_DIR/repo" fetch origin "refs/tags/${SELECTED_REF}:refs/tags/${SELECTED_REF}" && \
+                git -C "$TMP_DIR/repo" checkout "$SELECTED_REF"
+
+              inject_from_git_archive "$SELECTED_REF" "$PLUGIN_NAME" "$TMP_DIR/repo"
+              trap - EXIT
+              cleanup_tmp
+              continue
+            fi
+
+            # ── In-repo first-party (branch name or bare id)
+            branch="$line"
+            PLUGIN_NAME=${branch#plugin-}
+            echo "  In-repo: $branch → plugin name = '$PLUGIN_NAME'"
+
+            SELECTED_REF=$(pick_compatible_tag "$PLUGIN_NAME" "$VERSION" ".")
 
             if [ -z "$SELECTED_REF" ]; then
               echo "  ❌ No compatible plugin tag – skip (tags only, no branch fallback)"
@@ -181,26 +300,20 @@ jobs:
             fi
 
             echo "  📥 Injecting tag $SELECTED_REF → src/plugins/$PLUGIN_NAME"
-            rm -rf "src/plugins/$PLUGIN_NAME"
-            # Archive may contain src/plugins/... or plugins/... depending on tag layout
-            if git archive "$SELECTED_REF" "src/plugins/${PLUGIN_NAME}" 2>/dev/null | tar -x 2>/dev/null; then
-              echo "  ✅ Injected (L1 src/plugins path)"
-            elif git archive "$SELECTED_REF" "plugins/${PLUGIN_NAME}" 2>/dev/null | tar -x 2>/dev/null; then
-              mkdir -p "src/plugins"
-              rm -rf "src/plugins/${PLUGIN_NAME}"
-              mv "plugins/${PLUGIN_NAME}" "src/plugins/${PLUGIN_NAME}"
-              echo "  ✅ Injected (L3 plugins path → src/plugins)"
-            else
-              # L2: whole tree is the plugin
-              mkdir -p "src/plugins/${PLUGIN_NAME}"
-              git archive "$SELECTED_REF" | tar -x -C "src/plugins/${PLUGIN_NAME}"
-              echo "  ✅ Injected (L2 root layout)"
-            fi
+            inject_from_git_archive "$SELECTED_REF" "$PLUGIN_NAME" "."
           done < plugins.txt
 
           echo "────────────────────────────────────────"
-          echo "Final plugins present:"
+          echo "Final plugins present (Bundled inject):"
           ls -1 src/plugins/ || true
+
+      - name: Smart Update Docs & Version References (injected plugins)
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          OLD_VER: ${{ steps.version_check.outputs.old_version }}
+          NEW_VER: ${{ steps.version_check.outputs.version }}
+        run: |
+          node .github/scripts/bump-doc-versions.js
 
       - name: Build Bundled Distributions
         if: steps.version_check.outputs.changed == 'true'
@@ -246,35 +359,6 @@ jobs:
 
           npm run clean || rm -rf core plugins scripts index.js index.d.ts
           rm -rf bundled_build
-
-      # ────────────────────────────────────────────────
-      # PHASE 5 – Docs, GPG, Tag, Release
-      # ────────────────────────────────────────────────
-      - name: Smart Update Docs & Version References
-        if: steps.version_check.outputs.changed == 'true'
-        env:
-          OLD_VER: ${{ steps.version_check.outputs.old_version }}
-          NEW_VER: ${{ steps.version_check.outputs.version }}
-        run: |
-          if grep -q '"docs"' package.json; then
-            npm run docs || true
-          fi
-
-          node -e '
-            const fs = require("fs");
-            const oldVer = process.env.OLD_VER;
-            const newVer = process.env.NEW_VER;
-            const files = fs.readdirSync(".").filter(f => f.endsWith(".md"));
-            for (const file of files) {
-              let content = fs.readFileSync(file, "utf8");
-              const regex = new RegExp("(?<!\\d)" + oldVer.replace(/\\./g, "\\\\.") + "(?!\\d)", "g");
-              if (regex.test(content)) {
-                content = content.replace(regex, newVer);
-                fs.writeFileSync(file, content);
-                console.log("Updated", file);
-              }
-            }
-          '
 
       - name: Import GPG Key
         if: steps.version_check.outputs.changed == 'true'
