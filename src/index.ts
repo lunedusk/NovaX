@@ -141,6 +141,13 @@ async function runBotMode(): Promise<void> {
                 
                 this.log.info('Loading Language Dictionary...');
                 await i18n.init(hotReloadEnabled);
+
+                try {
+                    const { logDisabledPlugins } = await import('#core/validation/pluginGate.js');
+                    logDisabledPlugins();
+                } catch (e) {
+                    this.log.warn('Validation gate log skipped:', e);
+                }
                 
                 this.log.info('Initializing Databases...');
                 await initAllDatabases();

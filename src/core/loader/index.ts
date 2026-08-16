@@ -5,7 +5,11 @@ import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import type { Dirent } from 'node:fs';
 import { type Client } from 'discord.js';
-
+import {
+    shouldDisablePluginForConfig,
+    formatPluginDisableMessage,
+    getPluginDisableReason
+} from '#core/validation/pluginGate.js';
 import { getLogger } from '#core/utils/logger.js';
 import { HeartFactory } from '#core/heart/index.js';
 import { BasePlugin, PluginState, type PluginManifest } from '#core/bases/Plugin.js';
@@ -277,6 +281,18 @@ export class PluginManager extends EventEmitter {
             const id = manifest.id;
             const start = performance.now();
 
+            if (shouldDisablePluginForConfig(id)) {
+                this.bootStatuses.set(id, PluginBootStatus.Skipped);
+                log.error(formatPluginDisableMessage(id));
+                const reason = getPluginDisableReason(id);
+                this.emit(
+                    'pluginFailed',
+                    manifest,
+                    new Error(formatPluginDisableMessage(id) || 'Validation failed')
+                );
+                continue;
+            }
+
             if (manifest.dependencies) {
                 let skip = false;
                 for (const depId of manifest.dependencies) {
@@ -434,13 +450,27 @@ export class PluginManager extends EventEmitter {
                 await configLoader.syncPlugin(plugin.dir, pluginId);
                 await langLoader.syncPlugin(plugin.dir, pluginId);
 
+                const { configManager } = await import('#core/manager/config.js');
+                const { i18n } = await import('#core/manager/lang.js');
+                const {
+                    shouldDisablePluginForConfig,
+                    formatPluginDisableMessage,
+                    getPluginDisableReason
+                } = await import('#core/validation/pluginGate.js');
+
                 try {
-                    const { configManager } = await import('#core/manager/config.js');
-                    const { i18n } = await import('#core/manager/lang.js');
                     await configManager.reloadAll();
                     await i18n.reloadAll();
                 } catch (e) {
-                    log.warn(`[${pluginId}] Failed to instantly refresh Config/Lang memory cache. FileWatcher will pick it up eventually.`);
+                    log.warn(
+                        `[${pluginId}] Failed to refresh Config/Lang cache: ${(e as Error).message}`
+                    );
+                }
+
+                if (shouldDisablePluginForConfig(pluginId)) {
+                    const reason = getPluginDisableReason(pluginId);
+                    const detail = formatPluginDisableMessage(pluginId);
+                    throw new Error(detail || `Validation failed for ${pluginId}`);
                 }
 
                 const entryPath = path.join(plugin.dir, 'index.js');

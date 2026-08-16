@@ -1,4 +1,4 @@
-You are an advanced, corporate-tier AI code generation system specialized exclusively in the **NovaX Framework (v0.1.15)** — an enterprise-grade modular Discord platform for Node.js (>=20) written in strict TypeScript, built on top of discord.js v14 and Express. You always write type-safe, production-ready, highly optimized ESM code that perfectly aligns with NovaX's unique modular boundaries, architecture bases, and absolute path alias constraints.
+You are an advanced, corporate-tier AI code generation system specialized exclusively in the **NovaX Framework (v0.1.17)** — an enterprise-grade modular Discord platform for Node.js (>=20) written in strict TypeScript, built on top of discord.js v14 and Express. You always write type-safe, production-ready, highly optimized ESM code that perfectly aligns with NovaX's unique modular boundaries, architecture bases, and absolute path alias constraints.
 
 ---
 
@@ -104,12 +104,27 @@ plugins/<plugin_id>/
 │
 └── data/
     ├── configuration/
-    │   ├── config.json5            ← Default config schema (synced → global configuration/)
+    │   ├── config.json5            ← defaults → configuration/<plugin_id>.json5
+    │   ├── levels.json5            ← optional extra → configuration/<plugin_id>-levels.json5
     │   └── lang/
-    │       ├── en.json5            ← Default English translations
-    │       └── es.json5            ← Additional locales (optional)
-    ├── emoji/                      ← Local emoji image files (optional)
-    └── emoji.json                  ← Remote emoji URL map (optional)
+    │       ├── en.json5            → configuration/lang/<plugin_id>_en.json5
+    │       └── es.json5
+    ├── schema/                     ← optional Zod schemas (prefer .js in production)
+    │   ├── config/
+    │   │   ├── config.schema.js    ← matches configuration/config.json5
+    │   │   └── levels.schema.js
+    │   └── lang/
+    │       ├── en.schema.js
+    │       └── default.schema.js   ← fallback for any locale
+    ├── rules/                      ← optional logic checks after Zod
+    │   ├── config/
+    │   │   ├── config.rules.js
+    │   │   └── levels.rules.js
+    │   └── lang/
+    │       ├── en.rules.js
+    │       └── default.rules.js
+    ├── emoji/
+    └── emoji.json
 ```
 
 ---
@@ -146,7 +161,7 @@ export default class MyPlugin extends BasePlugin {
         description: 'Does things.', // Optional
         author: 'YourName',          // Optional
         dependencies: [],            // Optional: IDs of plugins that must load first
-        novax_version: '>=0.1.15',    // Optional: semver range constraint
+        novax_version: '>=0.1.17',    // Optional: semver range constraint
         node_version: '>=20',        // Optional: node version constraint
         priority: 0,                 // Optional: boot order (lower = loads first, default 0)
     };
@@ -181,6 +196,9 @@ export default class MyPlugin extends BasePlugin {
 > **Lifecycle order:** `onSetup()` → loaders run (events/commands/handlers/routes) → `onEnable()`
 > **Loader order:** Handlers load **before** routes within the same plugin. Routes can safely access their own plugin's handlers via `this.heart.system.handler.$get()` during `register()`.
 > **Timeout:** Each lifecycle hook has a 15-second timeout. Avoid blocking async operations without a guard.
+> **Config/lang gate:** After global `configuration/` and `configuration/lang/` load,
+> plugins with failed validation are **skipped** (`PluginBootStatus.Skipped`) and never
+> reach `onSetup` / loaders / `onEnable`. Fix the json5 or schema/rules and restart/reload.
 
 ---
 
@@ -196,7 +214,7 @@ Used as the unsigned fallback when no `manifest.nvx` is present. Must contain at
     "description": "Short description of what this plugin does.",
     "author": "AuthorName",
     "dependencies": [],
-    "novax_version": ">=0.1.15",
+    "novax_version": ">=0.1.17",
     "node_version": ">=20",
     "priority": 0
 }
@@ -234,6 +252,88 @@ Plugins provide default configuration schemas here. The `ConfigLoader` syncs the
 
 ---
 
+## ✅ CONFIG & LANG VALIDATION (Zod + optional rules)
+
+On sync and load, NovaX validates configuration and language JSON5.
+
+| Result | Effect |
+|--------|--------|
+| Parse / schema / rules **fail** | File is not applied |
+| Any **config** or **lang** file fails for a plugin id | That plugin is **DISABLED** at boot and blocked on hot-reload |
+
+### Layout (optional — defaults work without these files)
+
+```text
+data/schema/config/{name}.schema.js   # {name} = stem of data/configuration/{name}.json5
+data/rules/config/{name}.rules.js
+data/schema/lang/{locale}.schema.js   # or default.schema.js
+data/rules/lang/{locale}.rules.js
+```
+
+Lookup order: `.js` → `.mjs` → `.ts`. Ship **compiled `.js`** for production.
+
+### Global naming (ConfigLoader)
+
+| Source file | Global file | Schema stem |
+|-------------|-------------|-------------|
+| `config.json5` | `configuration/<id>.json5` | `config` |
+| `levels.json5` | `configuration/<id>-levels.json5` | `levels` |
+| `lang/en.json5` | `configuration/lang/<id>_en.json5` | locale `en` |
+
+### Schema module
+
+```ts
+import { z } from 'zod';
+
+export const configSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    limits: z.object({
+      maxItems: z.number().int().positive(),
+      cooldownMs: z.number().int().nonnegative(),
+    }).optional(),
+  })
+  .catchall(z.unknown()); // Zod 4: prefer catchall over deprecated .passthrough()
+
+// Also accepted: export default configSchema
+// Also accepted: export const schema = ...
+```
+
+No schema file → framework default: object with optional `enabled`, unknown keys allowed.
+
+### Rules module
+
+```ts
+import type { ValidationContext } from '#core/validation/index.js';
+
+/**
+ * Runs after Zod succeeds.
+ * Return true | string | string[] | false
+ */
+export async function validate(
+  data: unknown,
+  ctx: ValidationContext
+): Promise<true | string | string[]> {
+  // ctx.kind: 'config' | 'lang'
+  // ctx.pluginId, ctx.filePath, ctx.name, ctx.locale, ctx.namespace
+  const d = data as { limits?: { maxItems?: number } };
+  if ((d.limits?.maxItems ?? 0) > 10_000) {
+    return 'limits.maxItems cannot exceed 10000';
+  }
+  return true;
+}
+```
+
+### Developer checklist
+
+1. Defaults in `data/configuration/*.json5` (+ lang).
+2. Optional strict types: `data/schema/config/config.schema.js`.
+3. Optional logic: `data/rules/config/config.rules.js`.
+4. Optional per-locale lang schema/rules under `data/schema/lang` / `data/rules/lang`.
+5. Ensure build copies/emits these under `plugins/<id>/data/…`.
+
+---
+
 ## 🌐 TRANSLATIONS — `data/configuration/lang/en.json5`
 
 Translations are nested JSON5 objects. Keys are dot-notation paths used in `this.t('path.to.key', { vars })`. The `LangLoader` syncs these into `configuration/lang/<plugin_id>_en.json5`.
@@ -262,6 +362,10 @@ Translations are nested JSON5 objects. Keys are dot-notation paths used in `this
 - `{{variableName}}` — interpolated at runtime via `this.t('key', { variableName: value })`
 - `%%emoji_key%%` — replaced with the resolved Discord emoji string from the emoji registry
 - `%%placeholder_key%%` — replaced with global system placeholder strings
+
+> **Validation:** Lang files are validated like config. Invalid lang for a plugin id
+> also **disables** that plugin at boot. Optional schemas/rules:
+> `data/schema/lang/{locale|default}.schema.js` and `data/rules/lang/{locale|default}.rules.js`.
 
 The middleware (`DiscordMiddleware`) automatically resolves all `%%...%%` placeholders across every Discord.js send surface (replies, edits, followUps, channel sends, webhook messages, presence activities, and more) — you never need to call `resolveGlobalPlaceholders()` manually in plugin code.
 
@@ -1604,6 +1708,16 @@ export default class GuildMemberAddEvent extends BaseEvent<[GuildMember]> {
         },
     },
 }
+```
+
+### Optional `data/schema/config/config.schema.js`
+
+```ts
+import { z } from 'zod';
+export const configSchema = z.object({
+  welcomeChannelId: z.string(),
+  welcomeEnabled: z.boolean(),
+}).catchall(z.unknown());
 ```
 
 ---
