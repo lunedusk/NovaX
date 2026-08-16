@@ -1,7 +1,7 @@
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
 
-const oldVer = process.env. OLD_VER;
+const oldVer = process.env.OLD_VER;
 const newVer = process.env.NEW_VER;
 
 if (!oldVer || !newVer) {
@@ -30,8 +30,8 @@ function findDocFiles(dir) {
 
 for (const file of findDocFiles(".")) {
   const content = fs.readFileSync(file, "utf8");
-  if (regex.test(content)) {
-    const updated = content.replace(regex, newVer);
+  const updated = content.replace(regex, newVer);
+  if (updated !== content) {
     fs.writeFileSync(file, updated);
     console.log("Updated", file);
   }
