@@ -1738,13 +1738,20 @@ export async function checkPendingRollbackOnBoot(): Promise<boolean> {
 
 export function startBackgroundUpdater(): () => void {
     const cfg = loadConfig();
-    if (cfg.mode !== 'background' || !cfg.autoUpdater) {
-        log.info('Background updater not started (UpdaterMode/AutoUpdater)');
+
+    if (!cfg.autoUpdater) {
+        log.info('Updater not started (AutoUpdater=false)');
         return () => {};
     }
 
     const interval = Math.max(60_000, cfg.intervalMs || 6 * 60 * 60 * 1000);
-    log.info(`Background updater every ${Math.round(interval / 1000)}s (apply=${cfg.backgroundApply})`);
+    const isBackground = cfg.mode === 'background';
+
+    log.info(
+        isBackground
+            ? `Updater: one-shot on boot + every ${Math.round(interval / 1000)}s (apply=${cfg.backgroundApply})`
+            : `Updater: one-shot on boot only (UpdaterMode=${cfg.mode}, apply=${cfg.backgroundApply})`
+    );
 
     let stopped = false;
     let running = false;
@@ -1755,20 +1762,38 @@ export function startBackgroundUpdater(): () => void {
         try {
             const updater = new Updater();
             const plan = await updater.run({ dryRun: !cfg.backgroundApply });
-            if (cfg.backgroundApply && plan.allowed && plan.toTag && plan.fromTag !== plan.toTag && !plan.dryRun) {
-                log.info(`Background update applied ${plan.fromTag} → ${plan.toTag}; exiting for restart`);
+            if (
+                cfg.backgroundApply &&
+                plan.allowed &&
+                plan.toTag &&
+                plan.fromTag !== plan.toTag &&
+                !plan.dryRun
+            ) {
+                log.info(`Update applied ${plan.fromTag} → ${plan.toTag}; exiting for restart`);
                 await flushLogs().catch(() => {});
                 process.exit(0);
             }
         } catch (e) {
-            log.error('Background updater tick failed', e);
+            log.error('Updater tick failed', e);
         } finally {
             running = false;
         }
     };
 
-    const initial = setTimeout(() => { void tick(); }, 30_000);
-    const handle = setInterval(() => { void tick(); }, interval);
+    const initial = setTimeout(() => {
+        void tick();
+    }, 30_000);
+
+    if (!isBackground) {
+        return () => {
+            stopped = true;
+            clearTimeout(initial);
+        };
+    }
+
+    const handle = setInterval(() => {
+        void tick();
+    }, interval);
 
     return () => {
         stopped = true;
