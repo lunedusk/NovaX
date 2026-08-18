@@ -8,7 +8,7 @@ import {
     type Client
 } from 'discord.js';
 import { performance } from 'node:perf_hooks';
-
+import { guildGate } from '#core/manager/guildGate.js';
 import { interactionRegistry } from './registry.js';
 import { eventBus } from '#core/manager/event.js';
 import { getLogger } from '#core/utils/logger.js';
@@ -28,6 +28,7 @@ interface ResolvedRoute {
     lookupKey: string;
     handler?: (interaction: any) => Promise<void>;
     access?: RouteAccessConfig;
+    owner?: string;
 }
 
 export class InteractionHandler {
@@ -104,6 +105,49 @@ export class InteractionHandler {
                 return;
             }
 
+            if (guildGate.isReady() && interaction.guildId) {
+                const blocked = guildGate.isInteractionBlocked(route.owner, interaction.guildId);
+                if (blocked) {
+                    let isOwner = false;
+                    try {
+                        const resolved = await permissionsManager!.cachedResolve(
+                            interaction.user.id,
+                            interaction.guildId ?? undefined,
+                            interaction.guild?.ownerId
+                        );
+                        isOwner = !!resolved.botOwner;
+                    } catch {
+                        /* non-owner */
+                    }
+
+                    if (!isOwner) {
+                        metricsManager.interactionsTotal.inc({
+                            type: route.category,
+                            command: route.lookupKey,
+                            status: 'guild_gated'
+                        });
+                        if (interaction.isAutocomplete()) {
+                            await interaction.respond([]).catch(() => {});
+                            return;
+                        }
+                        if (interaction.isRepliable()) {
+                            const payload = {
+                                content: resolveGlobalPlaceholders(
+                                    '%%emoji_no_entry%% This feature is disabled in this server by the bot owner.'
+                                ),
+                                flags: [MessageFlags.Ephemeral] as const
+                            };
+                            if (interaction.deferred || interaction.replied) {
+                                await interaction.followUp(payload).catch(() => {});
+                            } else {
+                                await interaction.reply(payload).catch(() => {});
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
+
             const access = await permissionsManager!.canExecute(interaction, route.access);
             if (!access.allowed) {
                 metricsManager.interactionsTotal.inc({ type: route.category, command: route.lookupKey, status: 'denied' });
@@ -164,27 +208,63 @@ export class InteractionHandler {
     private resolveRoute(interaction: Interaction): ResolvedRoute {
         if (interaction.isChatInputCommand()) {
             const resolved = interactionRegistry.chat.resolve(interaction.commandName);
-            return { category: 'chat_command', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'chat_command',
+                lookupKey: interaction.commandName,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
         if (interaction.isAutocomplete()) {
             const resolved = interactionRegistry.autocomplete.resolve(interaction.commandName);
-            return { category: 'autocomplete', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'autocomplete',
+                lookupKey: interaction.commandName,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
         if (interaction.isButton()) {
             const resolved = interactionRegistry.button.resolve(interaction.customId);
-            return { category: 'button', lookupKey: interaction.customId, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'button',
+                lookupKey: interaction.customId,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
         if (interaction.isAnySelectMenu()) {
             const resolved = interactionRegistry.select.resolve(interaction.customId);
-            return { category: 'select_menu', lookupKey: interaction.customId, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'select_menu',
+                lookupKey: interaction.customId,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
         if (interaction.isModalSubmit()) {
             const resolved = interactionRegistry.modal.resolve(interaction.customId);
-            return { category: 'modal', lookupKey: interaction.customId, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'modal',
+                lookupKey: interaction.customId,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
         if (interaction.isContextMenuCommand()) {
             const resolved = interactionRegistry.context.resolve(interaction.commandName);
-            return { category: 'context_menu', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'context_menu',
+                lookupKey: interaction.commandName,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
 
         return { category: 'UNKNOWN', lookupKey: 'UNKNOWN' };

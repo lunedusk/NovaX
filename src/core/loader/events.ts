@@ -5,6 +5,7 @@ import { getLogger } from '#core/utils/logger.js';
 import { type IHeart } from '#core/heart/index.js';
 import { BaseEvent } from '#core/bases/Event.js';
 import { interactionRegistry } from '#core/manager/interaction/registry.js';
+import { guildGate, extractGuildIdFromEventArgs } from '#core/manager/guildGate.js';
 
 const log = getLogger('EventLoader');
 
@@ -94,6 +95,13 @@ export class EventLoader {
                     }
                 }
                 if (instance.name) {
+                    const run = (...args: any[]) => {
+                        const gid = extractGuildIdFromEventArgs(args);
+                        if (guildGate.isReady() && guildGate.isPluginBlocked(pluginId, gid)) {
+                            return;
+                        }
+                        return instance.execute(...args);
+                    };
                     if (instance.once) {
                         heart.system.events.once(instance.name, (...args: any[]) => instance.execute(...args));
                     } else {

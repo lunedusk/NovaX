@@ -1,9 +1,9 @@
 {
     "id": "core",
     "name": "Core",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "author": "Lunedusk",
     "node_version": ">=18.20.8",
     "dependencies": ["api", "permissions"],
-    "novax_version": ">=0.1.9"
+    "novax_version": ">=0.2.0"
 }

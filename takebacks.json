@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "tag": "v0.1.18",
+      "status": "superseded",
+      "recommend": "v0.1.20",
+      "reason": "Docs not updating",
+      "severity": "low",
+      "at": "2026-08-16T10:37:00Z",
+      "active": true
+    }
+  ]
+}

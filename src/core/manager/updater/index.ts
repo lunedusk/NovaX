@@ -901,8 +901,10 @@ export class Updater {
             ? ctx.officialLines.filter(l => l.id === ctx.onlyName)
             : ctx.officialLines;
 
+        log.info(`Planning ${lines.length} plugin line(s) (core ${ctx.coreForCompat})…`);
         for (const line of lines) {
             const pluginName = line.id;
+            log.info(`── Plugin plan: ${pluginName} ──`);
             const localRel = localPluginDir(pluginName);
             const srcPath = sourcePluginPath(pluginName);
             const rtPath = runtimePluginPath(pluginName);
@@ -961,18 +963,30 @@ export class Updater {
                     continue;
                 }
             } else {
-                const pluginTags = line.kind === 'in-repo'
-                    ? await this.gh.listPluginTags(pOwner, pRepo, pluginName)
-                    : [
-                        ...(await this.gh.listPluginTags(pOwner, pRepo, pluginName)),
-                        ...(await this.gh.listSemverTags(pOwner, pRepo))
-                    ];
+                log.info(`[plugin] ${pluginName}: resolving tags (${line.kind}) on ${pOwner}/${pRepo}…`);
+                let pluginTags = await this.gh.listPluginTags(pOwner, pRepo, pluginName);
+                log.info(`[plugin] ${pluginName}: ${pluginTags.length} plugin-* tag(s)`);
+
+                if (line.kind !== 'in-repo' && pluginTags.length === 0) {
+                    const semverAll = await this.gh.listSemverTags(pOwner, pRepo);
+                    pluginTags = semverAll.slice(0, 15);
+                    log.info(
+                        `[plugin] ${pluginName}: no plugin-* tags; probing newest ${pluginTags.length}/${semverAll.length} semver tag(s)`
+                    );
+                }
+
                 const seen = new Set<string>();
-                const tags = pluginTags.filter(t => {
+                let tags = pluginTags.filter(t => {
                     if (seen.has(t.name)) return false;
                     seen.add(t.name);
                     return true;
                 });
+
+                const MAX_TAG_PROBES = 20;
+                if (tags.length > MAX_TAG_PROBES) {
+                    log.info(`[plugin] ${pluginName}: capping tag probes ${tags.length} → ${MAX_TAG_PROBES}`);
+                    tags = tags.slice(0, MAX_TAG_PROBES);
+                }
 
                 if (tags.length === 0) {
                     decisions.push({
@@ -983,13 +997,15 @@ export class Updater {
                         action: 'skip',
                         reason: line.kind === 'in-repo'
                             ? `No tags matching plugin-${pluginName}-v* (tags only)`
-                            : 'No semver / plugin-* tags on external repo (tags only)',
+                            : 'No plugin-* / semver tags on external repo (tags only)',
                         source: line
                     });
                     continue;
                 }
 
-                for (const tag of tags) {
+                for (let ti = 0; ti < tags.length; ti++) {
+                    const tag = tags[ti];
+                    log.info(`[plugin] ${pluginName}: probe ${ti + 1}/${tags.length} tag ${tag.name}`);
                     const paths = [
                         `src/plugins/${pluginName}/manifest.json`,
                         `plugins/${pluginName}/manifest.json`,
@@ -997,17 +1013,26 @@ export class Updater {
                     ];
                     let text: string | null = null;
                     for (const mp of paths) {
-                        text = await this.gh.getFileText(pOwner, pRepo, tag.name, mp);
+                        try {
+                            text = await this.gh.getFileText(pOwner, pRepo, tag.name, mp);
+                        } catch (e) {
+                            log.warn(`[plugin] ${pluginName}: getFileText ${tag.name}:${mp} failed: ${(e as Error).message}`);
+                            text = null;
+                        }
                         if (text) break;
                     }
-                    if (!text) continue;
+                    if (!text) {
+                        log.info(`[plugin] ${pluginName}: ${tag.name} has no manifest – skip`);
+                        continue;
+                    }
                     const { ok, req } = manifestCompatible(text, ctx.coreForCompat);
                     if (ok) {
                         selected = tag;
                         selectedReq = req;
+                        log.info(`[plugin] ${pluginName}: selected ${tag.name} (novax_version ${req})`);
                         break;
                     }
-                    log.info(`  plugin ${pluginName}: ${tag.name} incompatible (requires ${req})`);
+                    log.info(`[plugin] ${pluginName}: ${tag.name} incompatible (requires ${req})`);
                 }
             }
 
@@ -1601,7 +1626,6 @@ export class Updater {
             false,
             null
         );
-        // Listing is informational success
         (plan as UpdatePlan).allowed = true;
         (plan as UpdatePlan).reason = infos.length ? `Listed ${infos.length} backup(s)` : 'No backups found';
         writeReceipt(plan, { durationMs: Date.now() - t0, mode: 'list-backups' });
@@ -1736,7 +1760,7 @@ export async function checkPendingRollbackOnBoot(): Promise<boolean> {
     return plan.allowed;
 }
 
-export function startBackgroundUpdater(): () => void {
+export function startBackgroundUpdater(opts?: { skipInitial?: boolean }): () => void {
     const cfg = loadConfig();
     if (cfg.mode !== 'background' || !cfg.autoUpdater) {
         log.info('Background updater not started (UpdaterMode/AutoUpdater)');
@@ -1744,7 +1768,12 @@ export function startBackgroundUpdater(): () => void {
     }
 
     const interval = Math.max(60_000, cfg.intervalMs || 6 * 60 * 60 * 1000);
-    log.info(`Background updater every ${Math.round(interval / 1000)}s (apply=${cfg.backgroundApply})`);
+    const skipInitial = opts?.skipInitial === true;
+    log.info(
+        skipInitial
+            ? `Background updater every ${Math.round(interval / 1000)}s (apply=${cfg.backgroundApply}, initial skipped)`
+            : `Background updater initial 30s + every ${Math.round(interval / 1000)}s (apply=${cfg.backgroundApply})`
+    );
 
     let stopped = false;
     let running = false;
@@ -1753,10 +1782,19 @@ export function startBackgroundUpdater(): () => void {
         if (stopped || running) return;
         running = true;
         try {
+            log.info('Background updater tick…');
             const updater = new Updater();
             const plan = await updater.run({ dryRun: !cfg.backgroundApply });
-            if (cfg.backgroundApply && plan.allowed && plan.toTag && plan.fromTag !== plan.toTag && !plan.dryRun) {
-                log.info(`Background update applied ${plan.fromTag} → ${plan.toTag}; exiting for restart`);
+            log.info(`Background tick done: ${plan.reason}`);
+            const coreChanged =
+                !!plan.toTag &&
+                plan.fromTag !== plan.toTag &&
+                (plan.filesToOverwrite.length > 0 || plan.filesToAdd.length > 0);
+            const pluginsChanged = plan.pluginDecisions.some(
+                d => d.action === 'update' || d.action === 'add' || d.action === 'remove'
+            );
+            if (cfg.backgroundApply && plan.allowed && !plan.dryRun && (coreChanged || pluginsChanged)) {
+                log.info(`Background update applied; exiting for restart`);
                 await flushLogs().catch(() => {});
                 process.exit(0);
             }
@@ -1767,12 +1805,15 @@ export function startBackgroundUpdater(): () => void {
         }
     };
 
-    const initial = setTimeout(() => { void tick(); }, 30_000);
+    let initial: ReturnType<typeof setTimeout> | null = null;
+    if (!skipInitial) {
+        initial = setTimeout(() => { void tick(); }, 30_000);
+    }
     const handle = setInterval(() => { void tick(); }, interval);
 
     return () => {
         stopped = true;
-        clearTimeout(initial);
+        if (initial) clearTimeout(initial);
         clearInterval(handle);
     };
 }

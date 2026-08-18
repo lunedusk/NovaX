@@ -80,9 +80,14 @@ export class ConfigLoader {
 
     private async validatePluginConfig(pluginId: string, filePath: string, data: unknown, fromLocalStem = false) {
         const base = path.basename(filePath, '.json5');
-        const schema = (await loadPluginConfigSchema(pluginId, base, fromLocalStem)) ?? defaultPluginConfigSchema;
+        const schema = await loadPluginConfigSchema(pluginId, base, fromLocalStem);
         const rules = await loadPluginConfigRules(pluginId, base, fromLocalStem);
-        const result = await validateValue(data, { kind: 'config', filePath, pluginId, name: path.basename(filePath) }, schema, rules);
+        const result = await validateValue(
+            data,
+            { kind: 'config', filePath, pluginId, name: path.basename(filePath) },
+            schema,
+            rules
+        );
         if (!result.ok) return { ok: false as const, message: formatIssues(result.issues) };
         return { ok: true as const, data: result.data as JsonObject };
     }

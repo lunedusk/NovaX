@@ -5,19 +5,8 @@
         helpContainer: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#5865F2", "children": [] } ] }'
     },
     commands: {
-        restart: {
-            description: "Completely restart the bot process.",
-            reasonDescription: "Optional reason recorded in the logs",
-            messages: {
-                acknowledged: "%%emoji_tick%% Restart sequence accepted. The process is going down now and will be revived by the supervisor.\n\n**Triggered by:** {{user}}\n**Reason:**\n> {{reason}}",
-                denied: "%%emoji_no_entry%% You need the **bot.owner** or **bot.members.ban** permission bit to restart the bot.",
-                unavailable: "%%emoji_caution%% The permission subsystem is currently unavailable. Please try again shortly.",
-                fatalError: "%%emoji_alert%% A fatal error occurred during the restart sequence:\n```\n{{error}}\n```"
-            }
-        },
         help: {
             description: "View the dynamic command directory.",
-            
             homeTitle: "Command Directory",
             homeDesc: "Welcome to the central command registry. Please select a module below.\n\n**Ecosystem Status:**\n> {{emoji_menu}} **Active Modules:** {{plugins}}\n> {{emoji_command}} **Accessible Commands:** {{commands}}",
             categoryTitle: "Module: {{name}}",
@@ -26,14 +15,11 @@
             noArgs: "None",
             cooldownFormat: "{{limit}} use(s) per {{time}}s",
             noCooldown: "None",
-
             pageFooter: "Page {{current}} of {{total}}",
             pluginSelectPlaceholder: "Select a module ({{start}} - {{end}})...",
             cmdSelectPlaceholder: "Select a command to view details...",
             groupSelectPlaceholder: "Select a subcommand group...",
-            
             backButton: "Back",
-
             emojis: {
                 navLeft: "%%emoji_arrow_left%%|◀️",
                 navRight: "%%emoji_arrow_right%%|▶️",
@@ -44,7 +30,6 @@
                 args: "%%emoji_gear%%|⚙️",
                 cooldown: "%%emoji_clock%%|⏱️"
             },
-
             format: {
                 commandList: "> `/%s` - %s",
                 argumentList: "• `%s` %s - %s",
@@ -56,39 +41,74 @@
                 commandDetail: "**Description:**\n> %s\n\n**Base Cooldown:**\n> %s\n\n**Usage & Arguments:**\n%s"
             }
         },
-        reload: {
-            description: "Core subsystem hot-reload utility.",
-            configDescription: "Reload a specific configuration file.",
-            langDescription: "Reload a specific language namespace.",
-            emojiDescription: "Force reload the global emoji mappings.",
-            pluginDescription: "Hot-reload a specific plugin instance.",
-            fileDescription: "The configuration filename (without extension) or 'all'",
-            namespaceDescription: "The translation namespace or 'all'",
-            idDescription: "The target plugin",
+        admin: {
+            description: "Bot owner administration (restart, reload, cache, guild gates).",
+            titles: {
+                access: "Access",
+                system: "System Execution",
+                restart: "System Restart",
+                config: "Configuration",
+                lang: "Language Cache",
+                emoji: "Emoji Registry",
+                plugin: "Plugin Ecosystem",
+                cache: "Cache Manager",
+                gate: "Guild Gate"
+            },
             messages: {
-                configSuccess: "%%emoji_tick%% Successfully synchronized **{{count}}** configuration files.\n\n{{grid}}",
-                configError: "%%emoji_cross%% Failed to reload target: `{{file}}`. Check console for JSON parse errors.",
-                
-                langSuccess: "%%emoji_tick%% Successfully recompiled translations for **{{count}}** namespaces.\n\n{{grid}}",
-                langError: "%%emoji_cross%% Failed to compile language namespace: `{{namespace}}`.",
-                
-                emojiSuccess: "%%emoji_tick%% Global emoji map refreshed and successfully mapped to **{{count}}** assets in memory.",
-                emojiError: "%%emoji_cross%% Failed to read emoji data source.",
-                
-                pluginSuccess: "Successfully executed hot-reload sequence.\n\n**Manifest Identity:**\n> **Name:** {{name}}\n> **Version:** v{{version}}\n> **State:** Live\n\n**Active Modules:**\n> %%emoji_gear%% **Commands:** {{cmdCount}}\n> %%emoji_megaphone%% **Events:** {{eventCount}}\n> %%emoji_globe%% **Routes:** {{routeCount}}",
-                pluginError: "%%emoji_cross%% Surgical reload failed for `{{pluginId}}`.",
-                
-                fatalError: "%%emoji_alert%% A fatal error occurred during execution:\n```\n{{error}}\n```"
-            }
-        },
-        cache: {
-            description: "Manage internal framework caches.",
-            popDescription: "Invalidate and clear a specific memory cache pool.",
-            targetDescription: "The cache registry to drop",
-            messages: {
-                popped: "%%emoji_tick%% Successfully purged memory pool and flushed records for **{{target}}**.",
-                unknown: "%%emoji_question%% Unrecognized memory cache target: `{{target}}`.\nAvailable targets: `cross-guild`",
-                fatalError: "%%emoji_alert%% A fatal error occurred while manipulating cache:\n```\n{{error}}\n```"
+                denied: "%%emoji_no_entry%% Bot owner only (BotOwnerIds / bot.owner).",
+                unavailable: "%%emoji_caution%% Permission subsystem unavailable.",
+                fatalError: "%%emoji_alert%% Fatal error:\n```\n{{error}}\n```",
+                gated: "%%emoji_no_entry%% This feature is disabled in this server by the bot owner."
+            },
+            restart: {
+                description: "Restart the bot process.",
+                reasonDescription: "Optional reason for logs",
+                acknowledged: "%%emoji_tick%% Restart accepted.\n**By:** {{user}}\n**Reason:** {{reason}}"
+            },
+            reload: {
+                configDescription: "Reload configuration file(s).",
+                langDescription: "Reload language namespace(s).",
+                emojiDescription: "Reload emoji map.",
+                pluginDescription: "Hot-reload a plugin.",
+                fileDescription: "Config name or all",
+                namespaceDescription: "Namespace or all",
+                idDescription: "Plugin id",
+                configSuccess: "%%emoji_tick%% Reloaded **{{count}}** configs.\n{{grid}}",
+                configError: "%%emoji_cross%% Failed to reload `{{file}}`.",
+                langSuccess: "%%emoji_tick%% Reloaded **{{count}}** namespaces.\n{{grid}}",
+                langError: "%%emoji_cross%% Failed language `{{namespace}}`.",
+                emojiSuccess: "%%emoji_tick%% Emoji map refreshed (**{{count}}**).",
+                emojiError: "%%emoji_cross%% Emoji reload failed.",
+                pluginSuccess: "%%emoji_tick%% Reloaded **{{name}}** v{{version}}.\n> %%emoji_gear%% Commands: {{cmdCount}}\n> %%emoji_megaphone%% Events: {{eventCount}}\n> %%emoji_globe%% Routes: {{routeCount}}",
+                pluginError: "%%emoji_cross%% Reload failed for `{{pluginId}}`."
+            },
+            cache: {
+                popDescription: "Clear a memory cache pool.",
+                targetDescription: "Cache name",
+                popped: "%%emoji_tick%% Purged **{{target}}**.",
+                unknown: "%%emoji_question%% Unknown cache `{{target}}`."
+            },
+            gate: {
+                guildBlockDescription: "Block the entire bot in a guild.",
+                guildUnblockDescription: "Unblock a guild.",
+                guildListDescription: "List guild total bans.",
+                pluginBlockDescription: "Block one plugin in a guild.",
+                pluginUnblockDescription: "Unblock one plugin in a guild.",
+                pluginListDescription: "List plugin bans.",
+                guildIdDescription: "Guild snowflake (default: current)",
+                pluginIdDescription: "Plugin id",
+                reasonDescription: "Optional reason",
+                notReady: "%%emoji_caution%% Guild gate store is not ready.",
+                needGuild: "%%emoji_caution%% Provide guild id or run inside a server.",
+                guildBlocked: "%%emoji_tick%% Guild `{{guild}}` blocked.\nReason: {{reason}}",
+                guildUnblocked: "%%emoji_tick%% Guild `{{guild}}` unblocked.",
+                guildNotBlocked: "%%emoji_question%% Guild `{{guild}}` was not blocked.",
+                pluginBlocked: "%%emoji_tick%% Plugin `{{plugin}}` blocked in `{{guild}}`.\nReason: {{reason}}",
+                pluginUnblocked: "%%emoji_tick%% Plugin `{{plugin}}` unblocked in `{{guild}}`.",
+                pluginNotBlocked: "%%emoji_question%% Plugin `{{plugin}}` was not blocked in `{{guild}}`.",
+                listEmpty: "> *None*",
+                guildListHeader: "**Blocked guilds:** {{count}}",
+                pluginListHeader: "**Blocked plugin rows:** {{count}}"
             }
         }
     },

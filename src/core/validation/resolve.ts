@@ -3,6 +3,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { RulesValidateFn } from './types.js';
 import type { AnyZodSchema } from './run.js';
+import type { IHeart } from '#core/heart/index.js';
+import { getRulesHeart } from './rulesContext.js';
 
 export function inferPluginIdFromConfigName(configName: string): string | null {
     if (!configName) return null;
@@ -58,11 +60,21 @@ function asZod(mod: Record<string, unknown> | null): AnyZodSchema | null {
     return null;
 }
 
-function asRules(mod: Record<string, unknown> | null): RulesValidateFn | null {
+function asRules(mod: any, heart?: IHeart | null): RulesValidateFn | null {
     if (!mod) return null;
+    if (typeof mod.createRules === 'function') {
+        const h = heart ?? getRulesHeart();
+        if (h) {
+            const built = mod.createRules(h);
+            if (typeof built === 'function') {
+                return (data, ctx) => built(data, ctx, h);
+            }
+        }
+    }
     const fn = mod.validate ?? mod.default;
-    if (typeof fn === 'function') return fn as RulesValidateFn;
-    return null;
+    if (typeof fn !== 'function') return null;
+    const h = heart ?? getRulesHeart();
+    return (data, ctx) => fn(data, ctx, h);
 }
 
 /**

@@ -1,4 +1,8 @@
 {
+    // Optional public origin for OpenAPI / docs links.
+    // Falls back to http://localhost:{APIPort} when unset.
+    // publicBaseUrl: "https://api.example.com",
+
     cors: {
         allowedOrigins: ["http://localhost:3000"],
         allowedMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -9,17 +13,39 @@
     },
 
     auth: {
+        // Master key for the gateway (bearer / internal).
+        //
+        // Default for new installs: load from environment (no secrets in this file).
+        //   1. Set in .env:  GatewayMasterKey=<long-random-string-16+chars>
+        //   2. Restart the bot
+        //
+        // Alternative: put secrets only in this file (not recommended for public repos):
+        //   masterKeySource: "config"
+        //   and add an enabled entry under keys[] with a real key (never REPLACE_ME_*).
         enabled: true,
+        masterKeySource: "env", // "env" | "config"
+        masterKeyEnvVar: "GatewayMasterKey",
+
+        // Paths that skip bearer auth (health, OpenAPI, etc.).
         publicPaths: [
             "/api/health",
             "/api/openapi.json",
         ],
-        keys: [
-            {
-                key: "REPLACE_ME_WITH_A_STRONG_SECRET",
-                label: "default",
-                enabled: true,
-            },
-        ],
+
+        // Optional extra API keys (dashboard, integrations, etc.).
+        //
+        // - Leave this array empty for a first-time install when using masterKeySource "env".
+        // - To add a key later: set a real secret, set enabled: true, optional bits[].
+        // - Do NOT enable entries that still say REPLACE_ME_* — validation will fail and
+        //   the api plugin (and dependents) will be skipped at boot.
+        //
+        // Example (copy, rename, replace key, then enable):
+        // {
+        //     key: "paste-a-long-random-secret-here",
+        //     label: "dashboard",
+        //     enabled: true,
+        //     bits: ["dashboard"],
+        // },
+        keys: [],
     },
 }
