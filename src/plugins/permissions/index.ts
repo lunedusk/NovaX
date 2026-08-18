@@ -9,7 +9,7 @@ export default class PermissionsPlugin extends BasePlugin {
         description: 'Admin commands for managing the bot permission system.',
         author: 'Lunedusk',
         dependencies: [],
-        novax_version: '>=0.1.20',
+        novax_version: '>=0.2.0',
         priority: -10,
     };
 

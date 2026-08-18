@@ -5,7 +5,7 @@
     "description": "Admin commands and REST API for managing the bot permission system.",
     "author": "NovaX Core",
     "dependencies": ["api"],
-    "novax_version": ">=0.1.20",
+    "novax_version": ">=0.2.0",
     "node_version": ">=20",
     "priority": -10
 }

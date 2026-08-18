@@ -32,7 +32,7 @@ export default class Core extends BasePlugin {
         name: 'Core',
         version: '0.2.0',
         author: 'Lunedusk',
-        novax_version: '>=0.1.20',
+        novax_version: '>=0.2.0',
         dependencies: ['api', 'permissions']
     };
 
