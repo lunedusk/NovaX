@@ -10,8 +10,6 @@ import { permissionsManager } from '#core/manager/permissions.js';
 const log = getLogger('GatewayConfigManager');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 export interface CorsConfig {
     allowedOrigins: string[];
     allowedMethods: string[];
@@ -74,8 +72,6 @@ export class GatewayConfigManager {
         log.info('Gateway config loaded from framework ConfigManager.');
     }
 
-    // ─── Config accessors ────────────────────────────────────────────────────
-
     public get cors(): Readonly<CorsConfig> { return this._config.cors; }
     public get auth(): Readonly<AuthConfig> { return this._config.auth; }
     public get publicBaseUrl(): string {
@@ -89,8 +85,6 @@ export class GatewayConfigManager {
         log.warn(`Gateway publicBaseUrl is not configured. Falling back to ${fallback}.`);
         return fallback;
     }
-
-    // ─── Middleware stack ─────────────────────────────────────────────────────
 
     public applyMiddleware(router: Router): void {
         router.use(this.securityHeaders);

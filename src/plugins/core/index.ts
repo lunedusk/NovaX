@@ -30,7 +30,7 @@ export default class Core extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'core',
         name: 'Core',
-        version: '0.1.2',
+        version: '0.2.0',
         author: 'Lunedusk',
         novax_version: '>=0.1.20',
         dependencies: ['api', 'permissions']

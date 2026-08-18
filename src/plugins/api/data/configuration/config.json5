@@ -1,4 +1,7 @@
 {
+    // Optional; falls back to http://localhost:{APIPort}
+    // publicBaseUrl: "https://api.example.com",
+
     cors: {
         allowedOrigins: ["http://localhost:3000"],
         allowedMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -7,9 +10,10 @@
         credentials: false,
         maxAge: 600,
     },
-
     auth: {
         enabled: true,
+        masterKeySource: "env",          // "env" | "config"
+        masterKeyEnvVar: "GatewayMasterKey",
         publicPaths: [
             "/api/health",
             "/api/openapi.json",
@@ -19,6 +23,7 @@
                 key: "REPLACE_ME_WITH_A_STRONG_SECRET",
                 label: "default",
                 enabled: true,
+                // bits: ["bot.config.view"],
             },
         ],
     },
