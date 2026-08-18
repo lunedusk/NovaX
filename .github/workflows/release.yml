@@ -51,6 +51,66 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Prepare .nvx packer library
+        if: steps.version_check.outputs.changed == 'true'
+        id: nvx_lib
+        run: |
+          set -euo pipefail
+          LIB="$RUNNER_TEMP/nvx_pack_lib.sh"
+          cat > "$LIB" <<'PACKLIB'
+          # shellcheck shell=bash
+          pack_all_plugins() {
+            set -euo pipefail
+
+            # Signing key required — same secret + env names as Plugin CI.
+            if [ -z "${PrivateKey:-}" ] && [ -z "${PLUGIN_SIGNING_KEY:-}" ]; then
+              echo "::error::PLUGIN_SIGNING_KEY secret is required to sign manifest.nvx"
+              exit 1
+            fi
+            export PrivateKey="${PrivateKey:-$PLUGIN_SIGNING_KEY}"
+            export PLUGIN_SIGNING_KEY="${PLUGIN_SIGNING_KEY:-$PrivateKey}"
+
+            # Packer artifacts must exist (produced by npm install + npm run build).
+            test -f core/dependency/index.mjs
+            test -f scripts/manifestPacker.js
+
+            if [ ! -d src/plugins ]; then
+              echo "  (no src/plugins directory — nothing to pack)"
+              return 0
+            fi
+
+            local packed=0
+            for dir in src/plugins/*/; do
+              [ -d "$dir" ] || continue
+              [ -f "${dir}manifest.json" ] || continue
+              local PLUGIN
+              PLUGIN="$(basename "$dir")"
+              echo "──────────────────────────────────────"
+              echo "🔏 Packing plugin: $PLUGIN"
+
+              npm run pack -- "$PLUGIN"
+
+              if [ -f "src/plugins/${PLUGIN}/manifest.nvx" ]; then
+                echo "  ✅ Signed: src/plugins/${PLUGIN}/manifest.nvx"
+              elif [ -f "plugins/${PLUGIN}/manifest.nvx" ]; then
+                mkdir -p "src/plugins/${PLUGIN}"
+                cp "plugins/${PLUGIN}/manifest.nvx" "src/plugins/${PLUGIN}/manifest.nvx"
+                echo "  ✅ Copied .nvx into src/plugins/${PLUGIN}/"
+              else
+                echo "::error::manifest.nvx was not produced for ${PLUGIN}"
+                ls -la "src/plugins/${PLUGIN}" 2>/dev/null || true
+                ls -la "plugins/${PLUGIN}" 2>/dev/null || true
+                exit 1
+              fi
+              packed=$((packed + 1))
+            done
+            echo "──────────────────────────────────────"
+            echo "🔏 Packed ${packed} plugin(s)."
+          }
+          PACKLIB
+          echo "lib=$LIB" >> "$GITHUB_OUTPUT"
+          echo "Wrote packer library to $LIB"
+
       - name: Smart Update Docs & Version References (core)
         if: steps.version_check.outputs.changed == 'true'
         env:
@@ -67,8 +127,25 @@ jobs:
         if: steps.version_check.outputs.changed == 'true'
         env:
           VERSION: ${{ steps.version_check.outputs.version }}
+          NVX_PACK_LIB: ${{ steps.nvx_lib.outputs.lib }}
+          PrivateKey: ${{ secrets.PLUGIN_SIGNING_KEY }}
+          PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
         run: |
           set -euo pipefail
+
+          # NOTE (nvx): install → build → pack → copy-assets must happen BEFORE
+          # the Slim-Source zip, so the signed src/plugins/*/manifest.nvx are
+          # captured in Source, and the compiled dirs contain them for Compiled.
+          echo "🔨 Building Slim (official pipeline)..."
+          npm install
+          npm run clean || true
+          npm run build
+
+          echo "🔏 Packing .nvx (Slim: in-repo plugins present)..."
+          source "$NVX_PACK_LIB"
+          pack_all_plugins
+          # Re-run copy-assets so the new .nvx are carried into compiled output.
+          npm run copy-assets
 
           echo "📦 Packaging Slim Source..."
           zip -q -r "NovaX-v${VERSION}-Slim-Source.zip" . \
@@ -79,12 +156,6 @@ jobs:
             -x "bundled_build*" \
             -x "core" -x "plugins" -x "scripts" \
             -x "index.js" -x "index.d.ts"
-
-          echo "🔨 Building Slim (official pipeline)..."
-          npm install
-          npm run clean || true
-          npx tsc
-          npm run copy-assets
 
           rm -rf slim_build
           mkdir -p slim_build
@@ -319,8 +390,26 @@ jobs:
         if: steps.version_check.outputs.changed == 'true'
         env:
           VERSION: ${{ steps.version_check.outputs.version }}
+          NVX_PACK_LIB: ${{ steps.nvx_lib.outputs.lib }}
+          PrivateKey: ${{ secrets.PLUGIN_SIGNING_KEY }}
+          PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
         run: |
           set -euo pipefail
+
+          # NOTE (nvx): install → build → pack → copy-assets must happen BEFORE
+          # the Bundled-Source zip so the signed src/plugins/*/manifest.nvx
+          # (in-repo + injected lunedusk) are captured in Source, and the
+          # compiled dirs contain them for the Compiled zip.
+          echo "🔨 Building Bundled (official pipeline)..."
+          npm install
+          npm run clean || true
+          npm run build
+
+          echo "🔏 Packing .nvx (Bundled: in-repo + injected plugins present)..."
+          source "$NVX_PACK_LIB"
+          pack_all_plugins
+          # Re-run copy-assets so the new .nvx are carried into compiled output.
+          npm run copy-assets
 
           echo "📦 Packaging Bundled Source..."
           zip -q -r "NovaX-v${VERSION}-Bundled-Source.zip" . \
@@ -331,12 +420,6 @@ jobs:
             -x "bundled_build*" \
             -x "core" -x "plugins" -x "scripts" \
             -x "index.js" -x "index.d.ts"
-
-          echo "🔨 Building Bundled (official pipeline)..."
-          npm install
-          npm run clean || true
-          npx tsc
-          npm run copy-assets
 
           rm -rf bundled_build
           mkdir -p bundled_build
@@ -383,7 +466,12 @@ jobs:
 
           TAG_NAME="v${VERSION}"
 
+          # Commit signed .nvx for IN-REPO plugins back to main. Injected
+          # lunedusk/* plugins are transient (created in Inject, wiped by
+          # `npm run clean` at the end of Build Bundled), so only in-repo
+          # src/plugins/*/manifest.nvx that survive on disk get staged.
           git add docs/ *.md plugins.txt takebacks.json || true
+          git add src/plugins/*/manifest.nvx || true
           if ! git diff --cached --quiet; then
             git commit -S -m "[CHORE] Update Docs & Version References to ${TAG_NAME}"
           fi
