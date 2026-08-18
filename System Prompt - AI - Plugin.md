@@ -60,6 +60,10 @@ this.heart.system.handler.$has(...)            // Handler/plugin existence check
 this.heart.system.handler.$get(...)            // Typed string-based fallback lookup
 this.heart.system.handler.$list()              // All registered handlers
 this.heart.system.handler.$listDetailed()      // Full introspection with version + description
+this.heart.system.gates              // Guild / per-plugin gate (core)
+this.heart.system.gates.isGuildBlocked(guildId)
+this.heart.system.gates.isPluginBlocked(pluginId, guildId)
+// list / set helpers used by core /admin — third-party plugins rarely need these
 
 this.heart.toolbox.utils.random
 this.heart.toolbox.utils.format
@@ -305,17 +309,25 @@ No schema file → framework default: object with optional `enabled`, unknown ke
 
 ```ts
 import type { ValidationContext } from '#core/validation/index.js';
+// Optional: when the framework injects heart into rules context
+import type { IHeart } from '#core/heart/index.js';
 
 /**
  * Runs after Zod succeeds.
  * Return true | string | string[] | false
+ *
+ * If the loader provides `ctx.heart` (or a dedicated rulesContext),
+ * you may use it for advanced checks (e.g. read another config key).
+ * Prefer pure data checks — heart may be null during early sync.
  */
 export async function validate(
   data: unknown,
-  ctx: ValidationContext
+  ctx: ValidationContext & { heart?: IHeart | null }
 ): Promise<true | string | string[]> {
   // ctx.kind: 'config' | 'lang'
   // ctx.pluginId, ctx.filePath, ctx.name, ctx.locale, ctx.namespace
+  // ctx.heart — optional IHeart when rulesContext is wired
+
   const d = data as { limits?: { maxItems?: number } };
   if ((d.limits?.maxItems ?? 0) > 10_000) {
     return 'limits.maxItems cannot exceed 10000';
@@ -323,6 +335,7 @@ export async function validate(
   return true;
 }
 ```
+- Schema/rules run at config sync / load, often before Discord login and sometimes before a full plugin heart exists. Treat ctx.heart as optional; never require Discord client or other plugins inside rules unless you guard with if (!ctx.heart) return true.
 
 ### Developer checklist
 
@@ -331,6 +344,30 @@ export async function validate(
 3. Optional logic: `data/rules/config/config.rules.js`.
 4. Optional per-locale lang schema/rules under `data/schema/lang` / `data/rules/lang`.
 5. Ensure build copies/emits these under `plugins/<id>/data/…`.
+
+---
+
+## Guild gate (framework)
+
+Core (`GuildGate` via `this.heart.system.gates` on core plugins, or the
+interaction/event pipeline for everyone) can:
+
+- **Block an entire guild** — all interactions (including core commands)
+  are denied for non–bot-owners; guild-scoped events are skipped when a
+  guild id is present.
+- **Block a plugin in a guild** — only that plugin’s commands/components
+  and its guild events are gated.
+
+**Bot owners** (`BotOwnerIds` / `bot.owner` synthetic bit) **always bypass**.
+
+Third-party plugins **do not** implement the gate themselves. Enforcement is
+in the interaction handler and event loader. Owners manage lists with core
+`/admin` (or whatever your core command is).
+
+HTTP/API routes are **not** guild-gated by default (no Discord guild on the
+request). Protect them with the API gateway + permission bits instead.
+
+Events **without** a resolvable `guildId` are not blocked by guild gate.
 
 ---
 
