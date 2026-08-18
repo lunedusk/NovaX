@@ -70,6 +70,40 @@ async function runUpdaterMode(): Promise<void> {
     }
 }
 
+async function runPreBootUpdater(logger: ReturnType<typeof getLogger>): Promise<boolean> {
+    const { Updater, getUpdaterConfig } = await import('#core/manager/updater/index.js');
+    const cfg = getUpdaterConfig();
+    if (!cfg.autoUpdater) {
+        logger.info('Pre-boot updater skipped (AutoUpdater=false)');
+        return false;
+    }
+
+    logger.info('Pre-boot updater pass (no Discord client)…');
+    const t0 = performance.now();
+    const updater = new Updater();
+    const plan = await updater.run({ dryRun: cfg.dryRun });
+    const ms = Math.round(performance.now() - t0);
+    logger.info(`Pre-boot updater finished in ${ms}ms — ${plan.reason} (allowed=${plan.allowed})`);
+
+    if (plan.dryRun || !plan.allowed) return false;
+
+    const coreChanged =
+        !!plan.toTag && plan.fromTag !== plan.toTag &&
+        (plan.filesToOverwrite.length > 0 || plan.filesToAdd.length > 0);
+
+    const pluginsChanged = plan.pluginDecisions.some(
+        d => d.action === 'update' || d.action === 'add' || d.action === 'remove'
+    );
+
+    if (coreChanged || pluginsChanged) {
+        logger.info(
+            `Pre-boot changes applied (core=${coreChanged}, plugins=${pluginsChanged}); exiting for clean restart`
+        );
+        return true;
+    }
+    return false;
+}
+
 async function runBotMode(): Promise<void> {
     const {
         Client, Partials, Events, ShardingManager
@@ -94,7 +128,7 @@ async function runBotMode(): Promise<void> {
         private readonly client: InstanceType<typeof Client<true>>;
         private isShuttingDown = false;
         private stopBackgroundUpdater: (() => void) | null = null;
-        
+
         constructor() {
             const intentsInput = secrets.getOptional('DiscordIntents')
                 ? secrets.get('DiscordIntents').split(',').map(s => s.trim())
@@ -102,15 +136,16 @@ async function runBotMode(): Promise<void> {
 
             this.client = new Client({
                 intents: intentBuilder.build(intentsInput),
-                partials: [ Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction, Partials.ThreadMember, Partials.GuildScheduledEvent ]
+                partials: [
+                    Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember,
+                    Partials.Reaction, Partials.ThreadMember, Partials.GuildScheduledEvent
+                ]
             }) as InstanceType<typeof Client<true>>;
 
             eventManager.bindNativeEvents(this.client);
-            
             globalCatcher.init();
             wireErrorBridge();
             globalCatcher.registerTeardown(async () => await this.cleanupResources());
-
             this.setupProcessSignals();
         }
 
@@ -138,7 +173,7 @@ async function runBotMode(): Promise<void> {
 
                 this.log.info('Loading Configurations...');
                 await configManager.init(hotReloadEnabled);
-                
+
                 this.log.info('Loading Language Dictionary...');
                 await i18n.init(hotReloadEnabled);
 
@@ -148,7 +183,7 @@ async function runBotMode(): Promise<void> {
                 } catch (e) {
                     this.log.warn('Validation gate log skipped:', e);
                 }
-                
+
                 this.log.info('Initializing Databases...');
                 await initAllDatabases();
 
@@ -162,9 +197,8 @@ async function runBotMode(): Promise<void> {
                 this.log.info('Initializing Interaction Handler...');
                 interactionHandler.init();
 
-                
                 await this.login();
-                
+
                 if (this.isPrimaryShard) {
                     httpServer.init();
                     await httpServer.start(parseInt(secrets.getOptional('APIPort') || '3000'));
@@ -178,28 +212,31 @@ async function runBotMode(): Promise<void> {
                 }
 
                 await emojis.init(hotReloadEnabled);
-                
+
                 this.log.info('Syncing Commands...');
                 await interactionHandler.syncCommands(this.client, secrets.getOptional('GuildID'));
-                
+
                 const duration = ((performance.now() - start) / 1000).toFixed(2);
                 this.log.info(`NovaX fully initialized in ${duration}s.`);
-                
+
                 if (this.isPrimaryShard) {
                     this.log.info('Panel Status Override: Bot Online, Running, Active, Bot Ready, Logged in, Server up and running');
                     try {
-                        const { markUpdaterHealthy, startBackgroundUpdater } =
+                        const { markUpdaterHealthy, startBackgroundUpdater, getUpdaterConfig } =
                             await import('#core/manager/updater/index.js');
                         markUpdaterHealthy();
-                        this.stopBackgroundUpdater = startBackgroundUpdater();
+                        // Interval ticks only in background mode; pre-boot already did the one-shot
+                        if (getUpdaterConfig().mode === 'background') {
+                            this.stopBackgroundUpdater = startBackgroundUpdater({ skipInitial: true });
+                        }
                     } catch (e) {
                         this.log.warn('Updater post-boot hooks failed:', e);
                     }
                 }
             } catch (error) {
                 this.log.error('Critical failure during bootstrap sequence:', error);
-                throw error; 
-            }   
+                throw error;
+            }
         }
 
         private async login(): Promise<void> {
@@ -233,11 +270,11 @@ async function runBotMode(): Promise<void> {
                 this.stopBackgroundUpdater?.();
                 this.stopBackgroundUpdater = null;
                 await pluginManager.shutdownAll().catch((e: unknown) => this.log.error('Plugin shutdown error:', e));
-                
+
                 if (this.isPrimaryShard) {
                     await httpServer.stop().catch((e: unknown) => this.log.error('HTTP Server shutdown error:', e));
                 }
-                
+
                 this.client.destroy();
                 await new Promise(r => setTimeout(r, 250));
                 await flushLogs();
@@ -276,8 +313,18 @@ async function runBotMode(): Promise<void> {
             } catch (e) {
                 logger.warn('Pending-rollback check skipped:', e);
             }
+
+            try {
+                const shouldRestart = await runPreBootUpdater(logger);
+                if (shouldRestart) {
+                    await flushLogs();
+                    process.exit(0);
+                }
+            } catch (e) {
+                logger.warn('Pre-boot updater failed (continuing boot):', e);
+            }
         }
-        
+
         const isSharded = secrets.getBoolean('isSharded', false);
 
         if (isSharded && !isSpawnedWorker) {
@@ -300,7 +347,7 @@ async function runBotMode(): Promise<void> {
                 masterShuttingDown = true;
                 masterLog.warn('Shutting down. Broadcasting exit to fleet...');
                 manager.respawn = false;
-                setTimeout(() => process.exit(0), 2000); 
+                setTimeout(() => process.exit(0), 2000);
             };
             process.on('SIGTERM', shutdownMaster);
             process.on('SIGINT', shutdownMaster);
