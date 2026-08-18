@@ -34,6 +34,7 @@ interface PatternRoute<T> extends RouteEntry<T> {
 export interface ResolvedRoute<T> {
     handler?: Handler<T>;
     metadata?: InteractionRouteMetadata;
+    owner?: string;
 }
 
 class RouteStore<T> {
@@ -66,20 +67,24 @@ class RouteStore<T> {
 
     public resolve(id: string): ResolvedRoute<T> | undefined {
         if (!id) return undefined;
-
         const exactMatch = this.exact.get(id);
-        if (exactMatch) return { handler: exactMatch.handler as Handler<T>, metadata: exactMatch.metadata };
-
+        if (exactMatch) {
+            return {
+                handler: exactMatch.handler as Handler<T>,
+                metadata: exactMatch.metadata,
+                owner: exactMatch.owner
+            };
+        }
         for (const route of this.patterns) {
             const match = id.match(route.pattern);
             if (match) {
                 return {
                     handler: (interaction: T) => route.handler(interaction, match),
-                    metadata: route.metadata
+                    metadata: route.metadata,
+                    owner: route.owner
                 };
             }
         }
-
         return undefined;
     }
 
