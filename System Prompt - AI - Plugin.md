@@ -1310,15 +1310,17 @@ Tokens are **not JWTs** — they use a custom compact format with timing-safe si
 | Class | Purpose |
 |---|---|
 | `TokenManager` | Issue, verify, refresh, and revoke tokens |
-| `SqliteTokenStore` | SQLite-backed storage for version counters and device metadata |
+| `DbTokenStore` | Multi-engine store (sqlite → postgres → mongo via backend selector) for version counters and device metadata |
+| `SqliteTokenStore` | Deprecated alias of `DbTokenStore` (external plugins only) |
 | `InMemoryTokenStore` | In-memory store for testing |
 
 ### Setup
 
 ```ts
-import { TokenManager, SqliteTokenStore } from '#core/manager/token.js';
+import { TokenManager, DbTokenStore } from '#core/manager/token.js';
 
-const store = new SqliteTokenStore(heart.db.sqlite.get('main'));
+const store = new DbTokenStore();
+await store.init();
 const tokenManager = new TokenManager(masterSecret, store, {
     ttlSeconds: 900,
     maxTtlSeconds: 86_400,
@@ -1328,6 +1330,8 @@ const tokenManager = new TokenManager(masterSecret, store, {
     onAudit: (event) => log.info(`Token event: ${event.type}`),
 });
 ```
+
+Engine/alias: `Token.engine` / `Token.alias` in config, or env `TokenEngine` / `TokenDbAlias`. Default preference when unset: sqlite → postgres → mongo on the chosen alias (default `main`).
 
 ### Key Methods
 
@@ -1793,3 +1797,104 @@ export const configSchema = z.object({
 30. **Token manager master secret** must be at least 32 characters. Store it in env vars, never in code.
 31. When issuing tokens, use `BitSets` constants for standard role presets rather than hand-assembling bit arrays.
 32. **Route param/query typing is mandatory.** In `BaseRoute` handlers, type the Express request generic — `Request<Params, ResBody, ReqBody, Query>` — whenever a handler reads `req.params.*` or `req.query.*`. `req.query` values are `string | string[] | undefined` and MUST be narrowed (`typeof x === 'string'`) or coerced (`String(x)`/`Number(x)`) before being passed into any parameter typed `string`. Never pass `req.query.*` directly into a string parameter — this is the cause of the `Argument of type 'string | string[]' is not assignable to parameter of type 'string'` error.
+
+---
+
+## 🔤 PLACEHOLDER SYSTEM (authoring contract)
+
+Single resolver: `#core/placeholder/index.js`. Expansion order: **env → config/lang → Zod/rules**. Every reload re-reads raw disk and re-expands (no carried expansions).
+
+### Forms
+
+- `${env:KEY}` / `${secret:KEY}` — required; fail-closed in production  
+- `${env:KEY?}` / `${secret:KEY?}` — optional; soft-miss removes the field (absent), does not fail  
+- `${rand:hex:N}` — untagged: persist-once **only** under global `configuration/` (never under `plugins/*/data/`)  
+- `${rand:hex:N#tag}` — tagged: ephemeral; re-rolls every load/reload  
+- `${rand:hex:N@shared}` / `${rand:hex:N@shared:name}` — fleet-shared for one boot; primary generates, workers require injected env (hard fail if missing); never persist expanded  
+- `%%key%%` — core placeholders; `%%emoji_*%%` only at runtime (lang/middleware), not at config load  
+
+### Dual registry
+
+- **RAW** — placeholders intact; only form dashboard/API may read (`getRaw`)  
+- **RUNTIME** — expanded in memory for plugins (`get`); never serialize or log  
+
+Redacted API view masks secret-like fields as `***`.
+
+### Migrations (shipped)
+
+Per-scope version tracking in `schema_migrations` (separate chain for `core` and each `plugin:<id>`). Forward-only, idempotent, ordered `N → N+1` steps. Boot runs the runner **after** DB connect and **before** plugins boot.
+
+Plugin layout: `plugins/<id>/migrations/index.ts` exporting ordered `MigrationStep[]` (or a scope registration the runner discovers at preload).
+
+```ts
+import type { MigrationStep } from '#core/database/migrations/types.js';
+
+export const steps: MigrationStep[] = [
+  {
+    version: 1,
+    name: 'initial_schema',
+    async up(ctx) {
+      // ctx.engine: 'sqlite' | 'postgres' | 'mongo'
+      // ctx.adapter: SqlAdapter (run/get/all/exec + mongoCollection)
+      await ctx.adapter.exec(/* engine-appropriate DDL */);
+    },
+  },
+];
+```
+
+- Steps must be internally idempotent on mongo (no multi-doc DDL transaction).
+- On sqlite/postgres, each step runs inside a transaction with the version-row insert.
+- Missing DB for a plugin alias: scope is skipped (debug log), boot continues.
+- Core owns framework tables (permissions, token, guild-gate); plugins own their own tables only.
+
+Full human explainer for placeholders: [PLACEHOLDERS.md](PLACEHOLDERS.md).
+
+---
+
+## Token store
+
+Use `DbTokenStore` for multi-engine token persistence (sqlite → postgres → mongo via `Token.engine` / `TokenEngine` / `Token.alias` / `TokenDbAlias`). Call `await store.init()` before constructing `TokenManager`. `SqliteTokenStore` remains a deprecated alias of `DbTokenStore` for external compatibility — first-party code must use `DbTokenStore`.
+
+---
+
+## HTTP routes and httpRoutes policy (authoring contract)
+
+Gateway auth is **API-key based** (`Authorization: Bearer <key>`): master key (`GatewayMasterKey`) or an entry in the api plugin `auth.keys[]`. Session JWTs from `/api/tokens/issue` are **not** gateway API keys.
+
+Route authorization is driven by the **permissions** plugin config field `httpRoutes`:
+
+```json5
+httpRoutes: [
+  {
+    method: "GET",           // GET|POST|PUT|PATCH|DELETE|OPTIONS|*
+    path: "/api/example",    // must start with /
+    bits: ["bot.example.view"],
+    bitsMode: "all",         // "all" (default) = require every listed bit; "any" = require one
+    // public: true,         // skip bit checks; do not combine with non-empty bits
+  },
+]
+```
+
+Rules (validated at config load):
+
+- Non-public routes **must** list at least one bit (empty bits = UNGATED → config error).
+- `public: true` with non-empty `bits` is contradictory → config error.
+- Duplicate `method`+`path` → config error.
+- Bit **existence** is not validated at load (bits may register at runtime).
+
+Convention for new bits: `bot.<area>.view` / `bot.<area>.manage` (and `server.*` where guild-scoped). Prefer reusing existing bits (`bot.roles.manage`, etc.) when the action matches.
+
+To expose a plugin REST surface:
+
+1. Implement `BaseRoute` with `basePath` (e.g. `/api/myplugin`).
+2. Call gateway middleware (`applyMiddleware`) on the router so bearer + policy run.
+3. Add matching `httpRoutes` rows under the **permissions** config (not only in your plugin config).
+4. Register any custom bits via the permissions API or seed path before relying on them.
+
+Master key bypasses bit checks after a policy exists. Prefer dedicated `auth.keys` entries with least-privilege bits for integrations and health checks.
+
+---
+
+## Known limitations
+
+- NovaDB replica resync is limited to the designed WAL/manifest recovery model.

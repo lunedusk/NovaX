@@ -1,4 +1,6 @@
 import { createHmac, timingSafeEqual, randomBytes } from "crypto";
+import type { Request, Response, NextFunction } from 'express';
+import { NovaError } from '#core/errors/NovaError.js';
 
 export type Bit = string;
 
@@ -132,37 +134,23 @@ export interface TokenStore {
   getLastJti(userId: string, deviceId: string, guildId?: string): Promise<string | undefined>;
 }
 
-interface SqliteDb {
-  prepare(sql: string): {
-    run: (...params: unknown[]) => unknown;
-    get: (...params: unknown[]) => any;
-    all: (...params: unknown[]) => any[];
-  };
-  exec(sql: string): void;
-}
 
-export class SqliteTokenStore implements TokenStore {
-  constructor(private readonly db: SqliteDb) {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS token_global (
-        id           TEXT PRIMARY KEY,
-        tokenVersion INTEGER NOT NULL DEFAULT 0
-      );
+export class DbTokenStore implements TokenStore {
+  private db!: import('#core/database/sqlAdapter.js').SqlAdapter;
+  private ready = false;
 
-      CREATE TABLE IF NOT EXISTS token_devices (
-        id           TEXT PRIMARY KEY,
-        userId       TEXT NOT NULL,
-        deviceId     TEXT NOT NULL,
-        guildId      TEXT,
-        tokenVersion INTEGER NOT NULL DEFAULT 0,
-        deviceLabel  TEXT,
-        issuedAt     INTEGER NOT NULL,
-        lastSeenAt   INTEGER NOT NULL,
-        lastJti      TEXT
-      );
+  constructor(private readonly choice?: { engine?: string | null; alias?: string | null }) {}
 
-      CREATE INDEX IF NOT EXISTS idx_token_devices_user ON token_devices(userId);
-    `);
+  async init(): Promise<void> {
+    if (this.ready) return;
+    const { resolveTokenBackend } = await import('#core/database/backendSelector.js');
+    const { openSqlAdapter } = await import('#core/database/sqlAdapter.js');
+    this.db = openSqlAdapter(resolveTokenBackend(this.choice));
+    this.ready = true;
+  }
+
+  private async ensure(): Promise<void> {
+    if (!this.ready) await this.init();
   }
 
   private deviceKey(userId: string, deviceId: string, guildId?: string): string {
@@ -172,36 +160,101 @@ export class SqliteTokenStore implements TokenStore {
   }
 
   async getGlobalVersion(userId: string): Promise<number> {
-    const row = this.db.prepare(`SELECT tokenVersion FROM token_global WHERE id = ?`).get(`global:${userId}`);
-    return row?.tokenVersion ?? 0;
+    await this.ensure();
+    if (this.db.engine === 'mongo') {
+      const row = await this.db.mongoCollection('token_global').findOne({ _id: `global:${userId}` });
+      return Number(row?.tokenVersion ?? 0);
+    }
+    const row = await this.db.get(`SELECT tokenVersion FROM token_global WHERE id = ?`, [`global:${userId}`]);
+    return Number(row?.tokenVersion ?? 0);
   }
 
   async incrementGlobalVersion(userId: string): Promise<number> {
+    await this.ensure();
     const id = `global:${userId}`;
-    this.db.prepare(`
-      INSERT INTO token_global (id, tokenVersion) VALUES (?, 1)
-      ON CONFLICT(id) DO UPDATE SET tokenVersion = tokenVersion + 1
-    `).run(id);
-    const row = this.db.prepare(`SELECT tokenVersion FROM token_global WHERE id = ?`).get(id);
-    return row.tokenVersion;
+    if (this.db.engine === 'mongo') {
+      const col = this.db.mongoCollection('token_global');
+      const existing = await col.findOne({ _id: id });
+      const next = Number(existing?.tokenVersion ?? 0) + 1;
+      await col.updateOne(
+        { _id: id },
+        { $set: { _id: id, id, tokenVersion: next } },
+        { upsert: true },
+      );
+      return next;
+    }
+    const excluded = this.db.engine === 'postgres' ? 'token_global.tokenVersion + 1' : 'tokenVersion + 1';
+    if (this.db.engine === 'postgres') {
+      await this.db.run(
+        `INSERT INTO token_global (id, tokenVersion) VALUES (?, 1)
+         ON CONFLICT (id) DO UPDATE SET tokenVersion = token_global.tokenVersion + 1`,
+        [id],
+      );
+    } else {
+      await this.db.run(
+        `INSERT INTO token_global (id, tokenVersion) VALUES (?, 1)
+         ON CONFLICT(id) DO UPDATE SET tokenVersion = tokenVersion + 1`,
+        [id],
+      );
+    }
+    const row = await this.db.get(`SELECT tokenVersion FROM token_global WHERE id = ?`, [id]);
+    return Number(row?.tokenVersion ?? 0);
   }
 
   async getDeviceVersion(userId: string, deviceId: string, guildId?: string): Promise<number> {
-    const row = this.db.prepare(`SELECT tokenVersion FROM token_devices WHERE id = ?`)
-      .get(this.deviceKey(userId, deviceId, guildId));
-    return row?.tokenVersion ?? 0;
+    await this.ensure();
+    const id = this.deviceKey(userId, deviceId, guildId);
+    if (this.db.engine === 'mongo') {
+      const row = await this.db.mongoCollection('token_devices').findOne({ _id: id });
+      return Number(row?.tokenVersion ?? 0);
+    }
+    const row = await this.db.get(`SELECT tokenVersion FROM token_devices WHERE id = ?`, [id]);
+    return Number(row?.tokenVersion ?? 0);
   }
 
   async incrementDeviceVersion(userId: string, deviceId: string, guildId?: string): Promise<number> {
+    await this.ensure();
     const id = this.deviceKey(userId, deviceId, guildId);
     const now = Math.floor(Date.now() / 1000);
-    this.db.prepare(`
-      INSERT INTO token_devices (id, userId, deviceId, guildId, tokenVersion, issuedAt, lastSeenAt)
-      VALUES (?, ?, ?, ?, 1, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET tokenVersion = tokenVersion + 1
-    `).run(id, userId, deviceId, guildId ?? null, now, now);
-    const row = this.db.prepare(`SELECT tokenVersion FROM token_devices WHERE id = ?`).get(id);
-    return row.tokenVersion;
+    if (this.db.engine === 'mongo') {
+      const col = this.db.mongoCollection('token_devices');
+      const existing = await col.findOne({ _id: id });
+      const next = Number(existing?.tokenVersion ?? 0) + 1;
+      await col.updateOne(
+        { _id: id },
+        {
+          $set: {
+            _id: id,
+            id,
+            userId,
+            deviceId,
+            guildId: guildId ?? null,
+            tokenVersion: next,
+            issuedAt: Number(existing?.issuedAt ?? now),
+            lastSeenAt: now,
+          },
+        },
+        { upsert: true },
+      );
+      return next;
+    }
+    if (this.db.engine === 'postgres') {
+      await this.db.run(
+        `INSERT INTO token_devices (id, userId, deviceId, guildId, tokenVersion, issuedAt, lastSeenAt)
+         VALUES (?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET tokenVersion = token_devices.tokenVersion + 1`,
+        [id, userId, deviceId, guildId ?? null, now, now],
+      );
+    } else {
+      await this.db.run(
+        `INSERT INTO token_devices (id, userId, deviceId, guildId, tokenVersion, issuedAt, lastSeenAt)
+         VALUES (?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET tokenVersion = tokenVersion + 1`,
+        [id, userId, deviceId, guildId ?? null, now, now],
+      );
+    }
+    const row = await this.db.get(`SELECT tokenVersion FROM token_devices WHERE id = ?`, [id]);
+    return Number(row?.tokenVersion ?? 0);
   }
 
   async upsertDevice(
@@ -210,54 +263,122 @@ export class SqliteTokenStore implements TokenStore {
     meta: Partial<Omit<DeviceTokenMeta, "_id" | "userId" | "deviceId" | "guildId">>,
     guildId?: string
   ): Promise<void> {
+    await this.ensure();
     const id = this.deviceKey(userId, deviceId, guildId);
     const now = Math.floor(Date.now() / 1000);
-    const existing = this.db.prepare(`SELECT * FROM token_devices WHERE id = ?`).get(id);
-
+    if (this.db.engine === 'mongo') {
+      const col = this.db.mongoCollection('token_devices');
+      const existing = await col.findOne({ _id: id });
+      const merged = {
+        tokenVersion: meta.tokenVersion ?? Number(existing?.tokenVersion ?? 0),
+        deviceLabel: meta.deviceLabel ?? (existing?.deviceLabel as string | undefined) ?? null,
+        issuedAt: Number(existing?.issuedAt ?? meta.issuedAt ?? now),
+        lastSeenAt: meta.lastSeenAt ?? now,
+        lastJti: meta.lastJti ?? (existing?.lastJti as string | undefined) ?? null,
+      };
+      await col.updateOne(
+        { _id: id },
+        {
+          $set: {
+            _id: id,
+            id,
+            userId,
+            deviceId,
+            guildId: guildId ?? null,
+            ...merged,
+          },
+        },
+        { upsert: true },
+      );
+      return;
+    }
+    const existing = await this.db.get(`SELECT * FROM token_devices WHERE id = ?`, [id]);
     const merged = {
-      tokenVersion: meta.tokenVersion ?? existing?.tokenVersion ?? 0,
+      tokenVersion: meta.tokenVersion ?? Number(existing?.tokenVersion ?? 0),
       deviceLabel: meta.deviceLabel ?? existing?.deviceLabel ?? null,
-      issuedAt: existing?.issuedAt ?? meta.issuedAt ?? now,
+      issuedAt: Number(existing?.issuedAt ?? meta.issuedAt ?? now),
       lastSeenAt: meta.lastSeenAt ?? now,
       lastJti: meta.lastJti ?? existing?.lastJti ?? null,
     };
-
-    this.db.prepare(`
-      INSERT INTO token_devices (id, userId, deviceId, guildId, tokenVersion, deviceLabel, issuedAt, lastSeenAt, lastJti)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        tokenVersion = excluded.tokenVersion,
-        deviceLabel  = excluded.deviceLabel,
-        lastSeenAt   = excluded.lastSeenAt,
-        lastJti      = excluded.lastJti
-    `).run(id, userId, deviceId, guildId ?? null, merged.tokenVersion, merged.deviceLabel, merged.issuedAt, merged.lastSeenAt, merged.lastJti);
+    if (this.db.engine === 'postgres') {
+      await this.db.run(
+        `INSERT INTO token_devices (id, userId, deviceId, guildId, tokenVersion, deviceLabel, issuedAt, lastSeenAt, lastJti)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           tokenVersion = EXCLUDED.tokenVersion,
+           deviceLabel  = EXCLUDED.deviceLabel,
+           lastSeenAt   = EXCLUDED.lastSeenAt,
+           lastJti      = EXCLUDED.lastJti`,
+        [id, userId, deviceId, guildId ?? null, merged.tokenVersion, merged.deviceLabel, merged.issuedAt, merged.lastSeenAt, merged.lastJti],
+      );
+    } else {
+      await this.db.run(
+        `INSERT INTO token_devices (id, userId, deviceId, guildId, tokenVersion, deviceLabel, issuedAt, lastSeenAt, lastJti)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           tokenVersion = excluded.tokenVersion,
+           deviceLabel  = excluded.deviceLabel,
+           lastSeenAt   = excluded.lastSeenAt,
+           lastJti      = excluded.lastJti`,
+        [id, userId, deviceId, guildId ?? null, merged.tokenVersion, merged.deviceLabel, merged.issuedAt, merged.lastSeenAt, merged.lastJti],
+      );
+    }
   }
 
   async listDevices(userId: string): Promise<DeviceTokenMeta[]> {
-    const rows = this.db.prepare(`SELECT * FROM token_devices WHERE userId = ?`).all(userId);
-    return rows.map((r: any) => ({
-      _id: r.id,
-      userId: r.userId,
-      deviceId: r.deviceId,
-      guildId: r.guildId ?? undefined,
-      tokenVersion: r.tokenVersion,
-      deviceLabel: r.deviceLabel ?? undefined,
-      issuedAt: r.issuedAt,
-      lastSeenAt: r.lastSeenAt,
-      lastJti: r.lastJti ?? undefined,
+    await this.ensure();
+    if (this.db.engine === 'mongo') {
+      const rows = await this.db.mongoCollection('token_devices').find({ userId });
+      return rows.map((r) => ({
+        _id: String(r.id ?? r._id),
+        userId: String(r.userId),
+        deviceId: String(r.deviceId),
+        guildId: r.guildId != null ? String(r.guildId) : undefined,
+        tokenVersion: Number(r.tokenVersion),
+        deviceLabel: r.deviceLabel != null ? String(r.deviceLabel) : undefined,
+        issuedAt: Number(r.issuedAt),
+        lastSeenAt: Number(r.lastSeenAt),
+        lastJti: r.lastJti != null ? String(r.lastJti) : undefined,
+      }));
+    }
+    const rows = await this.db.all(`SELECT * FROM token_devices WHERE userId = ?`, [userId]);
+    return rows.map((r) => ({
+      _id: String(r.id),
+      userId: String(r.userId),
+      deviceId: String(r.deviceId),
+      guildId: r.guildId != null ? String(r.guildId) : undefined,
+      tokenVersion: Number(r.tokenVersion),
+      deviceLabel: r.deviceLabel != null ? String(r.deviceLabel) : undefined,
+      issuedAt: Number(r.issuedAt),
+      lastSeenAt: Number(r.lastSeenAt),
+      lastJti: r.lastJti != null ? String(r.lastJti) : undefined,
     }));
   }
 
   async deleteDevice(userId: string, deviceId: string, guildId?: string): Promise<void> {
-    this.db.prepare(`DELETE FROM token_devices WHERE id = ?`).run(this.deviceKey(userId, deviceId, guildId));
+    await this.ensure();
+    const id = this.deviceKey(userId, deviceId, guildId);
+    if (this.db.engine === 'mongo') {
+      await this.db.mongoCollection('token_devices').deleteOne({ _id: id });
+      return;
+    }
+    await this.db.run(`DELETE FROM token_devices WHERE id = ?`, [id]);
   }
 
   async getLastJti(userId: string, deviceId: string, guildId?: string): Promise<string | undefined> {
-    const row = this.db.prepare(`SELECT lastJti FROM token_devices WHERE id = ?`)
-      .get(this.deviceKey(userId, deviceId, guildId));
-    return row?.lastJti ?? undefined;
+    await this.ensure();
+    const id = this.deviceKey(userId, deviceId, guildId);
+    if (this.db.engine === 'mongo') {
+      const row = await this.db.mongoCollection('token_devices').findOne({ _id: id });
+      return row?.lastJti != null ? String(row.lastJti) : undefined;
+    }
+    const row = await this.db.get(`SELECT lastJti FROM token_devices WHERE id = ?`, [id]);
+    return row?.lastJti != null ? String(row.lastJti) : undefined;
   }
 }
+
+/** @deprecated Use DbTokenStore */
+export const SqliteTokenStore = DbTokenStore;
 
 function b64Encode(input: string): string {
   return Buffer.from(input, "utf-8").toString("base64url");
@@ -297,7 +418,13 @@ export class TokenManager {
 
   constructor(masterSecret: string, store: TokenStore, options: TokenManagerOptions = {}) {
     if (!masterSecret || masterSecret.length < 32) {
-      throw new Error("MASTER_SECRET must be at least 32 characters");
+      throw new NovaError("MASTER_SECRET must be at least 32 characters", {
+      code: "TOKEN.CONFIG.MASTER_SECRET",
+      category: "token",
+      severity: "fatal",
+      userMessage: "Token signing secret is not configured correctly.",
+      statusCode: 500,
+    });
     }
     this.masterKeyBuf = createHmac("sha256", "token-manager-v2")
       .update(masterSecret)
@@ -653,13 +780,44 @@ export type TokenErrorCode =
   | "TOKEN_REVOKED"
   | "PERMISSION_DENIED";
 
-export class TokenError extends Error {
-  constructor(
-    public readonly code: TokenErrorCode,
-    message: string
-  ) {
-    super(message);
+const TOKEN_HTTP_STATUS: Record<TokenErrorCode, number> = {
+  INVALID_FORMAT: 400,
+  INVALID_SIGNATURE: 401,
+  INVALID_SNOWFLAKE: 400,
+  INVALID_PERMISSION: 400,
+  INVALID_ISSUER: 401,
+  INVALID_AUDIENCE: 401,
+  TOKEN_EXPIRED: 401,
+  TOKEN_REVOKED: 401,
+  PERMISSION_DENIED: 403,
+};
+
+const TOKEN_USER_MESSAGE: Record<TokenErrorCode, string> = {
+  INVALID_FORMAT: "The token format is invalid.",
+  INVALID_SIGNATURE: "The token signature is invalid.",
+  INVALID_SNOWFLAKE: "A provided identifier is not a valid snowflake.",
+  INVALID_PERMISSION: "One or more permission bits are not allowed.",
+  INVALID_ISSUER: "The token issuer is not valid.",
+  INVALID_AUDIENCE: "The token audience is not valid.",
+  TOKEN_EXPIRED: "The token has expired.",
+  TOKEN_REVOKED: "The token has been revoked.",
+  PERMISSION_DENIED: "The token is missing a required permission.",
+};
+
+export class TokenError extends NovaError {
+  readonly tokenCode: TokenErrorCode;
+
+  constructor(code: TokenErrorCode, message: string) {
+    super(message, {
+      code: `TOKEN.${code}`,
+      category: "token",
+      severity: "error",
+      userMessage: TOKEN_USER_MESSAGE[code],
+      statusCode: TOKEN_HTTP_STATUS[code],
+      details: { code },
+    });
     this.name = "TokenError";
+    this.tokenCode = code;
   }
 }
 
@@ -744,11 +902,13 @@ export async function extractCookie(
   return manager.verify(decodeURIComponent(token));
 }
 
+export type AuthedRequest = Request & { auth?: unknown };
+
 export function requireAuth(
   manager: TokenManager,
   options: { bits?: Bit[] } = {}
 ) {
-  return async (req: any, res: any, next: any): Promise<void> => {
+  return async (req: AuthedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       const verified = await extractBearer(req.headers.authorization, manager);
 

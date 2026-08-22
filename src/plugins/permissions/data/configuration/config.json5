@@ -14,4 +14,55 @@
             denyMessage: "%%emoji_cross%% This action is restricted to Administrators.",
         },
     },
+    httpRoutes: [
+        { method: "POST", path: "/api/tokens/issue", bits: ["bot.tokens.manage"] },
+        { method: "POST", path: "/api/tokens/issue-resolved", bits: ["bot.tokens.manage"] },
+        { method: "POST", path: "/api/tokens/verify", bits: ["bot.tokens.view"] },
+        { method: "POST", path: "/api/tokens/refresh", bits: ["bot.tokens.manage"] },
+        { method: "POST", path: "/api/tokens/refresh-resolved", bits: ["bot.tokens.manage"] },
+        { method: "POST", path: "/api/tokens/revoke/all", bits: ["bot.tokens.manage"] },
+        { method: "POST", path: "/api/tokens/revoke/device", bits: ["bot.tokens.manage"] },
+        { method: "GET", path: "/api/tokens/devices/:userId", bits: ["bot.tokens.view"] },
+        { method: "GET", path: "/api/tokens/bitsets", bits: ["bot.tokens.view"] },
+
+        { method: "GET", path: "/api/permissions/resolve/:userId", bits: ["bot.permissions.view"] },
+        { method: "GET", path: "/api/permissions/check/:userId/:bit", bits: ["bot.permissions.view"] },
+        { method: "POST", path: "/api/permissions/check-batch", bits: ["bot.permissions.view"] },
+        { method: "GET", path: "/api/permissions/bits", bits: ["bot.permissions.view"] },
+        { method: "POST", path: "/api/permissions/bits", bits: ["bot.permissions.manage"] },
+
+        { method: "GET", path: "/api/permissions/roles/bot", bits: ["bot.roles.manage"] },
+        { method: "POST", path: "/api/permissions/roles/bot", bits: ["bot.roles.manage"] },
+        { method: "PUT", path: "/api/permissions/roles/bot/:roleId", bits: ["bot.roles.manage"] },
+        { method: "DELETE", path: "/api/permissions/roles/bot/:roleId", bits: ["bot.roles.manage"] },
+        { method: "POST", path: "/api/permissions/roles/bot/:roleId/assign", bits: ["bot.roles.manage"] },
+        { method: "POST", path: "/api/permissions/roles/bot/:roleId/revoke", bits: ["bot.roles.manage"] },
+
+        { method: "GET", path: "/api/permissions/roles/server/:guildId", bits: ["server.roles.manage", "bot.roles.manage"], bitsMode: "any" },
+        { method: "POST", path: "/api/permissions/roles/server/:guildId", bits: ["server.roles.manage", "bot.roles.manage"], bitsMode: "any" },
+        { method: "PUT", path: "/api/permissions/roles/server/:guildId/:roleId", bits: ["server.roles.manage", "bot.roles.manage"], bitsMode: "any" },
+        { method: "DELETE", path: "/api/permissions/roles/server/:guildId/:roleId", bits: ["server.roles.manage", "bot.roles.manage"], bitsMode: "any" },
+        { method: "POST", path: "/api/permissions/roles/server/:guildId/:roleId/assign", bits: ["server.roles.manage", "bot.roles.manage"], bitsMode: "any" },
+        { method: "POST", path: "/api/permissions/roles/server/:guildId/:roleId/revoke", bits: ["server.roles.manage", "bot.roles.manage"], bitsMode: "any" },
+
+        { method: "POST", path: "/api/permissions/cache/clear", bits: ["bot.permissions.manage"] },
+        { method: "POST", path: "/api/permissions/cache/invalidate", bits: ["bot.permissions.manage"] },
+
+        { method: "GET", path: "/api/gates/guilds", bits: ["bot.gates.view"] },
+        { method: "POST", path: "/api/gates/guilds/:guildId/block", bits: ["bot.gates.manage"] },
+        { method: "POST", path: "/api/gates/guilds/:guildId/unblock", bits: ["bot.gates.manage"] },
+        { method: "GET", path: "/api/gates/plugins", bits: ["bot.gates.view"] },
+        { method: "POST", path: "/api/gates/plugins/:pluginId/block", bits: ["bot.gates.manage"] },
+        { method: "POST", path: "/api/gates/plugins/:pluginId/unblock", bits: ["bot.gates.manage"] },
+
+        { method: "GET", path: "/api/emoji", bits: ["bot.emoji.view"] },
+        { method: "GET", path: "/api/emoji/:key", bits: ["bot.emoji.view"] },
+        { method: "POST", path: "/api/emoji/reload", bits: ["bot.emoji.manage"] },
+
+        { method: "GET", path: "/api/audit", bits: ["bot.audit.view"] },
+        { method: "GET", path: "/api/audit/:id", bits: ["bot.audit.view"] },
+
+        { method: "GET", path: "/api/errors", bits: ["bot.errors.view"] },
+        { method: "GET", path: "/api/errors/:id", bits: ["bot.errors.view"] },
+    ],
 }

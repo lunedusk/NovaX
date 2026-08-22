@@ -3,7 +3,7 @@ import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('RedisDB');
 
-interface RedisClients {
+export interface RedisClients {
     main: Redis;
     pub: Redis;
     sub: Redis;
@@ -36,6 +36,14 @@ export class RedisRegistry {
         log.info(`Redis triad [${alias}] connected successfully.`);
     }
 
+    public has(alias: string): boolean {
+        return this.instances.has(alias);
+    }
+
+    public tryGet(alias: string): RedisClients | null {
+        return this.instances.get(alias) ?? null;
+    }
+
     public get(alias: string): RedisClients {
         const instance = this.instances.get(alias);
         if (!instance) throw new Error(`Redis instance [${alias}] not found!`);
@@ -44,24 +52,24 @@ export class RedisRegistry {
 
     public async pingAll(): Promise<Record<string, boolean>> {
         const status: Record<string, boolean> = {};
-        for (const [alias, clients] of this.instances.entries()) {
+        for (const [name, clients] of this.instances.entries()) {
             try {
                 await clients.main.ping();
-                status[alias] = true;
+                status[name] = true;
             } catch {
-                status[alias] = false;
+                status[name] = false;
             }
         }
         return status;
     }
 
     public async disconnectAll(): Promise<void> {
-        for (const [alias, clients] of this.instances.entries()) {
-            log.info(`Closing Redis triad [${alias}]...`);
+        for (const [name, clients] of this.instances.entries()) {
+            log.info(`Closing Redis triad [${name}]...`);
             clients.main.disconnect();
             clients.pub.disconnect();
             clients.sub.disconnect();
-            this.instances.delete(alias);
+            this.instances.delete(name);
         }
     }
 }

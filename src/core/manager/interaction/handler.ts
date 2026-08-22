@@ -15,9 +15,11 @@ import { getLogger } from '#core/utils/logger.js';
 import { cooldownManager } from '#core/manager/cooldown.js';
 import { metricsManager } from '#core/manager/metrics/index.js';
 import { secrets } from '#core/helpers/secretManager.js';
-import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import { resolveGlobalPlaceholders } from '#core/placeholder/index.js';
 import { permissionsManager, type RouteAccessConfig } from '#core/manager/permissions.js';
 import { CrossGuildResolver } from '#core/helpers/crossGuild/index.js';
+import { NovaError } from '#core/errors/NovaError.js';
+import { errors } from '#core/errors/index.js';
 
 const log = getLogger('InteractionHandler');
 
@@ -35,7 +37,7 @@ export class InteractionHandler {
     private restClient: REST | null = null;
 
     public init(): void {
-        eventBus.on(`discord.${Events.InteractionCreate}`, async (interaction: Interaction) => {
+        eventBus.on('discord.interactionCreate', async (interaction: Interaction) => {
             this.process(interaction).catch((error: unknown) => {
                 const err = error instanceof Error ? error : new Error(String(error));
                 log.error(`Catastrophic failure in Interaction Pipeline: ${err.message}`, { stack: err.stack });
@@ -184,10 +186,48 @@ export class InteractionHandler {
             isSuccess = true;
 
         } catch (error: unknown) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            log.error(`[Execution Error] Route: ${route.lookupKey} | MSG: ${err.message}`, { stack: err.stack });
+            try {
+                const isNova = NovaError.isNovaError(error);
+                if (isNova) {
+                    log.error(
+                        `[Execution Error] Route: ${route.lookupKey} | CODE: ${error.code} | MSG: ${error.message}`,
+                        { stack: error.stack, category: error.category, severity: error.severity },
+                    );
+                } else {
+                    const err = error instanceof Error ? error : new Error(String(error));
+                    log.error(
+                        `[Execution Error] Route: ${route.lookupKey} | MSG: ${err.message}`,
+                        { stack: err.stack },
+                    );
+                }
 
-            await this.sendSystemState(interaction, 'FATAL_ERROR');
+                void errors
+                    .record({
+                        code: isNova ? error.code : 'INTERNAL.UNKNOWN',
+                        category: isNova ? error.category : 'internal',
+                        severity: isNova ? error.severity : 'error',
+                        message: isNova ? error.userMessage : 'Interaction execution failure',
+                        context: {
+                            path: route.lookupKey,
+                            code: isNova ? error.code : 'INTERNAL.UNKNOWN',
+                            actorId: interaction.user?.id ?? null,
+                            actorType: 'user',
+                            guildId: interaction.guildId ?? null,
+                        },
+                    })
+                    .catch(() => {});
+
+                const replyText = isNova ? error.userMessage : undefined;
+                await this.sendSystemState(interaction, 'FATAL_ERROR', undefined, replyText);
+            } catch (boundaryErr: unknown) {
+                const e = boundaryErr instanceof Error ? boundaryErr : new Error(String(boundaryErr));
+                log.error(`Interaction error boundary failed: ${e.message}`);
+                try {
+                    await this.sendSystemState(interaction, 'FATAL_ERROR');
+                } catch {
+                    /* ignore */
+                }
+            }
         } finally {
             const execTime = performance.now() - startTime;
 
@@ -270,7 +310,12 @@ export class InteractionHandler {
         return { category: 'UNKNOWN', lookupKey: 'UNKNOWN' };
     }
 
-    private async sendSystemState(interaction: Interaction, state: 'FATAL_ERROR' | 'RATE_LIMIT', contextData?: number): Promise<void> {
+    private async sendSystemState(
+        interaction: Interaction,
+        state: 'FATAL_ERROR' | 'RATE_LIMIT',
+        contextData?: number,
+        userMessage?: string,
+    ): Promise<void> {
         if (interaction.isAutocomplete()) {
             if (!interaction.responded) await interaction.respond([]).catch(() => {});
             return;
@@ -283,7 +328,11 @@ export class InteractionHandler {
 
             switch (state) {
                 case 'FATAL_ERROR':
-                    payload.content = resolveGlobalPlaceholders('%%emoji_cross%% A critical internal error occurred while processing your request.');
+                    payload.content = resolveGlobalPlaceholders(
+                        userMessage
+                            ? `%%emoji_cross%% ${userMessage}`
+                            : '%%emoji_cross%% A critical internal error occurred while processing your request.',
+                    );
                     break;
                 case 'RATE_LIMIT':
                     const remainingSec = ((contextData ?? 0) / 1000).toFixed(1);

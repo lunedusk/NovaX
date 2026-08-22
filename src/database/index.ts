@@ -12,8 +12,35 @@ export interface NovaDocument {
     _id?: string;
     __deleted__?: boolean;
     __txnId__?: bigint;
+    __lsn__?: string;
     [key: string]: unknown;
 }
+
+function readField(doc: NovaDocument, field: string): unknown {
+    return doc[field];
+}
+
+function readStringIds(entry: NovaDocument | null | undefined): string[] {
+    if (!entry) return [];
+    const raw = entry['ids'];
+    return Array.isArray(raw) ? raw.map(String) : [];
+}
+
+function isEnoent(err: unknown): boolean {
+    return (
+        typeof err === 'object' &&
+        err !== null &&
+        'code' in err &&
+        (err as { code?: unknown }).code === 'ENOENT'
+    );
+}
+
+function asBigInt(value: unknown): bigint {
+    if (typeof value === 'bigint') return value;
+    if (typeof value === 'number' || typeof value === 'string') return BigInt(value);
+    return BigInt(String(value));
+}
+
 
 export interface NovaConfig {
     dbDir: string;
@@ -796,6 +823,7 @@ export class NovaCollection {
         await this.recoverFromWAL(path.join(this.collectionDir, 'active.wal'));
         this.walFd = await fs.open(path.join(this.collectionDir, 'active.wal'), 'a');
         this.groupCommitTimer = setInterval(() => this.flushWal(), this.config.groupCommitIntervalMs);
+        this.groupCommitTimer.unref();
     }
 
     async close() {
@@ -910,7 +938,7 @@ export class NovaCollection {
         this.secondaryIndexes.set(field, descriptor);
         
         for await (const doc of this.scan('', '\uffff')) {
-            const val = (doc as any)[field];
+            const val = readField(doc, field);
             if (val !== undefined && val !== null)
                 await this.updateSecondaryIndex(descriptor, String(val), doc._id!, null);
         }
@@ -920,14 +948,14 @@ export class NovaCollection {
         if (oldFieldValue !== null && oldFieldValue !== fieldValue) {
             const oldEntry = await idx.collection.get(oldFieldValue);
             if (oldEntry) {
-                const ids: string[] = (oldEntry as any).ids ?? [];
+                const ids: string[] = readStringIds(oldEntry);
                 const newIds = ids.filter(id => id !== docId);
                 if (newIds.length === 0) await idx.collection.delete(oldFieldValue);
                 else                     await idx.collection.upsert({ _id: oldFieldValue, ids: newIds });
             }
         }
         const existing = await idx.collection.get(fieldValue);
-        const ids: string[] = existing ? ((existing as any).ids ?? []) : [];
+        const ids: string[] = existing ? readStringIds(existing) : [];
         if (!ids.includes(docId)) {
             ids.push(docId);
             await idx.collection.upsert({ _id: fieldValue, ids });
@@ -939,7 +967,7 @@ export class NovaCollection {
         if (!idx) throw new Error(`No index on field "${field}". Call createIndex("${field}") first.`);
         const entry = await idx.collection.get(String(value));
         if (!entry) return [];
-        const ids: string[] = (entry as any).ids ?? [];
+        const ids: string[] = readStringIds(entry);
         const docs: NovaDocument[] = [];
         for (const id of ids) {
             const doc = await this.get(id, snapshot);
@@ -969,7 +997,6 @@ export class NovaCollection {
 
         const txnId = this.nextTxnId++;
         txn.txnId   = txnId;
-        this.committedTxnId = txnId > this.committedTxnId ? txnId : this.committedTxnId;
 
         for (const [, doc] of txn.writes) doc.__txnId__ = txnId;
 
@@ -996,6 +1023,7 @@ export class NovaCollection {
         this.walBuffer.push(batch);
         this.walBufferBytes += batch.length;
         await this.flushWal();
+        this.committedTxnId = txnId > this.committedTxnId ? txnId : this.committedTxnId;
 
         for (const wr of walRecords) await this.replication.shipAll(wr);
 
@@ -1007,8 +1035,8 @@ export class NovaCollection {
             this.memtable.set(id, txnId, binaryData, oldest);
             
             for (const idx of this.secondaryIndexes.values()) {
-                const newVal = (doc as any)[idx.field];
-                const oldVal = prevDoc ? (prevDoc as any)[idx.field] : null;
+                const newVal = readField(doc, idx.field);
+                const oldVal = prevDoc ? readField(prevDoc, idx.field) : null;
                 if (newVal !== undefined && newVal !== null)
                     await this.updateSecondaryIndex(idx, String(newVal), id,
                         oldVal !== undefined && oldVal !== null ? String(oldVal) : null);
@@ -1036,10 +1064,10 @@ export class NovaCollection {
         this.walFlushInProgress = true;
         try {
             const data = Buffer.concat(this.walBuffer);
-            this.walBuffer      = [];
-            this.walBufferBytes = 0;
             await this.walFd.appendFile(data);
             await this.walFd.datasync();
+            this.walBuffer = [];
+            this.walBufferBytes = 0;
         } finally {
             this.walFlushInProgress = false;
         }
@@ -1072,8 +1100,8 @@ export class NovaCollection {
             const stat = await fs.stat(walPath);
             if (stat.size === 0) return;
             buffer = await fs.readFile(walPath);
-        } catch (err: any) {
-            if (err.code === 'ENOENT') return;
+        } catch (err: unknown) {
+            if (isEnoent(err)) return;
             throw err;
         }
 
@@ -1108,7 +1136,7 @@ export class NovaCollection {
             }
 
             const doc   = packr.unpack(docBuf) as NovaDocument;
-            const txnId = doc.__txnId__ !== undefined ? BigInt(doc.__txnId__ as any) : lsn;
+            const txnId = doc.__txnId__ !== undefined ? asBigInt(doc.__txnId__) : lsn;
             this.memtable.set(id, txnId, docBuf, this.snapshotRegistry.oldest());
             if (lsn + 1n > this.walLsn) this.walLsn = lsn + 1n;
             if (txnId > this.committedTxnId) this.committedTxnId = txnId;
@@ -1124,12 +1152,12 @@ export class NovaCollection {
             try {
                 const doc = await this.readRecordFromDisk(sstable, id);
                 if (doc?.__deleted__) return BigInt((doc.__lsn__ as string | number | bigint | undefined) ?? 0);
-            } catch (err: any) {
+            } catch (err: unknown) {
                 const error = err instanceof Error ? err : new Error(String(err));
                 log.error(`Error occurred while probing SSTable: ${error.message}`, {
                     stack: error.stack,
                 });
-                if (err.code === 'ENOENT') continue;
+                if (isEnoent(err)) continue;
             }
         }
         return null;
@@ -1148,9 +1176,23 @@ export class NovaCollection {
     private async loadFromManifest() {
         const manifestPath = path.join(this.collectionDir, 'MANIFEST');
         let entries: ManifestEntry[] = [];
+        let manifestPresent = false;
         try {
             const raw = await fs.readFile(manifestPath, 'utf-8');
-            entries = raw.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+            manifestPresent = true;
+            const lines = raw.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                try {
+                    entries.push(JSON.parse(line) as ManifestEntry);
+                } catch {
+                    log.warn(
+                        `MANIFEST corrupt/truncated at line ${i + 1} – using ${entries.length} valid entries before corruption`
+                    );
+                    break;
+                }
+            }
         } catch (err) {
             const error = err instanceof Error ? err : new Error(String(err));
             if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -1160,7 +1202,10 @@ export class NovaCollection {
             }
         }
 
-        if (entries.length === 0) { await this.loadSSTablesMetadata(); return; }
+        if (entries.length === 0) {
+            if (!manifestPresent) await this.loadSSTablesMetadata();
+            return;
+        }
 
         const activeFiles = new Map<number, number>();
         let checkpointLsn = 0n;
@@ -1176,8 +1221,7 @@ export class NovaCollection {
                 if (lsn + 1n > this.walLsn) this.walLsn = lsn + 1n;
             } else if (e.type === MANIFEST_COMPACT) {
                 for (const id of e.removedIds) activeFiles.delete(id);
-                const addedIds = (e as any).addedIds ?? [(e as any).addedId];
-                for (const id of addedIds) activeFiles.set(id, e.addedLevel);
+                for (const id of e.addedIds) activeFiles.set(id, e.addedLevel);
             }
         }
 
@@ -1194,6 +1238,17 @@ export class NovaCollection {
                 });
             }
         }
+
+        try {
+            const files = await fs.readdir(this.collectionDir);
+            for (const f of files) {
+                if (!f.startsWith('sstable_') || !f.endsWith('.dat')) continue;
+                const id = parseInt(f.slice('sstable_'.length, f.length - '.dat'.length), 10);
+                if (!Number.isFinite(id) || activeFiles.has(id)) continue;
+                await fs.unlink(path.join(this.collectionDir, f)).catch(() => {});
+                log.info(`[${this.name}] Removed orphan SSTable not in manifest: ${f}`);
+            }
+        } catch { /* ignore */ }
 
         this.invalidateSstablesCache();
         await this.writeManifestCheckpoint(checkpointLsn);
@@ -1280,13 +1335,13 @@ export class NovaCollection {
 
         const txnId = this.nextTxnId++;
         doc.__txnId__ = txnId;
-        this.committedTxnId = txnId;
 
-        if (doc.__deleted__) (doc as any).__lsn__ = this.walLsn.toString();
+        if (doc.__deleted__) doc.__lsn__ = this.walLsn.toString();
 
         const binaryData = packr.pack(doc);
         const idBuffer   = Buffer.from(doc._id);
         await this.writeWalRecord(idBuffer, binaryData, txnId);
+        this.committedTxnId = txnId > this.committedTxnId ? txnId : this.committedTxnId;
 
         const oldest  = this.snapshotRegistry.oldest();
         const prevBuf = this.memtable.get(doc._id, this.committedTxnId);
@@ -1294,8 +1349,8 @@ export class NovaCollection {
         this.memtable.set(doc._id, txnId, binaryData, oldest);
 
         for (const idx of this.secondaryIndexes.values()) {
-            const newVal = (doc as any)[idx.field];
-            const oldVal = prevDoc ? (prevDoc as any)[idx.field] : null;
+            const newVal = readField(doc, idx.field);
+            const oldVal = prevDoc ? readField(prevDoc, idx.field) : null;
             if (newVal !== undefined && newVal !== null)
                 await this.updateSecondaryIndex(idx, String(newVal), doc._id,
                     oldVal !== undefined && oldVal !== null ? String(oldVal) : null);
@@ -1344,7 +1399,7 @@ export class NovaCollection {
         const oldestSnap = this.snapshotRegistry.oldest();
         const hasSnaps   = this.snapshotRegistry.hasAny();
 
-        setImmediate(async () => {
+        const runFlush = async (attempt: number): Promise<void> => {
             try {
                 let flushMap: Map<string, Buffer>;
                 if (hasSnaps) {
@@ -1373,11 +1428,14 @@ export class NovaCollection {
                     await this.triggerLeveledCompaction(0);
             } catch (err) {
                 const error = err instanceof Error ? err : new Error(String(err));
-                log.error(`Background flush error: ${error.message}`, {
+                log.error(`Background flush error (attempt ${attempt}): ${error.message}`, {
                     stack: error.stack,
                 });
+                const delay = Math.min(30_000, 500 * attempt);
+                setTimeout(() => { void runFlush(attempt + 1); }, delay).unref();
             }
-        });
+        };
+        setImmediate(() => { void runFlush(1); });
     }
 
     private async writeSSTableFile(
@@ -1711,8 +1769,8 @@ export class NovaCollection {
                 if (versionedDoc !== undefined) {
                     return versionedDoc.__deleted__ ? null : versionedDoc;
                 }
-            } catch (err: any) {
-                if (err.code === 'ENOENT') continue;
+            } catch (err: unknown) {
+                if (isEnoent(err)) continue;
                 throw err;
             }
         }
@@ -1792,7 +1850,7 @@ export class NovaCollection {
 
     private visibleTo(doc: NovaDocument, snapshot: bigint): boolean {
         if (doc.__txnId__ === undefined) return true;
-        return BigInt(doc.__txnId__ as any) <= snapshot;
+        return asBigInt(doc.__txnId__) <= snapshot;
     }
 
     private async readRecordFromDisk(sstable: SSTableMetadata, targetId: string): Promise<NovaDocument | undefined> {
@@ -1918,8 +1976,18 @@ export class NovaCollection {
         }
 
         for (const it of iterators) {
-            if ('close' in it && typeof (it as any).close === 'function')
-                await (it as any).close().catch(() => {});
+            if (
+                it !== null &&
+                typeof it === 'object' &&
+                'close' in it &&
+                typeof (it as { close?: unknown }).close === 'function'
+            ) {
+                const closer = (it as { close: () => Promise<void> | void }).close;
+                try {
+                    await closer.call(it);
+                } catch {
+                }
+            }
         }
     }
 }

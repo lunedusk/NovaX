@@ -4,6 +4,7 @@ import { permissionsManager } from '#core/manager/permissions.js';
 import { permissionCache } from '#core/manager/permissionCache.js';
 import { PermissionError } from '#core/types/permissions.js';
 import type GatewayManager from '../../../api/src/handlers/manager.js';
+import { actorFromGateway } from '#core/audit/actor.js';
 
 export default class PermissionsApiRoute extends BaseRoute {
 
@@ -30,6 +31,7 @@ export default class PermissionsApiRoute extends BaseRoute {
 
         this.router.get('/resolve/:userId', this.asyncHandler(this.resolveUser.bind(this)));
         this.router.get('/check/:userId/:bit', this.asyncHandler(this.checkBit.bind(this)));
+        this.router.post('/check-batch', this.asyncHandler(this.checkBatch.bind(this)));
         this.router.get('/bits', this.asyncHandler(this.listBits.bind(this)));
         this.router.post('/bits', this.asyncHandler(this.registerBit.bind(this)));
         this.router.get('/roles/bot', this.asyncHandler(this.listBotRoles.bind(this)));
@@ -109,20 +111,48 @@ export default class PermissionsApiRoute extends BaseRoute {
 
     /**
      * @openapi
-     * /api/permissions/bits:
-     *   get:
+     * /api/permissions/check-batch:
+     *   post:
      *     tags: [Permissions]
-     *     summary: List all registered permission bits
+     *     summary: Batch-check permission bits for a user
+     *     description: Requires bit bot.permissions.view.
      *     security:
      *       - bearerAuth: []
-     *     parameters:
-     *       - in: query
-     *         name: scope
-     *         schema: { type: string, enum: [bot, server, plugin] }
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             required: [userId, bits]
+     *             properties:
+     *               userId: { type: string }
+     *               bits: { type: array, items: { type: string } }
+     *               mode: { type: string, enum: [all, any] }
+     *               guildId: { type: string }
      *     responses:
      *       '200':
-     *         description: Array of permission bits
+     *         description: Batch check result
      */
+    private async checkBatch(req: Request, res: Response): Promise<void> {
+        const body = req.body as { userId?: unknown; bits?: unknown; mode?: unknown; guildId?: unknown };
+        const userId = typeof body.userId === 'string' ? body.userId : '';
+        const mode = body.mode === 'any' ? 'any' : 'all';
+        const guildId = typeof body.guildId === 'string' ? body.guildId : undefined;
+        const bitsRaw = body.bits;
+        if (!userId || !Array.isArray(bitsRaw) || bitsRaw.length === 0) {
+            res.status(400).json({ error: 'userId and non-empty bits array are required' });
+            return;
+        }
+        const bits = bitsRaw.map(String);
+        const allowed =
+            mode === 'any'
+                ? await this.mgr.hasAnyBit(userId, bits, guildId)
+                : await this.mgr.hasAllBits(userId, bits, guildId);
+        res.json({ userId, guildId: guildId ?? null, mode, bits, allowed });
+    }
+
+
     private async listBits(req: Request, res: Response): Promise<void> {
         const scope = this.query(req, 'scope') as 'bot' | 'server' | 'plugin' | undefined;
         res.json({ bits: await this.mgr.listBits(scope) });
@@ -154,8 +184,27 @@ export default class PermissionsApiRoute extends BaseRoute {
     private async registerBit(req: Request, res: Response): Promise<void> {
         const { bit, description, pluginId } = req.body;
         if (!bit || !description) { res.status(400).json({ error: 'Missing required fields: bit, description' }); return; }
-        await this.mgr.registerBit(String(bit), String(description), pluginId ? String(pluginId) : undefined);
-        res.status(201).json({ bit, registered: true });
+        const actor = actorFromGateway(res);
+        try {
+            await this.mgr.registerBit(String(bit), String(description), pluginId ? String(pluginId) : undefined);
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.bit.register',
+                target: String(bit),
+                outcome: 'success',
+                meta: { pluginId: pluginId ? String(pluginId) : null },
+            });
+            res.status(201).json({ bit, registered: true });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.bit.register',
+                target: String(bit),
+                outcome: 'fail',
+                reason: 'error',
+            });
+            throw err;
+        }
     }
 
     /**
@@ -199,8 +248,28 @@ export default class PermissionsApiRoute extends BaseRoute {
      *         description: Role created
      */
     private async createBotRole(req: Request, res: Response): Promise<void> {
-        try { res.status(201).json({ role: await this.mgr.createBotRole(req.body) }); }
-        catch (err) { if (err instanceof PermissionError) { res.status(400).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        try {
+            const role = await this.mgr.createBotRole(req.body);
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.create',
+                target: String((role as { id?: string }).id ?? 'bot-role'),
+                outcome: 'success',
+                meta: { name: typeof req.body?.name === 'string' ? req.body.name : null },
+            });
+            res.status(201).json({ role });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.create',
+                target: 'bot-role',
+                outcome: 'fail',
+                reason: err instanceof PermissionError ? err.code : 'error',
+            });
+            if (err instanceof PermissionError) { res.status(400).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -221,8 +290,28 @@ export default class PermissionsApiRoute extends BaseRoute {
      *         description: Role updated
      */
     private async updateBotRole(req: Request, res: Response): Promise<void> {
-        try { res.json({ role: await this.mgr.updateBotRole(this.param(req, 'roleId'), req.body) }); }
-        catch (err) { if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        const roleId = this.param(req, 'roleId');
+        try {
+            const role = await this.mgr.updateBotRole(roleId, req.body);
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.update',
+                target: roleId,
+                outcome: 'success',
+            });
+            res.json({ role });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.update',
+                target: roleId,
+                outcome: 'fail',
+                reason: err instanceof PermissionError ? err.code : 'error',
+            });
+            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -276,9 +365,29 @@ export default class PermissionsApiRoute extends BaseRoute {
     private async assignBotRole(req: Request, res: Response): Promise<void> {
         const { userIds } = req.body;
         if (!Array.isArray(userIds) || userIds.length === 0) { res.status(400).json({ error: 'userIds must be a non-empty array' }); return; }
+        const actor = actorFromGateway(res);
         const roleId = this.param(req, 'roleId');
-        try { await this.mgr.assignBotRole(roleId, userIds); res.json({ assigned: true, roleId, userIds }); }
-        catch (err) { if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.message }); return; } throw err; }
+        try {
+            await this.mgr.assignBotRole(roleId, userIds);
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.assign',
+                target: roleId,
+                outcome: 'success',
+                meta: { count: userIds.length },
+            });
+            res.json({ assigned: true, roleId, userIds });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.assign',
+                target: roleId,
+                outcome: 'fail',
+                reason: err instanceof PermissionError ? err.code : 'error',
+            });
+            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -310,9 +419,29 @@ export default class PermissionsApiRoute extends BaseRoute {
     private async revokeBotRole(req: Request, res: Response): Promise<void> {
         const { userIds } = req.body;
         if (!Array.isArray(userIds) || userIds.length === 0) { res.status(400).json({ error: 'userIds must be a non-empty array' }); return; }
+        const actor = actorFromGateway(res);
         const roleId = this.param(req, 'roleId');
-        try { await this.mgr.revokeBotRole(roleId, userIds); res.json({ revoked: true, roleId, userIds }); }
-        catch (err) { if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.message }); return; } throw err; }
+        try {
+            await this.mgr.revokeBotRole(roleId, userIds);
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.revoke',
+                target: roleId,
+                outcome: 'success',
+                meta: { count: userIds.length },
+            });
+            res.json({ revoked: true, roleId, userIds });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.revoke',
+                target: roleId,
+                outcome: 'fail',
+                reason: err instanceof PermissionError ? err.code : 'error',
+            });
+            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -366,8 +495,30 @@ export default class PermissionsApiRoute extends BaseRoute {
      *         description: Server role created
      */
     private async createServerRole(req: Request, res: Response): Promise<void> {
-        try { res.status(201).json({ role: await this.mgr.createServerRole(this.param(req, 'guildId'), req.body) }); }
-        catch (err) { if (err instanceof PermissionError) { res.status(400).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        const guildId = this.param(req, 'guildId');
+        try {
+            const role = await this.mgr.createServerRole(guildId, req.body);
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.create',
+                target: String((role as { id?: string }).id ?? 'server-role'),
+                outcome: 'success',
+                meta: { guildId },
+            });
+            res.status(201).json({ role });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.create',
+                target: 'server-role',
+                outcome: 'fail',
+                reason: err instanceof PermissionError ? err.code : 'error',
+                meta: { guildId },
+            });
+            if (err instanceof PermissionError) { res.status(400).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -392,8 +543,31 @@ export default class PermissionsApiRoute extends BaseRoute {
      *         description: Server role updated
      */
     private async updateServerRole(req: Request, res: Response): Promise<void> {
-        try { res.json({ role: await this.mgr.updateServerRole(this.param(req, 'guildId'), this.param(req, 'roleId'), req.body) }); }
-        catch (err) { if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        const guildId = this.param(req, 'guildId');
+        const roleId = this.param(req, 'roleId');
+        try {
+            const role = await this.mgr.updateServerRole(guildId, roleId, req.body);
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.update',
+                target: roleId,
+                outcome: 'success',
+                meta: { guildId },
+            });
+            res.json({ role });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.update',
+                target: roleId,
+                outcome: 'fail',
+                reason: err instanceof PermissionError ? err.code : 'error',
+                meta: { guildId },
+            });
+            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -418,8 +592,30 @@ export default class PermissionsApiRoute extends BaseRoute {
      *         description: Server role deleted
      */
     private async deleteServerRole(req: Request, res: Response): Promise<void> {
-        await this.mgr.deleteServerRole(this.param(req, 'guildId'), this.param(req, 'roleId'));
-        res.json({ deleted: true });
+        const actor = actorFromGateway(res);
+        const guildId = this.param(req, 'guildId');
+        const roleId = this.param(req, 'roleId');
+        try {
+            await this.mgr.deleteServerRole(guildId, roleId);
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.delete',
+                target: roleId,
+                outcome: 'success',
+                meta: { guildId },
+            });
+            res.json({ deleted: true });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.delete',
+                target: roleId,
+                outcome: 'fail',
+                reason: 'error',
+                meta: { guildId },
+            });
+            throw err;
+        }
     }
 
     /**
@@ -455,9 +651,31 @@ export default class PermissionsApiRoute extends BaseRoute {
     private async assignServerRole(req: Request, res: Response): Promise<void> {
         const { userIds } = req.body;
         if (!Array.isArray(userIds) || userIds.length === 0) { res.status(400).json({ error: 'userIds must be a non-empty array' }); return; }
-        const guildId = this.param(req, 'guildId'); const roleId = this.param(req, 'roleId');
-        try { await this.mgr.assignServerRole(guildId, roleId, userIds); res.json({ assigned: true, roleId, userIds }); }
-        catch (err) { if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        const guildId = this.param(req, 'guildId');
+        const roleId = this.param(req, 'roleId');
+        try {
+            await this.mgr.assignServerRole(guildId, roleId, userIds);
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.assign',
+                target: roleId,
+                outcome: 'success',
+                meta: { guildId, count: userIds.length },
+            });
+            res.json({ assigned: true, roleId, userIds });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.assign',
+                target: roleId,
+                outcome: 'fail',
+                reason: err instanceof PermissionError ? err.code : 'error',
+                meta: { guildId },
+            });
+            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -493,9 +711,31 @@ export default class PermissionsApiRoute extends BaseRoute {
     private async revokeServerRole(req: Request, res: Response): Promise<void> {
         const { userIds } = req.body;
         if (!Array.isArray(userIds) || userIds.length === 0) { res.status(400).json({ error: 'userIds must be a non-empty array' }); return; }
-        const guildId = this.param(req, 'guildId'); const roleId = this.param(req, 'roleId');
-        try { await this.mgr.revokeServerRole(guildId, roleId, userIds); res.json({ revoked: true, roleId, userIds }); }
-        catch (err) { if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        const guildId = this.param(req, 'guildId');
+        const roleId = this.param(req, 'roleId');
+        try {
+            await this.mgr.revokeServerRole(guildId, roleId, userIds);
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.revoke',
+                target: roleId,
+                outcome: 'success',
+                meta: { guildId, count: userIds.length },
+            });
+            res.json({ revoked: true, roleId, userIds });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'perm.role.revoke',
+                target: roleId,
+                outcome: 'fail',
+                reason: err instanceof PermissionError ? err.code : 'error',
+                meta: { guildId },
+            });
+            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**

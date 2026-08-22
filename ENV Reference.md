@@ -576,6 +576,60 @@ ApiKey=your_gateway_master_key_here
 
 > 🔒 **Security Notice:** This is the master credential for the API gateway when env mode is enabled. Treat it like a root password: never commit it, never paste it into a shared config file, and rotate it immediately if exposure is suspected.
 
+### `GatewayMasterKey`
+
+Preferred env name for the gateway master key when `auth.masterKeySource` is `"env"` and `auth.masterKeyEnvVar` is `GatewayMasterKey` (common default). Equivalent role to `ApiKey` depending on gateway config.
+
+| | |
+|---|---|
+| **Required** | **Yes — if API gateway auth is enabled with env master key** |
+| **Default** | *(none)* |
+| **Safe to Change** | Yes (requires restart; update clients) |
+| **Breaking Risk** | **CRITICAL** for API auth |
+
+Also used to authorize Prometheus scrapes on `/metrics` and `/metrics.json` (`Authorization: Bearer <GatewayMasterKey>`).
+
+```env
+GatewayMasterKey=${rand:hex:48}
+```
+
+### Gateway `auth.keys` (config, not env)
+
+Configured in the API plugin config (`configuration` / plugin `config.json5`), not as a single env var. Each entry:
+
+- `key` — secret string
+- `label` — human label
+- `enabled` — boolean
+- `bits` — string array of permission bits (e.g. `bot.tokens.manage`, `bot.permissions.view`)
+
+The health-check script (`scripts/healthcheck.mjs` / `health.mjs`) should use a dedicated key whose `bits` include at least:
+
+`bot.tokens.view`, `bot.tokens.manage`, `bot.permissions.view`, `bot.permissions.manage`, `bot.roles.manage`, `bot.gates.view`, `bot.gates.manage`, `bot.emoji.view`, `bot.emoji.manage`
+
+Master key bypasses bit checks; ordinary keys must satisfy `httpRoutes` policy (`bits` + `bitsMode`).
+
+### `NOVAX_BOOT_SHARED_RAND`
+
+Internal JSON blob injected by the primary process for `${rand:…@shared}` resolution on all shards. **Do not set manually** unless debugging multi-shard; it is written at boot by the shared-rand bootstrap.
+
+| | |
+|---|---|
+| **Required** | No (auto-managed) |
+| **Default** | *(absent until primary generates)* |
+
+### Admin env reload
+
+`/admin reload-env` re-reads `.env` / `.env.local` only (not `common.json`), re-expands placeholders, persists untagged `${rand:…}` into the file, and applies values through `secrets.applyEnvReload` (allow-set = keys in those files). `#tag` rand is process-stable across reload. `DiscordToken` / `DiscordIntents` are never applied by reload. Live `secrets.get` / `process.env` readers see updates; values cached at boot (including the Discord client session) do not.
+
+### Health endpoints
+
+| Path | Auth | Purpose |
+|------|------|---------|
+| `GET /health` | None | Process liveness (HttpServer) |
+| `GET /api/health` | Gateway bearer (unless policy marks public) | API gateway health |
+
+Both are intentional: `/health` for orchestrators; `/api/health` for authenticated gateway checks.
+
 ---
 
 ## 8. Database
@@ -1558,3 +1612,33 @@ All standard env variables above are also valid as top-level keys in `common.jso
 ---
 
 *For plugin development documentation, database API reference, or the full IHeart context API, refer to the corresponding framework documentation files.*
+
+## Placeholder expansion in environment values
+
+After secrets assimilate and before the vault locks, string values in the environment may contain:
+
+- `${env:OTHER_KEY}` / `${secret:OTHER_KEY}` (and optional `?` forms)
+- `${rand:hex:N}` / `${rand:hex:N#tag}` / `${rand:hex:N@shared}` (env untagged rand is **runtime-only**, not written to disk; `@shared` uses fleet boot blob)
+- `%%key%%` non-emoji placeholders
+
+See [docs/PLACEHOLDERS.md](docs/PLACEHOLDERS.md).
+
+
+## Data backend selection (per subsystem)
+
+Preference when engine is unset: sqlite → postgres → mongo (first connected alias).
+
+| Subsystem | Config section keys | Env engine | Env alias |
+|-----------|---------------------|------------|-----------|
+| Permissions | `permissions.engine` / `permissions.alias` | `PermissionsEngine` | `PermissionsDbAlias` |
+| Token | `token.engine` / `token.alias` | `TokenEngine` | `TokenDbAlias` |
+| GuildGate | `guildGate.engine` / `guildGate.alias` (or core plugin config) | `GuildGateEngine` | `GuildGateDbAlias` |
+| Dashboard | `dashboard.engine` / `dashboard.alias` | `DashboardEngine` | `DashboardDbAlias` |
+
+Default alias: `main`. Core migrations use the permissions-resolved backend.
+
+## Known limitations
+
+- **MongoDB / PostgreSQL paths** are implemented and selected via the backend selector, but this repository’s primary CI/runtime verification is SQLite. Treat first deploy on mongo/pg as a validation pass.
+- **NovaDB replica resync** follows the engine’s designed recovery path (WAL + manifest); full remote replica catch-up semantics are not a separate product feature beyond that design.
+

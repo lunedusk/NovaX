@@ -1,8 +1,33 @@
+import type { Client, Interaction } from 'discord.js';
+import type { AuditRecord } from '#core/audit/types.js';
+import type { ErrorOccurrence } from '#core/errors/types.js';
 import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('EventBus');
 
-export type EventCallback = (...args: any[]) => any | Promise<any>;
+export type EventArgsMap = {
+    'discord.clientReady': [client: Client<true>];
+    'discord.error': [error: Error];
+    'discord.interactionCreate': [interaction: Interaction];
+    'discord.guildCreate': unknown[];
+    'discord.guildDelete': unknown[];
+    'system.ready': [client: Client<true>];
+    'command:executed': [payload: { pluginId: string; commandName: string }];
+    'audit.recorded': [entry: AuditRecord];
+    'error.recorded': [entry: ErrorOccurrence];
+};
+
+export type ArgsFor<E extends string> = string extends E
+    ? unknown[]
+    : E extends keyof EventArgsMap
+      ? EventArgsMap[E]
+      : unknown[];
+
+export type EventCallback<E extends string = string> = (
+    ...args: ArgsFor<E>
+) => unknown | Promise<unknown>;
+
+type StoredCallback = (...args: unknown[]) => unknown | Promise<unknown>;
 
 export interface ListenerOptions {
     priority?: number;
@@ -13,7 +38,7 @@ interface Listener {
     id: number;
     priority: number;
     order: number;
-    callback: EventCallback;
+    callback: StoredCallback;
     once: boolean;
     owner?: string;
     registeredAt: number;
@@ -22,13 +47,13 @@ interface Listener {
 export interface EventResult {
     event: string;
     listenerCount: number;
-    results: any[];
+    results: unknown[];
 }
 
 export class EventBus {
     private readonly exactListeners = new Map<string, Listener[]>();
     private readonly wildcardListeners = new Map<string, Listener[]>();
-    
+
     private readonly patternCache = new Map<string, RegExp>();
     private counter = 0;
 
@@ -38,29 +63,43 @@ export class EventBus {
             this.patternCache.clear();
         }
 
-        if (!this.patternCache.has(pattern)) {
+        let matcher = this.patternCache.get(pattern);
+        if (!matcher) {
             const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
             const regexStr = '^' + escaped.replace(/\\\*/g, '.*') + '$';
-            this.patternCache.set(pattern, new RegExp(regexStr));
+            matcher = new RegExp(regexStr);
+            this.patternCache.set(pattern, matcher);
         }
-        return this.patternCache.get(pattern)!;
+        return matcher;
     }
 
-    public on(pattern: string, callback: EventCallback, options: ListenerOptions & { owner?: string } = {}): () => void {
+    public on<E extends string>(
+        pattern: E,
+        callback: EventCallback<E>,
+        options: ListenerOptions & { owner?: string } = {},
+    ): () => void {
         const owner = options.owner;
         if (!pattern || typeof pattern !== 'string') {
-            throw new TypeError("Pattern must be a non-empty string");
+            throw new TypeError('Pattern must be a non-empty string');
         }
         if (typeof callback !== 'function') {
-            throw new TypeError("Callback must be a function");
+            throw new TypeError('Callback must be a function');
         }
 
         const priority = options.priority ?? 0;
         const once = options.once ?? false;
         const order = this.counter++;
 
-        const listener: Listener = { id: order, priority, order, callback, once, owner, registeredAt: Date.now() };
-        
+        const listener: Listener = {
+            id: order,
+            priority,
+            order,
+            callback: callback as StoredCallback,
+            once,
+            owner,
+            registeredAt: Date.now(),
+        };
+
         const isWildcard = pattern.includes('*');
         const targetMap = isWildcard ? this.wildcardListeners : this.exactListeners;
 
@@ -68,7 +107,10 @@ export class EventBus {
             targetMap.set(pattern, []);
         }
 
-        const bucket = targetMap.get(pattern)!;
+        const bucket = targetMap.get(pattern);
+        if (!bucket) {
+            throw new Error(`EventBus: failed to create listener bucket for ${pattern}`);
+        }
         bucket.push(listener);
 
         bucket.sort((a, b) => {
@@ -76,7 +118,9 @@ export class EventBus {
             return a.order - b.order;
         });
 
-        return () => this.removeListener(pattern, callback);
+        return () => {
+            this.removeListener(pattern, callback as StoredCallback);
+        };
     }
 
     public unregisterByOwner(ownerId: string): void {
@@ -93,23 +137,27 @@ export class EventBus {
             if (newBucket.length === 0) this.wildcardListeners.delete(pattern);
             else this.wildcardListeners.set(pattern, newBucket);
         }
-        
+
         log.debug(`[EventBus] Purged all listeners owned by: ${ownerId}`);
     }
 
-    public once(pattern: string, callback: EventCallback, priority: number = 0): () => void {
+    public once<E extends string>(
+        pattern: E,
+        callback: EventCallback<E>,
+        priority: number = 0,
+    ): () => void {
         return this.on(pattern, callback, { priority, once: true });
     }
 
-    public removeListener(pattern: string, callback: EventCallback): boolean {
+    public removeListener(pattern: string, callback: StoredCallback): boolean {
         const isWildcard = pattern.includes('*');
         const targetMap = isWildcard ? this.wildcardListeners : this.exactListeners;
-        
+
         const bucket = targetMap.get(pattern);
         if (!bucket) return false;
 
         const initialLength = bucket.length;
-        const newBucket = bucket.filter(l => l.callback !== callback);
+        const newBucket = bucket.filter((l) => l.callback !== callback);
 
         if (newBucket.length === 0) {
             targetMap.delete(pattern);
@@ -153,10 +201,10 @@ export class EventBus {
         return out;
     }
 
-    public async emit(event: string, ...args: any[]): Promise<EventResult> {
+    public async emit(event: string, ...args: unknown[]): Promise<EventResult> {
         const listeners = this.snapshot(event);
-        const results: any[] = [];
-        const toRemove: { pattern: string; callback: EventCallback }[] = [];
+        const results: unknown[] = [];
+        const toRemove: { pattern: string; callback: StoredCallback }[] = [];
 
         for (const { pattern, listener } of listeners) {
             try {
@@ -164,8 +212,10 @@ export class EventBus {
                 results.push(result);
             } catch (error: unknown) {
                 const err = error instanceof Error ? error : new Error(String(error));
-                log.error(`[EventBus] Serial execution error on [${event}] via [${pattern}]: ${err.message}`, { stack: err.stack });
-                results.push(err); 
+                log.error(`[EventBus] Serial execution error on [${event}] via [${pattern}]: ${err.message}`, {
+                    stack: err.stack,
+                });
+                results.push(err);
             }
 
             if (listener.once) {
@@ -178,27 +228,29 @@ export class EventBus {
         return { event, listenerCount: listeners.length, results };
     }
 
-    public async emitConcurrent(event: string, ...args: any[]): Promise<EventResult> {
+    public async emitConcurrent(event: string, ...args: unknown[]): Promise<EventResult> {
         const listeners = this.snapshot(event);
-        const toRemove: { pattern: string; callback: EventCallback }[] = [];
+        const toRemove: { pattern: string; callback: StoredCallback }[] = [];
 
         const settledResults = await Promise.allSettled(
             listeners.map(async ({ pattern, listener }) => {
                 if (listener.once) toRemove.push({ pattern, callback: listener.callback });
-                
+
                 try {
                     return await listener.callback(...args);
                 } catch (error: unknown) {
                     const err = error instanceof Error ? error : new Error(String(error));
-                    log.error(`[EventBus] Concurrent execution error on [${event}] via [${pattern}]: ${err.message}`, { stack: err.stack });
+                    log.error(`[EventBus] Concurrent execution error on [${event}] via [${pattern}]: ${err.message}`, {
+                        stack: err.stack,
+                    });
                     throw err;
                 }
-            })
+            }),
         );
 
         for (const { pattern, callback } of toRemove) this.removeListener(pattern, callback);
 
-        const results = settledResults.map(r => r.status === 'fulfilled' ? r.value : r.reason);
+        const results = settledResults.map((r) => (r.status === 'fulfilled' ? r.value : r.reason));
 
         return { event, listenerCount: listeners.length, results };
     }

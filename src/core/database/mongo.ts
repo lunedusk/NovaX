@@ -20,6 +20,10 @@ export class MongoRegistry {
         log.info(`MongoDB [${alias}] connected successfully.`);
     }
 
+    public has(alias: string): boolean {
+        return this.connections.has(alias);
+    }
+
     public get(alias: string): Connection {
         const conn = this.connections.get(alias);
         if (!conn) throw new Error(`MongoDB connection [${alias}] not found!`);

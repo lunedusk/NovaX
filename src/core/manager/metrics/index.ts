@@ -1,9 +1,11 @@
 import { Registry, collectDefaultMetrics, Counter, Histogram, Gauge } from 'prom-client';
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, type NextFunction } from 'express';
 import { httpServer } from '#core/manager/http/server.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getLogger } from '#core/utils/logger.js';
+import { secrets } from '#core/helpers/secretManager.js';
+import crypto from 'node:crypto';
 
 const log = getLogger('MetricsManager');
 
@@ -82,10 +84,38 @@ export class MetricsManager {
         log.info('Metrics Manager shut down safely.');
     }
 
+    private safeEquals(a: string, b: string): boolean {
+        const ba = Buffer.from(a);
+        const bb = Buffer.from(b);
+        if (ba.length !== bb.length) return false;
+        return crypto.timingSafeEqual(ba, bb);
+    }
+
+    private authorizeMetrics = (req: Request, res: Response, next: NextFunction): void => {
+        const header = req.headers.authorization;
+        if (!header || !header.startsWith('Bearer ')) {
+            res.status(401).json({
+                error: 'Unauthorized',
+                message: 'Missing or malformed Authorization header. Expected: Bearer <token>'
+            });
+            return;
+        }
+        const key = header.slice(7).trim();
+        const master =
+            secrets.getOptional('GatewayMasterKey') ||
+            process.env.GatewayMasterKey ||
+            '';
+        if (master && this.safeEquals(key, master)) {
+            next();
+            return;
+        }
+        res.status(403).json({ error: 'Forbidden', message: 'Invalid API key' });
+    };
+
     private registerHttpRoutes(): void {
         const router = Router();
 
-        router.get('/metrics', async (req: Request, res: Response) => {
+        router.get('/metrics', this.authorizeMetrics, async (_req: Request, res: Response) => {
             try {
                 const metrics = await this.registry.metrics();
                 res.setHeader('Content-Type', this.registry.contentType);
@@ -97,7 +127,7 @@ export class MetricsManager {
             }
         });
 
-        router.get('/metrics.json', async (req: Request, res: Response) => {
+        router.get('/metrics.json', this.authorizeMetrics, async (_req: Request, res: Response) => {
             try {
                 const metrics = await this.registry.getMetricsAsJSON();
                 res.setHeader('Content-Type', 'application/json');

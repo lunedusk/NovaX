@@ -52,7 +52,10 @@
                 emoji: "Emoji Registry",
                 plugin: "Plugin Ecosystem",
                 cache: "Cache Manager",
-                gate: "Guild Gate"
+                gate: "Guild Gate",
+                env: "Environment",
+                audit: "Audit Registry",
+                errors: "Error Registry"
             },
             messages: {
                 denied: "%%emoji_no_entry%% Bot owner only (BotOwnerIds / bot.owner).",
@@ -80,14 +83,51 @@
                 emojiSuccess: "%%emoji_tick%% Emoji map refreshed (**{{count}}**).",
                 emojiError: "%%emoji_cross%% Emoji reload failed.",
                 pluginSuccess: "%%emoji_tick%% Reloaded **{{name}}** v{{version}}.\n> %%emoji_gear%% Commands: {{cmdCount}}\n> %%emoji_megaphone%% Events: {{eventCount}}\n> %%emoji_globe%% Routes: {{routeCount}}",
-                pluginError: "%%emoji_cross%% Reload failed for `{{pluginId}}`."
+                pluginError: "%%emoji_cross%% Reload failed for `{{pluginId}}`.",
+                envDescription: "Re-read .env / .env.local and re-resolve placeholders (live secrets only).",
+                envSuccess: "%%emoji_tick%% Env reloaded from **{{files}}**.\nUpdated: **{{updated}}** · Skipped: **{{skipped}}**\n`{{skippedList}}`"
             },
             cache: {
-                popDescription: "Clear a memory cache pool.",
-                targetDescription: "Cache name",
-                popped: "%%emoji_tick%% Purged **{{target}}**.",
-                unknown: "%%emoji_question%% Unknown cache `{{target}}`."
+                listDescription: "List registered TTL caches (name + size). Per-process only.",
+                popDescription: "Clear a registered TTL cache by name.",
+                targetDescription: "Cache registry name",
+                popped: "%%emoji_tick%% Purged **{{target}}** (this process only).",
+                unknown: "%%emoji_question%% Unknown TTL cache `{{target}}`.",
+                listEmpty: "%%emoji_caution%% No TTL caches registered in this process.",
+                listHeader: "%%emoji_tick%% **{{count}}** TTL cache(s) (this process):\n{{grid}}",
+                listLine: "`{{name}}` — {{size}} entries"
             },
+            audit: {
+                listDescription: "List recent audit entries (filterable).",
+                getDescription: "Fetch one audit entry by id.",
+                idDescription: "Audit entry id",
+                limitDescription: "Max entries (default 20, max 50)",
+                actorDescription: "Filter by actor id",
+                actionDescription: "Filter by action code",
+                outcomeDescription: "Filter by outcome (success|fail)",
+                listEmpty: "%%emoji_caution%% No audit entries matched.",
+                listHeader: "%%emoji_tick%% **{{count}}** audit entr(y/ies):\n{{grid}}",
+                listLine: "`{{id}}` · {{action}} · {{outcome}} · actor={{actor}} · target={{target}} · {{when}}",
+                getHeader: "%%emoji_tick%% Audit `{{id}}`",
+                getBody: "**action:** {{action}}\n**outcome:** {{outcome}}\n**actor:** {{actorType}}:{{actorId}}\n**target:** {{target}}\n**reason:** {{reason}}\n**createdAt:** {{createdAt}}\n**meta:** {{meta}}",
+                notFound: "%%emoji_question%% No audit entry `{{id}}`."
+            },
+            errors: {
+                listDescription: "List coalesced error occurrences (filterable).",
+                getDescription: "Fetch one error occurrence by id.",
+                idDescription: "Error occurrence id",
+                limitDescription: "Max entries (default 20, max 50)",
+                codeDescription: "Filter by error code",
+                categoryDescription: "Filter by category",
+                severityDescription: "Filter by severity",
+                listEmpty: "%%emoji_caution%% No error occurrences matched.",
+                listHeader: "%%emoji_tick%% **{{count}}** error occurrence(s):\n{{grid}}",
+                listLine: "`{{id}}` · **{{code}}** ×{{count}} · {{severity}} · {{category}} · since={{firstSeen}} · last={{lastSeen}}",
+                getHeader: "%%emoji_tick%% Error `{{id}}`",
+                getBody: "**code:** {{code}}\n**category:** {{category}}\n**severity:** {{severity}}\n**count:** {{count}}\n**message:** {{message}}\n**firstSeen:** {{firstSeen}}\n**lastSeen:** {{lastSeen}}\n**context:** {{context}}",
+                notFound: "%%emoji_question%% No error occurrence `{{id}}`."
+            },
+
             gate: {
                 guildBlockDescription: "Block the entire bot in a guild.",
                 guildUnblockDescription: "Unblock a guild.",

@@ -10,7 +10,7 @@ import {
 } from 'discord.js';
 import { cooldownManager } from '#core/manager/cooldown.js';
 import { getLogger } from '#core/utils/logger.js';
-import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import { resolveGlobalPlaceholders } from '#core/placeholder/index.js';
 
 const log = getLogger('CooldownDecorator');
 

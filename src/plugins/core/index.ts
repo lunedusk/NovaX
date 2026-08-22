@@ -1,6 +1,7 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 import { ActivityType, type PresenceStatusData, type Client } from 'discord.js';
 import { guildGate } from '#core/manager/guildGate.js';
+import { resolveGuildGateBackend } from '#core/database/backendSelector.js';
 
 type ConfigActivityType = 'PLAYING' | 'STREAMING' | 'LISTENING' | 'WATCHING' | 'COMPETING' | 'CUSTOM';
 
@@ -68,7 +69,17 @@ export default class Core extends BasePlugin {
             this.config = rawConfig;
         }
 
-        const gg = this.config.guildGate ?? { engine: 'sqlite', alias: 'main' };
+        const ggCfg = this.config.guildGate ?? {};
+        let gg: { engine: string; alias: string };
+        try {
+            const resolved = resolveGuildGateBackend({
+                engine: (ggCfg as { engine?: string }).engine,
+                alias: (ggCfg as { alias?: string }).alias,
+            });
+            gg = resolved;
+        } catch {
+            gg = { engine: (ggCfg as { engine?: string }).engine ?? 'sqlite', alias: (ggCfg as { alias?: string }).alias ?? 'main' };
+        }
         try {
             await guildGate.init({ engine: gg.engine, alias: gg.alias });
             this.gatesOk = true;

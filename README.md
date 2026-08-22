@@ -4,6 +4,26 @@ NovaX is a corporate-grade, highly optimized, completely modular application pla
 
 ---
 
+## Documentation
+
+| Doc | Audience |
+|-----|----------|
+| [SETUP.md](SETUP.md) | Install, env, first run |
+| [PLACEHOLDERS.md](PLACEHOLDERS.md) | Placeholder system (full) |
+| [LOADER.md](LOADER.md) | Config/lang merge + surgical JSON5 write |
+| [UPDATER.md](UPDATER.md) | Crash-safe updater (CLI / background) |
+| [AUDIT.md](AUDIT.md) | Audit registry |
+| [ERRORS.md](ERRORS.md) | Error registry + NovaError |
+| [CACHE.md](CACHE.md) | Cache façade + TTLCache registry |
+| [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) | Plugin authoring contract |
+| [ENV Reference.md](ENV%20Reference.md) | Environment variables |
+| [Database.md](Database.md) | Database configuration |
+| [NovaDB.md](NovaDB.md) | NovaDB |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributing |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Code of conduct |
+
+---
+
 ## License
 NovaX is licensed under the **PolyForm Noncommercial License 1.0.0**. This means you are free to use and modify the framework for personal and non-commercial purposes, but you cannot sell it, claim it as your own, or use it for commercial gain without written permission.
 
@@ -22,11 +42,11 @@ NovaX operates an multi-stage bootstrap pipeline designed to enforce thread isol
 ```
 
 1. **Process Lockdown & Identity Verification (`Common777`)**: The engine locks the immutable process script entry-point path (`process.argv[1]`) immediately upon launch. Any mid-execution attempt to divert pathways results in immediate termination (`process.exit(1)`). It processes `common.json`, asserts that the global development author field evaluates precisely to `"Lunedusk"`, and merges definitions into `process.env` boundaries.
-2. **Polyglot Storage Broker (`DatabaseManager`)**: Parses a single serialized JSON object from `process.env.Database`. It instantiates independent connection pools for Native PostgreSQL clients, write-ahead logged (WAL) SQLite runtimes, sharded ioredis clustering triads (Main, Pub, and Sub clients for native pub/sub streaming out of the box), MongoDB nodes, or global multi-dialect TypeORM connections—managed by automated exponential backoff reconnect layers capped at 10-second intervals.
+2. **Polyglot Storage Broker (`DatabaseManager`)**: Parses a single serialized JSON object from `process.env.Database`. It instantiates independent connection pools for Native PostgreSQL clients, write-ahead logged (WAL) SQLite runtimes, sharded ioredis clustering triads (Main, Pub, and Sub clients for native pub/sub streaming out of the box), MongoDB nodes, or global multi-dialect TypeORM connections—managed by automated exponential backoff reconnect layers capped at 10-second intervals. Framework data planes (permissions, tokens, guild-gate) sit on a **shared backend selector** (preference sqlite → postgres → mongo, overridable per subsystem via config/env). **Schema migrations** run at boot after connect and before plugins. The **API gateway** authorizes `/api/*` with bearer API keys and a typed `httpRoutes` bit policy (`bitsMode` all|any).
 3. **Topological Dependency Graphing**: Scans all subdirectories inside `/plugins/`. It maps plugin dependencies as a strict directed acyclic graph (DAG), running depth-first search (DFS) sorting sweeps to establish proper load sequences and instantly catch circular dependency locks.
 4. **Sandboxed Module Isolation**: Each plugin executes inside an isolated workspace directory container. NovaX fires a separate child thread execution to install local plugin `package.json` requirements with optimization flags (`--no-save`, `--prefer-offline`) to maintain parent environment cleanliness. A tailored Node.js ESM module resolution hook intercepts and routes import calls to the plugin's local `node_modules` sandbox structure before falling back to the parent environment scope.
 5. **Subsystem Loader Engine**:
-   - **`ConfigLoader` & `LangLoader`**: Synchronizes, maps, and cleans JSON5 structured sheets into centralized application directories. They implement a comprehensive schema analyzer (`deepSync`) that updates missing default fields, catches type syntax shifts, prunes obsolete keys, and safely records output states via atomic file-writes utilizing temporary `.tmp` targets to prevent data corruption.
+   - **`ConfigLoader` & `LangLoader`**: Synchronizes, maps, and cleans JSON5 structured sheets into centralized application directories. They use a shared **merge-preserve** engine (add missing defaults; keep user keys/values; no prune/type-reset) and **surgical JSON5** writes with parse/deep-equal round-trip (wholesale only as fallback).
    - **`CommandLoader` / `EventLoader` / `RouteLoader`**: Automatically registers all code logic extending abstract system bases. It maps application slash syntax, hooks Express endpoint namespaces, and registers element mappings (buttons, modals, drop-downs) directly into a master handler registry.
    - **`EmojiLoader`**: Automatically aggregates local graphical resources (`data/emoji/`) and map collections (`data/emoji.json`), distributing synced instances into a global sheet file (`.data/emojis.json`).
 6. **Command Sync & Gateway Connection**: Validates shard contexts, connects to the Discord gateway, synchronizes command bindings across specified test guilds or international scopes, and sets verified plugins to a live `ENABLED` operational status.
@@ -50,7 +70,7 @@ NovaX can update a deployed instance without a local git checkout:
 - **CLI (post-build):** `npm run updater`  
   Flags: `--dry-run`, `--force`, `--baseline-only`, `--install-plugin <id>`.
 
-Full variable reference: Environment Variable Reference → **Auto Updater**.
+Full write-up: [UPDATER.md](UPDATER.md). Variable reference: [ENV Reference.md](ENV%20Reference.md) → **Auto Updater**.
 
 ---
 

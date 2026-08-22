@@ -5,7 +5,7 @@ import { BaseSpec, BuildContext, BuildOptions, BuildResult, ButtonSpec, Componen
 import { normalizeEmoji, resolveColor } from "./utils.js";
 import { isValidUrl } from "../helpers/url.js";
 import { AssetManager } from "../helpers/assets.js";
-import { interpolateVariables } from "../helpers/string.js";
+import { interpolateVariables } from "#core/placeholder/index.js";
 
 export function createBuildCore(context: BuildContext, options: BuildOptions) {
     const assets = context.assetManager || new AssetManager();

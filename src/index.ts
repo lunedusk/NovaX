@@ -13,9 +13,12 @@ if (!process.env.PublicKey || process.env.PublicKey.trim() === '') {
 import { secrets } from '#core/helpers/secretManager.js';
 import { common777 } from '#core/internal/common777.js';
 import { getLogger, flushLogs } from '#core/utils/logger.js';
+import { expandProcessEnv } from '#core/placeholder/index.js';
+import { materializeBootSharedRandEnv } from '#core/placeholder/sharedBootRand.js';
 
 function minimalBootstrap(): void {
     secrets.assimilateEnv();
+    expandProcessEnv();
     secrets.lock();
     common777.bootstrap();
 }
@@ -116,7 +119,7 @@ async function runBotMode(): Promise<void> {
     const { configManager } = await import('#core/manager/config.js');
     const { i18n } = await import('#core/manager/lang.js');
     const { eventManager } = await import('#core/manager/events/Manager.js');
-    const { initAllDatabases } = await import('#core/database.js');
+    const { initAllDatabases } = await import('#core/database/bootstrap.js');
     const { globalCatcher } = await import('#core/error/index.js');
     const { emojis } = await import('#core/manager/emoji.js');
     const { wireErrorBridge } = await import('#core/bootstrap/errorBridge.js');
@@ -186,6 +189,13 @@ async function runBotMode(): Promise<void> {
 
                 this.log.info('Initializing Databases...');
                 await initAllDatabases();
+
+                this.log.info('Running database migrations...');
+                const { runAllMigrations } = await import('#core/database/migrations/runner.js');
+                const pluginMigrationSources = pluginManager.getPreloadedPluginDirs
+                    ? pluginManager.getPreloadedPluginDirs()
+                    : [];
+                await runAllMigrations({ plugins: pluginMigrationSources });
 
                 this.log.info('Initializing Permission System...');
                 const permMgr = createPermissionsManager();
@@ -325,6 +335,10 @@ async function runBotMode(): Promise<void> {
             }
         }
 
+        if (!isSpawnedWorker) {
+            materializeBootSharedRandEnv(process.cwd());
+        }
+
         const isSharded = secrets.getBoolean('isSharded', false);
 
         if (isSharded && !isSpawnedWorker) {
@@ -332,10 +346,11 @@ async function runBotMode(): Promise<void> {
             masterLog.info('Booting into Sharded Mode...');
 
             const entryFile = fileURLToPath(import.meta.url);
+            materializeBootSharedRandEnv(process.cwd());
             const manager = new ShardingManager(entryFile, {
                 token: secrets.get('DiscordToken'),
                 totalShards: 'auto',
-                respawn: true
+                respawn: true,
             });
 
             manager.on('shardCreate', shard => {

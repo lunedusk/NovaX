@@ -272,6 +272,13 @@ export class PluginManager extends EventEmitter {
         }
     }
 
+    public getPreloadedPluginDirs(): Array<{ dir: string; id: string }> {
+        return this.preloadedPlugins.map((p) => ({
+            dir: p.dir,
+            id: p.manifest.id,
+        }));
+    }
+
     public async bootAll(baseClient: Client<true>): Promise<void> {
         const totalStart = performance.now();
         log.info('Initiating Plugin Boot Sequence...');

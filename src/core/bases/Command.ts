@@ -5,7 +5,7 @@ import {
     SlashCommandBuilder,
     type PermissionResolvable
 } from 'discord.js';
-import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import { resolveGlobalPlaceholders } from '#core/placeholder/index.js';
 
 export interface CommandConfig {
     readonly cooldown?: number;

@@ -153,3 +153,40 @@ await cacheDb.main.set('key', 'value');
 // Access Postgres
 const pgPool = heart.db.postgres.get('analytics');
 ```
+
+
+---
+
+## 5. Subsystem data backends (permissions, token, guild-gate)
+
+Framework tables for **permissions**, **tokens**, and **guild-gate** do not use the raw `Database` JSON alone. They go through a shared **backend selector**:
+
+1. Prefer an explicit engine from config or env for that subsystem.
+2. Otherwise pick the first available engine in order: **sqlite → postgres → mongo** on the resolved alias (default `main`).
+
+| Subsystem | Config keys | Env engine | Env alias |
+|-----------|-------------|------------|-----------|
+| Permissions | `permissions.engine` / `permissions.alias` | `PermissionsEngine` | `PermissionsDbAlias` |
+| Token | `token.engine` / `token.alias` | `TokenEngine` | `TokenDbAlias` |
+| Guild-gate | same pattern as permissions when configured | (inherits main preference when unset) | |
+
+SQL access is unified via `SqlAdapter` (`?` placeholders rewritten to `$n` on postgres). Mongo uses collection helpers on the same adapter surface.
+
+Token persistence: use **`DbTokenStore`** (`#core/manager/token.js`). `SqliteTokenStore` is a deprecated alias only.
+
+---
+
+## 6. Schema migrations
+
+Schema is owned by the **migration runner**, not by ad-hoc `CREATE TABLE` in managers.
+
+- **When:** after all databases connect, **before** plugins boot.
+- **Scopes:** independent chains — `core` and each `plugin:<id>` (external plugins are not coupled to core version bumps).
+- **Shape:** forward-only ordered steps (`version` 1, 2, 3…); each step is a TypeScript `MigrationStep` with `up(ctx)`.
+- **Engines:** each step must support the active engine (sqlite / postgres / mongo). Mongo steps must be internally idempotent.
+- **Plugin folder:** `plugins/<id>/migrations/` (registered at preload).
+- **Tracking table/collection:** `schema_migrations` per connected backend, keyed by scope + version.
+
+If a plugin has migrations but no connected backend for its alias, that scope is skipped (debug log) and boot continues.
+
+See also the authoring contract in [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) (Migrations section).

@@ -75,7 +75,7 @@ export class GitHubClient {
 
         const all: TagInfo[] = [];
         let page = 1;
-        const maxPages = 3;
+        const maxPages = 50;
 
         while (page <= maxPages) {
             const url = `https://api.github.com/repos/${owner}/${repo}/tags?per_page=100&page=${page}`;

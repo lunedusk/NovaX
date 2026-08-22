@@ -20,8 +20,10 @@ import type {
     UpdateReceipt,
     UpdaterConfig,
     TagInfo,
-    TakebacksFile
+    TakebacksFile,
+    ApplyState
 } from './types.js';
+import { audit } from '#core/audit/index.js';
 
 const execFileAsync = promisify(execFile);
 const log = getLogger('Updater');
@@ -31,6 +33,7 @@ const BASELINE    = path.join(STATE_DIR, 'baseline.json');
 const BACKUP_DIR  = path.join(STATE_DIR, 'backups');
 const STAGING_DIR = path.join(STATE_DIR, 'staging');
 const PENDING_HEALTH = path.join(STATE_DIR, 'pending-health.json');
+const APPLY_STATE = path.join(STATE_DIR, 'apply-state.json');
 const RECEIPTS_DIR = path.join(STATE_DIR, 'receipts');
 
 const HARD_EXCLUDES = new Set([
@@ -78,7 +81,7 @@ function loadConfig(): UpdaterConfig {
         pluginPublicKeys: parsePluginPublicKeys(),
         publicKey: secrets.getOptional('PublicKey') || process.env.PublicKey || BUILTIN_PUBLIC_KEY,
         intervalMs:     parseInt(secrets.getOptional('UpdaterIntervalMs') || String(6 * 60 * 60 * 1000), 10),
-        backgroundApply: secrets.getBoolean('UpdaterBackgroundApply', true),
+        backgroundApply: secrets.getBoolean('UpdaterBackgroundApply', false),
         autoRollback:   secrets.getBoolean('UpdaterAutoRollback', true),
         healthGraceMs:  parseInt(secrets.getOptional('UpdaterHealthGraceMs') || String(15 * 60 * 1000), 10)
     };
@@ -101,6 +104,26 @@ function writePendingHealth(p: PendingHealth): void {
 function clearPendingHealth(): void {
     try {
         if (fs.existsSync(PENDING_HEALTH)) fs.unlinkSync(PENDING_HEALTH);
+    } catch { /* ignore */ }
+}
+
+function readApplyState(): ApplyState | null {
+    try {
+        if (!fs.existsSync(APPLY_STATE)) return null;
+        return JSON.parse(fs.readFileSync(APPLY_STATE, 'utf-8')) as ApplyState;
+    } catch {
+        return null;
+    }
+}
+
+function writeApplyState(state: ApplyState): void {
+    ensureDirs();
+    fs.writeFileSync(APPLY_STATE, JSON.stringify(state, null, 2), 'utf-8');
+}
+
+function clearApplyState(): void {
+    try {
+        if (fs.existsSync(APPLY_STATE)) fs.unlinkSync(APPLY_STATE);
     } catch { /* ignore */ }
 }
 
@@ -731,10 +754,49 @@ export class Updater {
             return plan;
         }
 
-        const backupDir = await this.createBackup(baseline?.tag ?? 'unknown');
-        await this.applyCoreFromStaging(stagingRoot, plan);
+        const filesPlanned = [...filesToOverwrite, ...filesToAdd].filter(rel => !isPluginPath(rel));
+        writeApplyState({
+            phase: 'backing_up',
+            backupId: null,
+            toTag: coreTarget.name,
+            fromTag: baseline?.tag ?? null,
+            startedAt: new Date().toISOString(),
+            filesPlanned
+        });
+        const backupDir = await this.createBackup(baseline?.tag ?? 'unknown', filesPlanned);
+        const backupId = path.basename(backupDir);
+        writeApplyState({
+            phase: 'applying',
+            backupId,
+            toTag: coreTarget.name,
+            fromTag: baseline?.tag ?? null,
+            startedAt: new Date().toISOString(),
+            filesPlanned
+        });
+        try {
+            await this.applyCoreFromStaging(stagingRoot, plan);
+        } catch (err) {
+            void audit.record({
+                actorType: 'system',
+                actorId: 'system',
+                action: 'updater.apply',
+                target: 'core',
+                outcome: 'fail',
+                reason: 'error',
+                meta: { name: coreTarget.name },
+            });
+            throw err;
+        }
         let depsInstall: UpdateReceipt['depsInstall'] = null;
         try {
+            writeApplyState({
+                phase: 'rebuilding',
+                backupId,
+                toTag: coreTarget.name,
+                fromTag: baseline?.tag ?? null,
+                startedAt: new Date().toISOString(),
+                filesPlanned
+            });
             await this.rebuild();
             depsInstall = fs.existsSync(path.join(process.cwd(), 'package-lock.json')) ? 'npm-ci' : 'npm-install';
         } catch (e) {
@@ -776,6 +838,14 @@ export class Updater {
             Object.assign(mergedFiles, await computeLocalHashes(pluginFiles));
         }
 
+        writeApplyState({
+            phase: 'baselining',
+            backupId,
+            toTag: coreTarget.name,
+            fromTag: baseline?.tag ?? null,
+            startedAt: new Date().toISOString(),
+            filesPlanned
+        });
         writeBaseline({
             tag: coreTarget.name,
             commit: coreTarget.commit,
@@ -791,10 +861,12 @@ export class Updater {
                 previousTag: baseline.tag,
                 previousCommit: baseline.commit ?? null,
                 at: new Date().toISOString(),
-                healthy: false
+                healthy: false,
+                backupId
             });
-            log.info(`Pending health set for ${coreTarget.name} (rollback target ${baseline.tag})`);
+            log.info(`Pending health set for ${coreTarget.name} (rollback target ${baseline.tag}, backup ${backupId})`);
         }
+        clearApplyState();
 
         if (this.config.postUpdateCmd) {
             try {
@@ -848,7 +920,15 @@ export class Updater {
             `Auto-rollback: ${pending.toTag} never marked healthy after grace – ` +
             `restoring ${pending.previousTag}`
         );
+        const pendingBackupId = pending.backupId ?? null;
         clearPendingHealth();
+        if (pendingBackupId) {
+            try {
+                return await this.restoreFromBackup(pendingBackupId, false);
+            } catch (e) {
+                log.error('Local backup restore failed – falling back to network tag', e);
+            }
+        }
         return this.run({
             targetTag: pending.previousTag,
             force: true,
@@ -1500,19 +1580,65 @@ export class Updater {
         return files;
     }
 
-    private async createBackup(tag: string): Promise<string> {
+    private async createBackup(tag: string, applyPaths: string[] = []): Promise<string> {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const dir = path.join(BACKUP_DIR, `${ts}_${tag}`);
         fs.mkdirSync(dir, { recursive: true });
-        for (const c of ['package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'tsconfig.json', 'index.js', 'index.d.ts']) {
-            const src = path.join(process.cwd(), c);
-            if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dir, c));
+        const cwd = process.cwd();
+        const always = [
+            'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock',
+            'tsconfig.json', 'index.js', 'index.d.ts'
+        ];
+        const pathSet = new Set<string>([...always, ...applyPaths.map(p => p.replace(/\\/g, '/'))]);
+
+        for (const rel of pathSet) {
+            if (rel === 'core' || rel.startsWith('core/')) continue;
+            const src = path.join(cwd, rel);
+            if (!fs.existsSync(src)) continue;
+            const st = fs.statSync(src);
+            const dest = path.join(dir, rel);
+            if (st.isDirectory()) {
+                fs.mkdirSync(dest, { recursive: true });
+                await execFileAsync('cp', ['-a', src + '/.', dest]).catch(async () => {
+                    await execFileAsync('cp', ['-a', src, path.dirname(dest)]);
+                });
+            } else if (st.isFile()) {
+                fs.mkdirSync(path.dirname(dest), { recursive: true });
+                fs.copyFileSync(src, dest);
+            }
         }
-        const coreSrc = path.join(process.cwd(), 'core');
-        if (fs.existsSync(coreSrc)) {
-            await execFileAsync('cp', ['-a', coreSrc, path.join(dir, 'core')]).catch(() => {});
+
+        const needCore =
+            pathSet.has('core') ||
+            [...pathSet].some(p => p.startsWith('core/')) ||
+            fs.existsSync(path.join(cwd, 'core'));
+        if (needCore) {
+            const coreSrc = path.join(cwd, 'core');
+            if (fs.existsSync(coreSrc)) {
+                try {
+                    await execFileAsync('cp', ['-a', coreSrc, path.join(dir, 'core')]);
+                } catch (e) {
+                    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore cleanup */ }
+                    throw new Error(
+                        `createBackup failed copying core/: ${(e as Error).message}. Apply aborted.`
+                    );
+                }
+            }
         }
-        log.info(`Backup → ${dir}`);
+
+        const baselineSnap = readBaseline();
+        fs.writeFileSync(
+            path.join(dir, 'backup-meta.json'),
+            JSON.stringify({
+                tag,
+                createdAt: new Date().toISOString(),
+                previousTag: baselineSnap?.tag ?? null,
+                commit: baselineSnap?.commit ?? null,
+                paths: [...pathSet]
+            }, null, 2),
+            'utf-8'
+        );
+        log.info(`Backup → ${dir} (${pathSet.size} path(s))`);
         return dir;
     }
 
@@ -1549,23 +1675,35 @@ export class Updater {
             return plan;
         }
 
+        writeApplyState({
+            phase: 'restoring',
+            backupId: match.id,
+            toTag: match.tag || backupId,
+            fromTag: readBaseline()?.tag ?? null,
+            startedAt: new Date().toISOString()
+        });
+
         const safety = await this.createBackup(`pre-restore_${readBaseline()?.tag ?? 'current'}`);
 
         const cwd = process.cwd();
-        for (const c of ['package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'tsconfig.json', 'index.js', 'index.d.ts']) {
-            const src = path.join(match.dir, c);
-            if (fs.existsSync(src)) {
-                fs.copyFileSync(src, path.join(cwd, c));
-                plan.filesToOverwrite.push(c);
+        const skipNames = new Set(['backup-meta.json']);
+        function walkBackup(dir: string, relBase: string): void {
+            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (skipNames.has(ent.name)) continue;
+                const rel = relBase ? `${relBase}/${ent.name}` : ent.name;
+                const src = path.join(dir, ent.name);
+                const dest = path.join(cwd, rel);
+                if (ent.isDirectory()) {
+                    fs.mkdirSync(dest, { recursive: true });
+                    walkBackup(src, rel);
+                } else if (ent.isFile()) {
+                    fs.mkdirSync(path.dirname(dest), { recursive: true });
+                    fs.copyFileSync(src, dest);
+                    plan.filesToOverwrite.push(rel.replace(/\\/g, '/'));
+                }
             }
         }
-        const bakCore = path.join(match.dir, 'core');
-        if (fs.existsSync(bakCore)) {
-            const destCore = path.join(cwd, 'core');
-            if (fs.existsSync(destCore)) fs.rmSync(destCore, { recursive: true, force: true });
-            await execFileAsync('cp', ['-a', bakCore, destCore]);
-            plan.filesToOverwrite.push('core/');
-        }
+        walkBackup(match.dir, '');
 
         let deps: UpdateReceipt['depsInstall'] = 'skipped';
         try {
@@ -1585,16 +1723,28 @@ export class Updater {
             return plan;
         }
 
+        let meta: { tag?: string; commit?: string | null } = {};
+        try {
+            const metaPath = path.join(match.dir, 'backup-meta.json');
+            if (fs.existsSync(metaPath)) {
+                meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { tag?: string; commit?: string | null };
+            }
+        } catch { /* ignore */ }
+
+        const rehashFiles = walkLocal().filter(f => !shouldHardExclude(f));
+        const freshHashes = await computeLocalHashes(rehashFiles);
         const prev = readBaseline();
+        const tagFromMeta = meta.tag || match.tag;
         writeBaseline({
-            tag: match.tag.startsWith('v') || /^\d/.test(match.tag) ? match.tag : (prev?.tag ?? match.tag),
-            commit: prev?.commit ?? '',
+            tag: (tagFromMeta.startsWith('v') || /^\d/.test(tagFromMeta)) ? tagFromMeta : (prev?.tag ?? tagFromMeta),
+            commit: meta.commit ?? prev?.commit ?? '',
             timestamp: new Date().toISOString(),
             previousTag: prev?.tag ?? null,
             previousCommit: prev?.commit ?? null,
-            files: prev?.files ?? {}
+            files: freshHashes
         });
 
+        clearApplyState();
         log.info(`Restored from backup ${match.id}`);
         writeReceipt(plan, {
             durationMs: Date.now() - t0,
@@ -1633,16 +1783,54 @@ export class Updater {
     }
 
     private async applyCoreFromStaging(stagingRoot: string, plan: UpdatePlan): Promise<void> {
-        const all = [...plan.filesToOverwrite, ...plan.filesToAdd];
-        for (const rel of all) {
-            if (isPluginPath(rel)) continue;
+        const all = [...plan.filesToOverwrite, ...plan.filesToAdd].filter(rel => !isPluginPath(rel));
+        const coreRels = all.filter(rel => rel === 'core' || rel.startsWith('core/'));
+        const otherRels = all.filter(rel => rel !== 'core' && !rel.startsWith('core/'));
+        const cwd = process.cwd();
+
+        for (const rel of otherRels) {
             const src = path.join(stagingRoot, rel);
-            const dest = path.join(process.cwd(), rel);
+            const dest = path.join(cwd, rel);
             if (!fs.existsSync(src)) continue;
             fs.mkdirSync(path.dirname(dest), { recursive: true });
             fs.copyFileSync(src, dest);
         }
+
+        const stagingCore = path.join(stagingRoot, 'core');
+        const hasStagingCore = fs.existsSync(stagingCore);
+        if (hasStagingCore || coreRels.length > 0) {
+            const coreNew = path.join(cwd, 'core.new');
+            const coreOld = path.join(cwd, 'core.old');
+            const coreLive = path.join(cwd, 'core');
+            if (fs.existsSync(coreNew)) fs.rmSync(coreNew, { recursive: true, force: true });
+            if (hasStagingCore) {
+                await execFileAsync('cp', ['-a', stagingCore, coreNew]);
+            } else {
+                for (const rel of coreRels) {
+                    const src = path.join(stagingRoot, rel);
+                    if (!fs.existsSync(src)) continue;
+                    const dest = path.join(cwd, rel.replace(/^core(?=\/|$)/, 'core.new'));
+                    fs.mkdirSync(path.dirname(dest), { recursive: true });
+                    fs.copyFileSync(src, dest);
+                }
+            }
+            if (fs.existsSync(coreNew)) {
+                if (fs.existsSync(coreOld)) fs.rmSync(coreOld, { recursive: true, force: true });
+                if (fs.existsSync(coreLive)) fs.renameSync(coreLive, coreOld);
+                fs.renameSync(coreNew, coreLive);
+                try { fs.rmSync(coreOld, { recursive: true, force: true }); } catch { /* ignore */ }
+            }
+        }
+
         log.info(`Applied ${all.length} core file(s)`);
+        void audit.record({
+            actorType: 'system',
+            actorId: 'system',
+            action: 'updater.apply',
+            target: 'core',
+            outcome: 'success',
+            meta: { count: all.length },
+        });
     }
 
     private async reinstallDependencies(): Promise<void> {
@@ -1726,6 +1914,36 @@ export async function runUpdater(options: {
 
 export async function checkPendingRollbackOnBoot(): Promise<boolean> {
     const cfg = loadConfig();
+    const updater = new Updater();
+
+    const applyState = readApplyState();
+    if (applyState && applyState.phase !== 'complete') {
+        if (!applyState.backupId) {
+            log.error(
+                `Incomplete apply (phase=${applyState.phase}) has no backupId – manual recovery required`
+            );
+            return false;
+        }
+        log.error(
+            `Incomplete apply detected (phase=${applyState.phase}) – restoring local backup ${applyState.backupId}`
+        );
+        try {
+            const plan = await updater.run({
+                restoreBackup: applyState.backupId,
+                dryRun: false
+            });
+            if (plan.allowed) {
+                clearApplyState();
+                return true;
+            }
+            log.error('Restore from incomplete-apply backup did not succeed – marker left for retry');
+            return false;
+        } catch (e) {
+            log.error('Restore from incomplete-apply backup failed – marker left for retry', e);
+            return false;
+        }
+    }
+
     if (!cfg.autoRollback) return false;
 
     const pending = readPendingHealth();
@@ -1750,8 +1968,20 @@ export async function checkPendingRollbackOnBoot(): Promise<boolean> {
         `Auto-rollback on boot: ${pending.toTag} failed health ` +
         `(attempts=${attempts}) → ${pending.previousTag}`
     );
+    const pendingBackupId = pending.backupId ?? null;
     clearPendingHealth();
-    const updater = new Updater();
+    if (pendingBackupId) {
+        try {
+            const plan = await updater.run({
+                restoreBackup: pendingBackupId,
+                dryRun: false
+            });
+            if (plan.allowed) return true;
+            log.error('Local backup restore on boot failed – falling back to network tag');
+        } catch (e) {
+            log.error('Local backup restore on boot failed – falling back to network tag', e);
+        }
+    }
     const plan = await updater.run({
         targetTag: pending.previousTag,
         force: true,
@@ -1810,6 +2040,8 @@ export function startBackgroundUpdater(opts?: { skipInitial?: boolean }): () => 
         initial = setTimeout(() => { void tick(); }, 30_000);
     }
     const handle = setInterval(() => { void tick(); }, interval);
+    handle.unref();
+    if (initial) initial.unref();
 
     return () => {
         stopped = true;
