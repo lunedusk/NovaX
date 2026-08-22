@@ -82,41 +82,81 @@ The production Docker image and the auto-updater only ship / replace the build a
 ### Development / Source tree (what you work in)
 ```
 NovaX/
-├── .data/                          # Runtime cache & compiled metadata (generated, never commit)
-│   └── emojis.json
+├── .data/                          # Runtime cache & state (generated, never commit)
 ├── configuration/                  # Synced runtime configs (generated / user-edited)
 │   └── lang/
-├── core/                           # Compiled framework binaries (tsc output – do not edit)
-├── docs/                           # Generated TypeDoc (optional, `npm run docs`)
-├── logs/                           # Session-isolated rotating logs (runtime)
-├── plugins/                        # Plugin workspaces
+├── core/                           # Compiled framework output (tsc — do not edit)
+├── docs/                           # Generated TypeDoc (npm run docs)
+├── logs/                           # Rotating session logs (runtime)
+├── pterodactyl-eggs/               # Deployment egg
+├── plugins/                        # Runtime plugin workspaces (built/copied here)
 │   └── <plugin_id>/                # kebab-case, must match manifest.id
-│       ├── index.ts                # REQUIRED – extends BasePlugin
-│       ├── manifest.json           # REQUIRED – identity + novax_version
+│       ├── index.ts                # REQUIRED — extends BasePlugin
+│       ├── manifest.json           # REQUIRED — identity + novax_version
 │       ├── manifest.nvx            # Optional signed manifest
 │       ├── package.json            # Only if the plugin has external deps
 │       ├── src/
-│       │   ├── commands/           # Slash + context-menu commands
-│       │   ├── events/             # Gateway events + component handlers
-│       │   ├── routes/             # Express routes
-│       │   └── handlers/           # Inter-plugin API surface
+│       │   ├── commands/
+│       │   ├── events/
+│       │   ├── routes/
+│       │   └── handlers/
 │       └── data/
 │           ├── configuration/
-│           │   ├── config.json5    # Default schema (synced → configuration/)
+│           │   ├── config.json5
 │           │   └── lang/
-│           │       └── en.json5    # Default translations
-│           ├── emoji/              # Local image assets (optional)
-│           └── emoji.json          # Remote emoji map (optional)
-├── scripts/                        # Utility scripts (present after build if copied)
-├── src/                            # Framework source (TypeScript) – **not present in production images**
-├── common.json                     # Alternative typed config source (Common777)
+│           ├── schema/             # config + lang Zod schemas
+│           ├── rules/              # config + lang validation rules
+│           ├── emoji/
+│           └── emoji.json
+├── scripts/                        # Utility scripts
+├── src/                            # Framework source (TypeScript) — not shipped in prod images
+│   ├── index.ts
+│   ├── database/                   # NovaDB engine
+│   ├── core/
+│   │   ├── audit/
+│   │   ├── errors/
+│   │   ├── error/
+│   │   ├── bases/
+│   │   ├── bootstrap/
+│   │   ├── builders/
+│   │   ├── database/
+│   │   │   └── migrations/core/
+│   │   ├── decorators/
+│   │   ├── dependency/
+│   │   ├── flatbuffer/
+│   │   ├── heart/
+│   │   ├── helpers/
+│   │   ├── internal/
+│   │   ├── loader/
+│   │   ├── manager/
+│   │   │   └── updater/
+│   │   ├── placeholder/
+│   │   ├── scheduler/
+│   │   ├── types/
+│   │   ├── utils/
+│   │   ├── validation/
+│   │   └── watcher/
+│   └── plugins/                    # First-party plugin source
+│       ├── api/
+│       ├── core/
+│       ├── permissions/
+│       └── token/
+├── common.json
 ├── package.json
-├── plugins.txt                     # First-party plugin list used by the auto-updater
+├── plugins.txt                     # First-party plugin list (auto-updater)
 ├── tsconfig.json
 ├── typedoc.json
 ├── Dockerfile
 ├── docker-compose.yml
-└── .env / .env.example
+├── .env / .env.example
+├── sync.sh  sync-core.sh
+├── takebacks.json  takebacks.example.json
+├── README.md  SETUP.md  PLACEHOLDERS.md
+├── LOADER.md  UPDATER.md  AUDIT.md  ERRORS.md  CACHE.md          # [new]
+├── ENV Reference.md  Database.md  NovaDB.md
+├── System Prompt - AI - Plugin.md
+├── CONTRIBUTING.md  CONTRIBUTORS.md  CODE_OF_CONDUCT.md
+└── LICENSE
 ```
 
 ### Built / Production tree (what the Docker image and updater actually contain)
