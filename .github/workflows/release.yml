@@ -392,11 +392,20 @@ jobs:
 
             echo "  📥 Injecting tag $SELECTED_REF → src/plugins/$PLUGIN_NAME"
             inject_from_git_archive "$SELECTED_REF" "$PLUGIN_NAME" "."
+            # Tag-injected content is external for the drop loop even when the
+            # plugins.txt line has no owner/repo colon (same-repo branch/tag).
+            # Only the pre-inject snapshot is INTERNAL (never auto-dropped).
+            if ! grep -qxF "$PLUGIN_NAME" bundled-internal-plugins.txt 2>/dev/null; then
+              echo "$PLUGIN_NAME" >> bundled-external-injected.txt
+              echo "  ↳ recorded as external-injected (not in pre-inject snapshot)"
+            fi
           done < plugins.txt
 
           echo "────────────────────────────────────────"
           echo "Final plugins present (Bundled inject):"
           ls -1 src/plugins/ || true
+          echo "External-injected (droppable on tsc failure):"
+          cat bundled-external-injected.txt || true
 
       - name: Smart Update Docs & Version References (injected plugins)
         if: steps.version_check.outputs.changed == 'true'
