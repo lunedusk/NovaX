@@ -13,7 +13,7 @@ import type { LogErrorPayload } from '#core/utils/logger.js';
 import type { UnhandledErrorPayload } from '#core/error/index.js';
 import { buildComponentsV2 } from '#core/builders/index.js';
 import type { Cv2LayoutSpec, Cv2BuildContext } from '#core/builders/index.js';
-import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import { resolveGlobalPlaceholders } from '#core/placeholder/index.js';
 import { redactSensitiveData } from '#core/utils/redaction.js';
 
 
