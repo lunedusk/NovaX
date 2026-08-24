@@ -198,9 +198,17 @@ export class PluginManager extends EventEmitter {
                         }
                     }
 
-                    if (manifest!.novax_version && !SemVer.satisfies(this.coreVersion, manifest!.novax_version)) {
-                        log.warn(`[${manifest!.id}] Incompatible Core Version. Plugin requires ${manifest!.novax_version}, but core is v${this.coreVersion}. Skipping.`);
-                        return; 
+                    if (manifest!.novax_version) {
+                        let novaxOk = false;
+                        try {
+                            novaxOk = SemVer.satisfies(this.coreVersion, manifest!.novax_version as string | string[]);
+                        } catch {
+                            novaxOk = false;
+                        }
+                        if (!novaxOk) {
+                            log.warn(`[${manifest!.id}] Incompatible Core Version. Plugin requires ${JSON.stringify(manifest!.novax_version)}, but core is v${this.coreVersion}. Skipping.`);
+                            return;
+                        }
                     }
                     if (manifest!.node_version && !NodeVersion.satisfies(manifest!.node_version)) {
                         const currentNode = NodeVersion.current().toString();

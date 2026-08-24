@@ -355,10 +355,15 @@ function readLocalManifestId(pluginRel: string, manifestName: string): string | 
 
 function manifestCompatible(manifestJson: string, coreVersion: SemVer): { ok: boolean; req: string } {
     try {
-        const manifest = JSON.parse(manifestJson);
-        const req: string = manifest.novax_version || '*';
-        const ok = SemVerRange.satisfies(coreVersion.toString(), req);
-        return { ok, req: String(req) };
+        const manifest = JSON.parse(manifestJson) as { novax_version?: string | string[] };
+        const req: string | string[] = manifest.novax_version ?? '*';
+        let ok = false;
+        try {
+            ok = SemVerRange.satisfies(coreVersion.toString(), req);
+        } catch {
+            ok = false;
+        }
+        return { ok, req: Array.isArray(req) ? req.join(' ') : String(req) };
     } catch {
         return { ok: false, req: '?' };
     }
