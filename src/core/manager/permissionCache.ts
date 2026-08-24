@@ -1,20 +1,9 @@
-import { DatabaseManager } from '#core/database/index.js';
 import type { PermissionsManager } from '#core/manager/permissions.js';
 import type { ResolvedPermissions } from '#core/types/permissions.js';
+import { cacheFacade } from '#core/manager/cacheFacade.js';
 import { getLogger } from '#core/utils/logger.js';
-import { sqliteDB } from '#core/database/sqlite.js';  
 
 const log = getLogger('PermissionCache');
-
-interface SqliteDb {
-    prepare(sql: string): {
-        run: (...params: unknown[]) => unknown;
-        get: (...params: unknown[]) => any;
-        all: (...params: unknown[]) => any[];
-    };
-    exec(sql: string): void;
-    transaction<T extends (...args: any[]) => any>(fn: T): T;
-}
 
 const DEFAULT_TTL_SECONDS = 300;
 
@@ -22,88 +11,89 @@ function nowSeconds(): number {
     return Math.floor(Date.now() / 1000);
 }
 
-export class PermissionCache {
+interface CachedPayload {
+    botOwner: boolean;
+    bits: string[];
+    guildId?: string;
+    resolvedAt: number;
+}
 
-    private readonly dbAlias = 'main';
-    private db!: SqliteDb;
+export class PermissionCache {
+    private readonly store = cacheFacade.namespace('permissions');
+    private readonly ttlSeconds: number;
 
     constructor(
         private readonly permissionsManager: PermissionsManager,
-        private readonly ttlSeconds: number = DEFAULT_TTL_SECONDS,
-    ) {}
-
-    public async init(): Promise<void> {
-        this.db = sqliteDB.get(this.dbAlias) as unknown as SqliteDb;
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS perm_users (
-                id              TEXT PRIMARY KEY,
-                userId          TEXT NOT NULL,
-                guildId         TEXT,
-                botOwner        INTEGER NOT NULL DEFAULT 0,
-                resolvedBits    TEXT NOT NULL DEFAULT '[]',
-                resolvedAt      INTEGER NOT NULL,
-                cacheTtlSeconds INTEGER NOT NULL DEFAULT 300
-            );
-            CREATE INDEX IF NOT EXISTS idx_perm_users_guild ON perm_users(guildId);
-        `);
+        ttlSeconds: number = DEFAULT_TTL_SECONDS,
+    ) {
+        this.ttlSeconds = ttlSeconds;
     }
+
+    public async init(): Promise<void> {}
 
     private cacheId(userId: string, guildId?: string): string {
         return guildId ? `permcache_${guildId}_${userId}` : `permcache_${userId}`;
     }
 
-    public async cachedResolve(userId: string, guildId?: string, discordGuildOwnerId?: string): Promise<ResolvedPermissions> {
+    public async cachedResolve(
+        userId: string,
+        guildId?: string,
+        discordGuildOwnerId?: string,
+    ): Promise<ResolvedPermissions> {
         const id = this.cacheId(userId, guildId);
-        const row = this.db.prepare(`SELECT * FROM perm_users WHERE id = ?`).get(id);
-
-        if (row && (nowSeconds() - row.resolvedAt) < (row.cacheTtlSeconds ?? this.ttlSeconds)) {
+        const raw = await this.store.get(id);
+        if (raw) {
             try {
-                const parsed = JSON.parse(row.resolvedBits);
+                const parsed = JSON.parse(raw) as CachedPayload;
                 return {
-                    botOwner: !!row.botOwner,
-                    bits: new Set(Array.isArray(parsed) ? parsed.map(String) : []),
-                    guildId,
-                    resolvedAt: row.resolvedAt,
+                    botOwner: !!parsed.botOwner,
+                    bits: new Set(Array.isArray(parsed.bits) ? parsed.bits.map(String) : []),
+                    guildId: parsed.guildId ?? guildId,
+                    resolvedAt: parsed.resolvedAt,
                 };
             } catch {
                 log.warn(`Corrupt cache entry for ${id}, falling back to live resolve.`);
+                await this.store.delete(id);
             }
         }
 
         const resolved = await this.permissionsManager.resolve(userId, guildId, discordGuildOwnerId);
-        const bits = [...resolved.bits];
-
-        this.db.prepare(`
-            INSERT INTO perm_users (id, userId, guildId, botOwner, resolvedBits, resolvedAt, cacheTtlSeconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                botOwner = excluded.botOwner,
-                resolvedBits = excluded.resolvedBits,
-                resolvedAt = excluded.resolvedAt,
-                cacheTtlSeconds = excluded.cacheTtlSeconds
-        `).run(id, userId, guildId ?? null, resolved.botOwner ? 1 : 0, JSON.stringify(bits), nowSeconds(), this.ttlSeconds);
-
+        const payload: CachedPayload = {
+            botOwner: resolved.botOwner,
+            bits: [...resolved.bits],
+            guildId: resolved.guildId,
+            resolvedAt: resolved.resolvedAt ?? nowSeconds(),
+        };
+        await this.store.set(id, JSON.stringify(payload), this.ttlSeconds * 1000);
         return resolved;
     }
 
     public async invalidate(userId: string, guildId?: string): Promise<void> {
-        this.db.prepare(`DELETE FROM perm_users WHERE id = ?`).run(this.cacheId(userId, guildId));
+        await this.store.delete(this.cacheId(userId));
+        if (guildId) {
+            await this.store.delete(this.cacheId(userId, guildId));
+        }
+        const suffix = `_${userId}`;
+        await this.store.deleteKeysMatching(
+            (key) => key.startsWith('permcache_') && key.endsWith(suffix),
+        );
     }
 
     public async invalidateGuild(guildId: string): Promise<void> {
-        const prefix = `permcache_${guildId}_`;
-        this.db.prepare(`DELETE FROM perm_users WHERE id >= ? AND id < ?`)
-            .run(prefix, prefix + '\uffff');
+        await this.store.deleteByPrefix(`permcache_${guildId}_`);
     }
 
     public async clearAll(): Promise<void> {
-        this.db.prepare(`DELETE FROM perm_users`).run();
+        await this.store.deleteByPrefix('permcache_');
     }
 }
 
 export let permissionCache: PermissionCache | undefined;
 
-export function createPermissionCache(permissionsManager: PermissionsManager, ttlSeconds?: number): PermissionCache {
+export function createPermissionCache(
+    permissionsManager: PermissionsManager,
+    ttlSeconds?: number,
+): PermissionCache {
     permissionCache = new PermissionCache(permissionsManager, ttlSeconds);
     return permissionCache;
 }

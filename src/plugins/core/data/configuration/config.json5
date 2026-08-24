@@ -1,28 +1,30 @@
 {
-    // Master switch for the core addon.
+    // Master switch for the core addon (presence etc.).
     enabled: true,
-
     // Presence status: "online" | "idle" | "dnd" | "invisible".
     status: "online",
-
-    // Presence/activity rotation refresh interval, in seconds.
     updateIntervalSeconds: 60,
-
-    // Custom placeholder map. Keys become %%placeholder_key%% substitutions.
     placeholders: {},
-
-    // Rotating presence activities. type: PLAYING | STREAMING | LISTENING | WATCHING | COMPETING.
     activities: [
         {
             name: "Server",
             type: "WATCHING",
         },
     ],
-
-    // /help command behaviour.
     help: {
-        filterByPermissions: true,   // Only list commands the invoking user can run.
-        maxCharsPerPage: 3000,       // Max characters per help page before pagination.
-        ephemeral: true,             // Whether /help replies are ephemeral.
+        filterByPermissions: true,
+        maxCharsPerPage: 3000,
+        ephemeral: true,
+    },
+    /**
+     * Guild gate storage backend.
+     * engine: "sqlite" | "postgres" | "mongo"
+     * alias: Database env alias (must already be connected), default "main"
+     * If engine/alias unavailable → falls back to default sqlite "main".
+     * If that also fails → core plugin disables itself in onSetup.
+     */
+    guildGate: {
+        engine: "sqlite",
+        alias: "main",
     },
 }

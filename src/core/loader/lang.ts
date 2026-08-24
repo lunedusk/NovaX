@@ -9,6 +9,9 @@ import {
     loadPluginLangSchema,
     validateValue
 } from '#core/validation/index.js';
+import { expandValue } from '#core/placeholder/index.js';
+import { mergePreserveObject } from '#core/loader/mergePreserve.js';
+import { writeJson5Preserving, writeJson5Wholesale } from '#core/loader/json5SurgicalWrite.js';
 
 const log = getLogger('LangLoader');
 type JsonObject = Record<string, any>;
@@ -28,58 +31,25 @@ export class LangLoader {
         return `${safePluginId}_${locale}.json5`;
     }
 
-    private deepSync(defaultObj: any, userObj: any, pathTracker: string = 'root', mutations: string[] = []): any {
-        if (typeof defaultObj !== 'object' || defaultObj === null) {
-            if (userObj !== undefined) {
-                if (typeof userObj === typeof defaultObj) return userObj;
-                mutations.push(`[Type Mismatch] Reset '${pathTracker}' from ${typeof userObj} back to ${typeof defaultObj}`);
-                return defaultObj;
-            }
-            return defaultObj;
-        }
-        if (Array.isArray(defaultObj)) {
-            if (Array.isArray(userObj)) return userObj;
-            mutations.push(`[Type Mismatch] Reset '${pathTracker}' to default Array`);
-            return [...defaultObj];
-        }
-        const syncedObj: JsonObject = {};
-        for (const key of Object.keys(defaultObj)) {
-            const currentPath = pathTracker === 'root' ? key : `${pathTracker}.${key}`;
-            if (userObj && Object.prototype.hasOwnProperty.call(userObj, key)) {
-                syncedObj[key] = this.deepSync(defaultObj[key], userObj[key], currentPath, mutations);
-            } else {
-                mutations.push(`[Missing Translation] Added new default string '${currentPath}'`);
-                syncedObj[key] = defaultObj[key];
-            }
-        }
-        if (userObj && typeof userObj === 'object' && !Array.isArray(userObj)) {
-            for (const key of Object.keys(userObj)) {
-                if (!Object.prototype.hasOwnProperty.call(defaultObj, key)) {
-                    mutations.push(`[Obsolete String] Pruned deprecated translation key '${pathTracker === 'root' ? key : pathTracker + '.' + key}'`);
-                }
-            }
-        }
-        return syncedObj;
+    private async atomicWrite(targetPath: string, data: JsonObject): Promise<void> {
+        await writeJson5Preserving(targetPath, data);
     }
 
-    private async atomicWrite(targetPath: string, data: JsonObject): Promise<void> {
-        await fs.mkdir(path.dirname(targetPath), { recursive: true });
-        const tempPath = `${targetPath}.${Date.now()}.tmp`;
-        try {
-            await fs.writeFile(tempPath, JSON5.stringify(data, null, 4), 'utf-8');
-            await fs.rename(tempPath, targetPath);
-        } catch (error) {
-            await fs.unlink(tempPath).catch(() => {});
-            throw error;
-        }
+    private async atomicWriteNew(targetPath: string, data: JsonObject): Promise<void> {
+        await writeJson5Wholesale(targetPath, data);
     }
 
     private async validateLang(pluginId: string, filePath: string, data: unknown, locale?: string) {
         const loc = locale || path.basename(filePath, '.json5');
-        const custom = await loadPluginLangSchema(pluginId, loc);
-        const schema = custom ?? langDocumentSchema;
+        const schema = await loadPluginLangSchema(pluginId, loc);
         const rules = await loadPluginLangRules(pluginId, loc);
-        const result = await validateValue(data, {
+        const forValidation = expandValue(data, {
+            failClosed: false,
+            resolveEmoji: false,
+            collectUntaggedRand: false,
+            softMiss: 'absent',
+        }).value;
+        const result = await validateValue(forValidation, {
             kind: 'lang',
             filePath,
             pluginId,
@@ -87,7 +57,7 @@ export class LangLoader {
             locale: loc
         }, schema, rules);
         if (!result.ok) return { ok: false as const, message: formatIssues(result.issues) };
-        return { ok: true as const, data: result.data as JsonObject };
+        return { ok: true as const, data: data as JsonObject };
     }
 
     public async syncPlugin(pluginDir: string, pluginId: string): Promise<void> {
@@ -120,26 +90,35 @@ export class LangLoader {
                 try {
                     const userLang = JSON5.parse(await fs.readFile(targetPath, 'utf-8'));
                     const mutations: string[] = [];
-                    let merged = this.deepSync(defaultLang, userLang, 'root', mutations);
+                    const merged = mergePreserveObject(
+                        defaultLang as Record<string, unknown>,
+                        userLang as Record<string, unknown>,
+                        mutations,
+                    );
                     const mergedOk = await this.validateLang(pluginId, targetPath, merged, path.basename(file, '.json5'));
                     if (!mergedOk.ok) {
-                        log.warn(`[${pluginId}] Merged lang invalid (${targetName}): ${mergedOk.message}`);
-                        continue;
+                        log.error(
+                            `[${pluginId}] Merged lang has validation issues (${targetName}): ${mergedOk.message}`,
+                        );
                     }
-                    merged = mergedOk.data;
                     if (mutations.length > 0) {
-                        await this.atomicWrite(targetPath, merged);
-                        log.info(`[${pluginId}] Synced language file ${targetName}. Applied ${mutations.length} updates.`);
+                        const mode = await writeJson5Preserving(targetPath, merged);
+                        log.info(
+                            `[${pluginId}] Synced language file ${targetName} (${mode}). Applied ${mutations.length} updates.`,
+                        );
+                        for (const m of mutations) {
+                            if (m.startsWith('[Type Mismatch]')) log.warn(`[${pluginId}] ${m}`);
+                        }
                     }
                 } catch (error: unknown) {
                     const err = error as NodeJS.ErrnoException;
                     if (err.code === 'ENOENT') {
-                        await this.atomicWrite(targetPath, defaultLang);
+                        await this.atomicWriteNew(targetPath, defaultLang);
                         log.info(`[${pluginId}] Generated fresh global translation: ${targetName}`);
                     } else if (error instanceof SyntaxError) {
                         log.warn(`[${pluginId}] Global translation ${targetName} corrupted; backup and reset.`);
                         await fs.rename(targetPath, `${targetPath}.corrupted.bak`);
-                        await this.atomicWrite(targetPath, defaultLang);
+                        await this.atomicWriteNew(targetPath, defaultLang);
                     } else throw error;
                 }
             }

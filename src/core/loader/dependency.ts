@@ -14,7 +14,7 @@ export class DependencyLoader {
             const pkg = JSON.parse(rawPkg);
 
             const hasDependencies = pkg.dependencies && Object.keys(pkg.dependencies).length > 0;
-            
+
             if (!hasDependencies) {
                 log.debug(`[${pluginId}] No external dependencies defined in package.json.`);
                 return;
@@ -28,7 +28,7 @@ export class DependencyLoader {
 
         } catch (error: unknown) {
             const err = error as NodeJS.ErrnoException;
-            
+
             if (err.code === 'ENOENT') {
                 log.debug(`[${pluginId}] No package.json found. Skipping npm install.`);
             } else if (err instanceof SyntaxError) {
@@ -46,11 +46,24 @@ export class DependencyLoader {
             const child = spawn('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--prefer-offline'], {
                 cwd: targetDir,
                 stdio: 'ignore',
-                shell: process.platform === 'win32'
+                shell: process.platform === 'win32',
+                detached: process.platform !== 'win32'
             });
 
+            const killTree = () => {
+                try {
+                    if (process.platform !== 'win32' && child.pid) {
+                        process.kill(-child.pid, 'SIGTERM');
+                    } else {
+                        child.kill('SIGTERM');
+                    }
+                } catch {
+                    try { child.kill('SIGKILL'); } catch { /* ignore */ }
+                }
+            };
+
             const timeout = setTimeout(() => {
-                child.kill();
+                killTree();
                 reject(new Error(`NPM Install timed out for plugin: ${pluginId}`));
             }, 120000);
 

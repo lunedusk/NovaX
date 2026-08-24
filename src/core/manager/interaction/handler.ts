@@ -8,16 +8,18 @@ import {
     type Client
 } from 'discord.js';
 import { performance } from 'node:perf_hooks';
-
+import { guildGate } from '#core/manager/guildGate.js';
 import { interactionRegistry } from './registry.js';
 import { eventBus } from '#core/manager/event.js';
 import { getLogger } from '#core/utils/logger.js';
 import { cooldownManager } from '#core/manager/cooldown.js';
 import { metricsManager } from '#core/manager/metrics/index.js';
 import { secrets } from '#core/helpers/secretManager.js';
-import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import { resolveGlobalPlaceholders } from '#core/placeholder/index.js';
 import { permissionsManager, type RouteAccessConfig } from '#core/manager/permissions.js';
 import { CrossGuildResolver } from '#core/helpers/crossGuild/index.js';
+import { NovaError } from '#core/errors/NovaError.js';
+import { errors } from '#core/errors/index.js';
 
 const log = getLogger('InteractionHandler');
 
@@ -28,13 +30,14 @@ interface ResolvedRoute {
     lookupKey: string;
     handler?: (interaction: any) => Promise<void>;
     access?: RouteAccessConfig;
+    owner?: string;
 }
 
 export class InteractionHandler {
     private restClient: REST | null = null;
 
     public init(): void {
-        eventBus.on(`discord.${Events.InteractionCreate}`, async (interaction: Interaction) => {
+        eventBus.on('discord.interactionCreate', async (interaction: Interaction) => {
             this.process(interaction).catch((error: unknown) => {
                 const err = error instanceof Error ? error : new Error(String(error));
                 log.error(`Catastrophic failure in Interaction Pipeline: ${err.message}`, { stack: err.stack });
@@ -104,6 +107,49 @@ export class InteractionHandler {
                 return;
             }
 
+            if (guildGate.isReady() && interaction.guildId) {
+                const blocked = guildGate.isInteractionBlocked(route.owner, interaction.guildId);
+                if (blocked) {
+                    let isOwner = false;
+                    try {
+                        const resolved = await permissionsManager!.cachedResolve(
+                            interaction.user.id,
+                            interaction.guildId ?? undefined,
+                            interaction.guild?.ownerId
+                        );
+                        isOwner = !!resolved.botOwner;
+                    } catch {
+                        /* non-owner */
+                    }
+
+                    if (!isOwner) {
+                        metricsManager.interactionsTotal.inc({
+                            type: route.category,
+                            command: route.lookupKey,
+                            status: 'guild_gated'
+                        });
+                        if (interaction.isAutocomplete()) {
+                            await interaction.respond([]).catch(() => {});
+                            return;
+                        }
+                        if (interaction.isRepliable()) {
+                            const payload = {
+                                content: resolveGlobalPlaceholders(
+                                    '%%emoji_no_entry%% This feature is disabled in this server by the bot owner.'
+                                ),
+                                flags: [MessageFlags.Ephemeral] as const
+                            };
+                            if (interaction.deferred || interaction.replied) {
+                                await interaction.followUp(payload).catch(() => {});
+                            } else {
+                                await interaction.reply(payload).catch(() => {});
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
+
             const access = await permissionsManager!.canExecute(interaction, route.access);
             if (!access.allowed) {
                 metricsManager.interactionsTotal.inc({ type: route.category, command: route.lookupKey, status: 'denied' });
@@ -140,10 +186,48 @@ export class InteractionHandler {
             isSuccess = true;
 
         } catch (error: unknown) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            log.error(`[Execution Error] Route: ${route.lookupKey} | MSG: ${err.message}`, { stack: err.stack });
+            try {
+                const isNova = NovaError.isNovaError(error);
+                if (isNova) {
+                    log.error(
+                        `[Execution Error] Route: ${route.lookupKey} | CODE: ${error.code} | MSG: ${error.message}`,
+                        { stack: error.stack, category: error.category, severity: error.severity },
+                    );
+                } else {
+                    const err = error instanceof Error ? error : new Error(String(error));
+                    log.error(
+                        `[Execution Error] Route: ${route.lookupKey} | MSG: ${err.message}`,
+                        { stack: err.stack },
+                    );
+                }
 
-            await this.sendSystemState(interaction, 'FATAL_ERROR');
+                void errors
+                    .record({
+                        code: isNova ? error.code : 'INTERNAL.UNKNOWN',
+                        category: isNova ? error.category : 'internal',
+                        severity: isNova ? error.severity : 'error',
+                        message: isNova ? error.userMessage : 'Interaction execution failure',
+                        context: {
+                            path: route.lookupKey,
+                            code: isNova ? error.code : 'INTERNAL.UNKNOWN',
+                            actorId: interaction.user?.id ?? null,
+                            actorType: 'user',
+                            guildId: interaction.guildId ?? null,
+                        },
+                    })
+                    .catch(() => {});
+
+                const replyText = isNova ? error.userMessage : undefined;
+                await this.sendSystemState(interaction, 'FATAL_ERROR', undefined, replyText);
+            } catch (boundaryErr: unknown) {
+                const e = boundaryErr instanceof Error ? boundaryErr : new Error(String(boundaryErr));
+                log.error(`Interaction error boundary failed: ${e.message}`);
+                try {
+                    await this.sendSystemState(interaction, 'FATAL_ERROR');
+                } catch {
+                    /* ignore */
+                }
+            }
         } finally {
             const execTime = performance.now() - startTime;
 
@@ -164,33 +248,74 @@ export class InteractionHandler {
     private resolveRoute(interaction: Interaction): ResolvedRoute {
         if (interaction.isChatInputCommand()) {
             const resolved = interactionRegistry.chat.resolve(interaction.commandName);
-            return { category: 'chat_command', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'chat_command',
+                lookupKey: interaction.commandName,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
         if (interaction.isAutocomplete()) {
             const resolved = interactionRegistry.autocomplete.resolve(interaction.commandName);
-            return { category: 'autocomplete', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'autocomplete',
+                lookupKey: interaction.commandName,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
         if (interaction.isButton()) {
             const resolved = interactionRegistry.button.resolve(interaction.customId);
-            return { category: 'button', lookupKey: interaction.customId, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'button',
+                lookupKey: interaction.customId,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
         if (interaction.isAnySelectMenu()) {
             const resolved = interactionRegistry.select.resolve(interaction.customId);
-            return { category: 'select_menu', lookupKey: interaction.customId, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'select_menu',
+                lookupKey: interaction.customId,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
         if (interaction.isModalSubmit()) {
             const resolved = interactionRegistry.modal.resolve(interaction.customId);
-            return { category: 'modal', lookupKey: interaction.customId, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'modal',
+                lookupKey: interaction.customId,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
         if (interaction.isContextMenuCommand()) {
             const resolved = interactionRegistry.context.resolve(interaction.commandName);
-            return { category: 'context_menu', lookupKey: interaction.commandName, handler: resolved?.handler, access: resolved?.metadata?.access };
+            return {
+                category: 'context_menu',
+                lookupKey: interaction.commandName,
+                handler: resolved?.handler,
+                access: resolved?.metadata?.access,
+                owner: resolved?.owner
+            };
         }
 
         return { category: 'UNKNOWN', lookupKey: 'UNKNOWN' };
     }
 
-    private async sendSystemState(interaction: Interaction, state: 'FATAL_ERROR' | 'RATE_LIMIT', contextData?: number): Promise<void> {
+    private async sendSystemState(
+        interaction: Interaction,
+        state: 'FATAL_ERROR' | 'RATE_LIMIT',
+        contextData?: number,
+        userMessage?: string,
+    ): Promise<void> {
         if (interaction.isAutocomplete()) {
             if (!interaction.responded) await interaction.respond([]).catch(() => {});
             return;
@@ -203,7 +328,11 @@ export class InteractionHandler {
 
             switch (state) {
                 case 'FATAL_ERROR':
-                    payload.content = resolveGlobalPlaceholders('%%emoji_cross%% A critical internal error occurred while processing your request.');
+                    payload.content = resolveGlobalPlaceholders(
+                        userMessage
+                            ? `%%emoji_cross%% ${userMessage}`
+                            : '%%emoji_cross%% A critical internal error occurred while processing your request.',
+                    );
                     break;
                 case 'RATE_LIMIT':
                     const remainingSec = ((contextData ?? 0) / 1000).toFixed(1);

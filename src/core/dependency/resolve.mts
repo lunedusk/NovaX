@@ -14,15 +14,21 @@ interface ResolveContext {
     conditions: string[];
     parentURL?: string;
 }
-type NextResolve = (specifier: string, context: ResolveContext) => Promise<ResolutionResult>;
+type NextResolve = (
+    specifier: string,
+    context: ResolveContext
+) => Promise<{ url: string; format?: string | null; shortCircuit?: boolean }>;
 
 export async function resolve(
     specifier: string,
     context: ResolveContext,
     nextResolve: NextResolve
 ): Promise<ResolutionResult> {
-    const cacheKey = `${context.parentURL}::${specifier}`;
-    if (resolutionCache.has(cacheKey)) return resolutionCache.get(cacheKey)!;
+    const cacheKey = `${context.parentURL ?? ''}::${specifier}`;
+    const cached = resolutionCache.get(cacheKey);
+    if (cached) {
+        return { shortCircuit: true, url: cached.url };
+    }
 
     const isBareSpecifier =
         !specifier.startsWith('.') &&
@@ -32,10 +38,11 @@ export async function resolve(
 
     if (isBareSpecifier && context.parentURL) {
         let parentPath = '';
-        try { parentPath = fileURLToPath(context.parentURL); } catch {}
+        try {
+            parentPath = fileURLToPath(context.parentURL);
+        } catch { /* ignore */ }
 
-        const normalizedParent = parentPath.replace(/\\/g, '/');
-        const pluginMatch = normalizedParent.match(/\/plugins\/([^\/]+)/);
+        const pluginMatch = parentPath.replace(/\\/g, '/').match(/\/plugins\/([^/]+)/);
 
         if (pluginMatch) {
             const pluginId = pluginMatch[1];
@@ -55,15 +62,18 @@ export async function resolve(
     }
 
     try {
-        const result = await nextResolve(specifier, context);
+        const resolved = await nextResolve(specifier, context);
+        const result: ResolutionResult = { shortCircuit: true, url: resolved.url };
         resolutionCache.set(cacheKey, result);
         return result;
     } catch (error: any) {
         if (error.code === 'ERR_MODULE_NOT_FOUND' && isBareSpecifier && context.parentURL) {
             let parentPath = '';
-            try { parentPath = fileURLToPath(context.parentURL); } catch {}
+            try {
+                parentPath = fileURLToPath(context.parentURL);
+            } catch { /* ignore */ }
 
-            const pluginMatch = parentPath.replace(/\\/g, '/').match(/\/plugins\/([^\/]+)/);
+            const pluginMatch = parentPath.replace(/\\/g, '/').match(/\/plugins\/([^/]+)/);
             if (pluginMatch) {
                 throw new Error(
                     `[Plugin Engine] '${pluginMatch[1]}' requested '${specifier}' but it was not found in its sandbox OR globally.`

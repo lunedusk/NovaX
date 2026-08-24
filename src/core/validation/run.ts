@@ -55,25 +55,31 @@ async function runRules(
 export async function validateValue<T = unknown>(
     data: unknown,
     ctx: ValidationContext,
-    schema: AnyZodSchema,
+    schema?: AnyZodSchema | null,
     rules?: RulesValidateFn | null
 ): Promise<ValidationResult<T>> {
-    const parsed = schema.safeParse(data);
-    if (!parsed.success) {
-        const err = parsed.error ?? { issues: [{ message: 'Schema validation failed' }] };
-        return { ok: false, data, issues: zodToIssues(err) };
+    let current: unknown = data;
+
+    if (schema) {
+        const parsed = schema.safeParse(data);
+        if (!parsed.success) {
+            const err = parsed.error ?? { issues: [{ message: 'Schema validation failed' }] };
+            return { ok: false, data, issues: zodToIssues(err) };
+        }
+        current = parsed.data;
     }
-    const ruleIssues = await runRules(parsed.data, ctx, rules);
+
+    const ruleIssues = await runRules(current, ctx, rules);
     if (ruleIssues.length) {
-        return { ok: false, data: parsed.data, issues: ruleIssues };
+        return { ok: false, data: current, issues: ruleIssues };
     }
-    return { ok: true, data: parsed.data as T, issues: [] };
+    return { ok: true, data: current as T, issues: [] };
 }
 
 export async function validateRawString<T = unknown>(
     raw: string,
     ctx: ValidationContext,
-    schema: AnyZodSchema,
+    schema?: AnyZodSchema | null,
     rules?: RulesValidateFn | null
 ): Promise<ValidationResult<T>> {
     const parsed = parseDocument(raw, ctx.filePath);

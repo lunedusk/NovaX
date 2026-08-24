@@ -3,6 +3,7 @@ import { type Request, type Response } from 'express';
 import { TokenError } from '#core/manager/token.js';
 import type TokenHandler from '../handlers/manager.js';
 import type GatewayManager from '../../../api/src/handlers/manager.js';
+import { actorFromGateway } from '#core/audit/actor.js';
 
 export default class TokenApiRoute extends BaseRoute {
 
@@ -71,8 +72,38 @@ export default class TokenApiRoute extends BaseRoute {
         const h = this.handler(res); if (!h) return;
         const { userId, bits, guildId, deviceId, deviceLabel, ttlSeconds } = req.body;
         if (!userId) { res.status(400).json({ error: 'Missing userId' }); return; }
-        try { res.status(201).json({ token: await h.issue(String(userId), { bits, guildId: guildId ? String(guildId) : undefined, deviceId: deviceId ? String(deviceId) : undefined, deviceLabel: deviceLabel ? String(deviceLabel) : undefined, ttlSeconds }) }); }
-        catch (err) { if (err instanceof TokenError) { res.status(400).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        try {
+            const token = await h.issue(String(userId), {
+                bits,
+                guildId: guildId ? String(guildId) : undefined,
+                deviceId: deviceId ? String(deviceId) : undefined,
+                deviceLabel: deviceLabel ? String(deviceLabel) : undefined,
+                ttlSeconds,
+            });
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.issue',
+                target: String(userId),
+                outcome: 'success',
+                meta: {
+                    guildId: guildId ? String(guildId) : null,
+                    deviceId: deviceId ? String(deviceId) : null,
+                    bitsCount: Array.isArray(bits) ? bits.length : 0,
+                },
+            });
+            res.status(201).json({ token });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.issue',
+                target: String(userId),
+                outcome: 'fail',
+                reason: err instanceof TokenError ? err.code : 'error',
+            });
+            if (err instanceof TokenError) { res.status(400).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -104,8 +135,36 @@ export default class TokenApiRoute extends BaseRoute {
         const h = this.handler(res); if (!h) return;
         const { userId, guildId, deviceId, deviceLabel, ttlSeconds } = req.body;
         if (!userId) { res.status(400).json({ error: 'Missing userId' }); return; }
-        try { res.status(201).json({ token: await h.issueWithResolvedBits(String(userId), guildId ? String(guildId) : undefined, { deviceId: deviceId ? String(deviceId) : undefined, deviceLabel: deviceLabel ? String(deviceLabel) : undefined, ttlSeconds }) }); }
-        catch (err) { if (err instanceof TokenError) { res.status(400).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        try {
+            const token = await h.issueWithResolvedBits(String(userId), guildId ? String(guildId) : undefined, {
+                deviceId: deviceId ? String(deviceId) : undefined,
+                deviceLabel: deviceLabel ? String(deviceLabel) : undefined,
+                ttlSeconds,
+            });
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.issue',
+                target: String(userId),
+                outcome: 'success',
+                meta: {
+                    guildId: guildId ? String(guildId) : null,
+                    deviceId: deviceId ? String(deviceId) : null,
+                    code: 'resolved',
+                },
+            });
+            res.status(201).json({ token });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.issue',
+                target: String(userId),
+                outcome: 'fail',
+                reason: err instanceof TokenError ? err.code : 'error',
+            });
+            if (err instanceof TokenError) { res.status(400).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -139,7 +198,7 @@ export default class TokenApiRoute extends BaseRoute {
             const v = await h.verify(String(token));
             res.json({ valid: true, payload: { userId: v.payload.userId, bits: v.payload.bits, guildId: v.payload.guildId ?? null, deviceId: v.payload.deviceId, deviceLabel: v.payload.deviceLabel ?? null, iat: v.payload.iat, exp: v.payload.exp, iss: v.payload.iss, aud: v.payload.aud } });
         } catch (err) {
-            if (err instanceof TokenError) { res.status((err.code === 'TOKEN_EXPIRED' || err.code === 'TOKEN_REVOKED') ? 401 : 400).json({ valid: false, error: err.code, message: err.message }); return; }
+            if (err instanceof TokenError) { res.status((err.tokenCode === 'TOKEN_EXPIRED' || err.tokenCode === 'TOKEN_REVOKED' || err.code === 'TOKEN.TOKEN_EXPIRED' || err.code === 'TOKEN.TOKEN_REVOKED') ? 401 : 400).json({ valid: false, error: err.code, message: err.userMessage }); return; }
             throw err;
         }
     }
@@ -169,8 +228,34 @@ export default class TokenApiRoute extends BaseRoute {
         const h = this.handler(res); if (!h) return;
         const { token } = req.body;
         if (!token) { res.status(400).json({ error: 'Missing token' }); return; }
-        try { res.json({ token: await h.refresh(String(token)) }); }
-        catch (err) { if (err instanceof TokenError) { res.status(401).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        let subjectId = 'unknown';
+        let jti: string | null = null;
+        try {
+            const verified = await h.verify(String(token));
+            subjectId = verified.payload.userId;
+            jti = verified.payload.jti;
+            const next = await h.refresh(String(token));
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.refresh',
+                target: subjectId,
+                outcome: 'success',
+                meta: { jti },
+            });
+            res.json({ token: next });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.refresh',
+                target: subjectId,
+                outcome: 'fail',
+                reason: err instanceof TokenError ? err.code : 'error',
+                meta: jti ? { jti } : undefined,
+            });
+            if (err instanceof TokenError) { res.status(401).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -198,8 +283,34 @@ export default class TokenApiRoute extends BaseRoute {
         const h = this.handler(res); if (!h) return;
         const { token } = req.body;
         if (!token) { res.status(400).json({ error: 'Missing token' }); return; }
-        try { res.json({ token: await h.refreshWithResolvedBits(String(token)) }); }
-        catch (err) { if (err instanceof TokenError) { res.status(401).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        let subjectId = 'unknown';
+        let jti: string | null = null;
+        try {
+            const verified = await h.verify(String(token));
+            subjectId = verified.payload.userId;
+            jti = verified.payload.jti;
+            const next = await h.refreshWithResolvedBits(String(token));
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.refresh',
+                target: subjectId,
+                outcome: 'success',
+                meta: { jti, code: 'resolved' },
+            });
+            res.json({ token: next });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.refresh',
+                target: subjectId,
+                outcome: 'fail',
+                reason: err instanceof TokenError ? err.code : 'error',
+                meta: jti ? { jti, code: 'resolved' } : { code: 'resolved' },
+            });
+            if (err instanceof TokenError) { res.status(401).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -227,8 +338,27 @@ export default class TokenApiRoute extends BaseRoute {
         const h = this.handler(res); if (!h) return;
         const { userId } = req.body;
         if (!userId) { res.status(400).json({ error: 'Missing userId' }); return; }
-        try { res.json({ revoked: true, userId, globalVersion: await h.revokeAll(String(userId)) }); }
-        catch (err) { if (err instanceof TokenError) { res.status(400).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        try {
+            const globalVersion = await h.revokeAll(String(userId));
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.revoke_all',
+                target: String(userId),
+                outcome: 'success',
+            });
+            res.json({ revoked: true, userId, globalVersion });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.revoke_all',
+                target: String(userId),
+                outcome: 'fail',
+                reason: err instanceof TokenError ? err.code : 'error',
+            });
+            if (err instanceof TokenError) { res.status(400).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -258,8 +388,36 @@ export default class TokenApiRoute extends BaseRoute {
         const h = this.handler(res); if (!h) return;
         const { userId, deviceId, guildId } = req.body;
         if (!userId || !deviceId) { res.status(400).json({ error: 'Missing userId or deviceId' }); return; }
-        try { res.json({ revoked: true, userId, deviceId, deviceVersion: await h.revokeDevice(String(userId), String(deviceId), guildId ? String(guildId) : undefined) }); }
-        catch (err) { if (err instanceof TokenError) { res.status(400).json({ error: err.code, message: err.message }); return; } throw err; }
+        const actor = actorFromGateway(res);
+        try {
+            const deviceVersion = await h.revokeDevice(
+                String(userId),
+                String(deviceId),
+                guildId ? String(guildId) : undefined,
+            );
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.revoke_device',
+                target: String(userId),
+                outcome: 'success',
+                meta: {
+                    deviceId: String(deviceId),
+                    guildId: guildId ? String(guildId) : null,
+                },
+            });
+            res.json({ revoked: true, userId, deviceId, deviceVersion });
+        } catch (err) {
+            void this.heart.system.audit.record({
+                ...actor,
+                action: 'token.revoke_device',
+                target: String(userId),
+                outcome: 'fail',
+                reason: err instanceof TokenError ? err.code : 'error',
+                meta: { deviceId: String(deviceId) },
+            });
+            if (err instanceof TokenError) { res.status(400).json({ error: err.code, message: err.userMessage }); return; }
+            throw err;
+        }
     }
 
     /**
@@ -283,7 +441,7 @@ export default class TokenApiRoute extends BaseRoute {
         const h = this.handler(res); if (!h) return;
         const userId = this.param(req, 'userId');
         try { res.json({ userId, devices: await h.listDevices(userId) }); }
-        catch (err) { if (err instanceof TokenError) { res.status(400).json({ error: err.code, message: err.message }); return; } throw err; }
+        catch (err) { if (err instanceof TokenError) { res.status(400).json({ error: err.code, message: err.userMessage }); return; } throw err; }
     }
 
     /**

@@ -30,6 +30,10 @@ export class SqliteNativeRegistry {
         }
     }
 
+    public has(alias: string): boolean {
+        return this.dbs.has(alias);
+    }
+
     public get(alias: string): Database.Database {
         const db = this.dbs.get(alias);
         if (!db) throw new Error(`Native SQLite database [${alias}] not found!`);

@@ -6,11 +6,11 @@ import swaggerJsdoc from 'swagger-jsdoc';
 import { getLogger } from '#core/utils/logger.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { permissionsManager } from '#core/manager/permissions.js';
+import { NovaError } from '#core/errors/NovaError.js';
+import { errors } from '#core/errors/index.js';
 
 const log = getLogger('GatewayConfigManager');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface CorsConfig {
     allowedOrigins: string[];
@@ -67,14 +67,18 @@ export class GatewayConfigManager {
         if (this._config.auth.enabled && this._config.auth.masterKeySource === 'env') {
             const masterKey = secrets.getOptional(this._config.auth.masterKeyEnvVar);
             if (!masterKey) {
-                throw new Error(`Gateway master key is missing. Set ${this._config.auth.masterKeyEnvVar} before starting.`);
+                throw new NovaError(`Gateway master key is missing. Set ${this._config.auth.masterKeyEnvVar} before starting.`, {
+                    code: 'GATEWAY.MASTER_KEY_MISSING',
+                    category: 'gateway',
+                    severity: 'fatal',
+                    userMessage: 'Gateway authentication is not configured.',
+                    statusCode: 500,
+                });
             }
         }
 
         log.info('Gateway config loaded from framework ConfigManager.');
     }
-
-    // ─── Config accessors ────────────────────────────────────────────────────
 
     public get cors(): Readonly<CorsConfig> { return this._config.cors; }
     public get auth(): Readonly<AuthConfig> { return this._config.auth; }
@@ -89,8 +93,6 @@ export class GatewayConfigManager {
         log.warn(`Gateway publicBaseUrl is not configured. Falling back to ${fallback}.`);
         return fallback;
     }
-
-    // ─── Middleware stack ─────────────────────────────────────────────────────
 
     public applyMiddleware(router: Router): void {
         router.use(this.securityHeaders);
@@ -148,6 +150,40 @@ export class GatewayConfigManager {
         next();
     };
 
+
+    private routePattern(req: Request): string {
+        const full = `${req.baseUrl || ''}${typeof req.route?.path === 'string' ? req.route.path : req.path || ''}`;
+        return full.split('?')[0] || '/';
+    }
+
+    private recordAuthFailure(
+        req: Request,
+        code: string,
+        status: number,
+        message: string,
+        actorId?: string | null,
+        actorType?: string | null,
+    ): void {
+        const method = typeof req.method === 'string' ? req.method : 'UNKNOWN';
+        const path = this.routePattern(req);
+        void errors
+            .record({
+                code,
+                category: code.startsWith('AUTH.') ? 'auth' : 'gateway',
+                severity: status >= 500 ? 'error' : 'warn',
+                message,
+                context: {
+                    method,
+                    path,
+                    code,
+                    status,
+                    actorId: actorId ?? null,
+                    actorType: actorType ?? null,
+                },
+            })
+            .catch(() => {});
+    }
+
     private bearerAuth = (req: Request, res: Response, next: NextFunction): void => {
         const cfg = this._config.auth;
 
@@ -159,12 +195,14 @@ export class GatewayConfigManager {
         const authHeader = req.headers['authorization'] as string | undefined;
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            this.recordAuthFailure(req, 'AUTH.MISSING_BEARER', 401, 'Missing or malformed Authorization header');
             res.status(401).json({ error: 'Unauthorized', message: 'Missing or malformed Authorization header. Expected: Bearer <token>' });
             return;
         }
 
         const authContext = this.resolveAuthContext(authHeader.slice(7));
         if (!authContext) {
+            this.recordAuthFailure(req, 'AUTH.INVALID_KEY', 403, 'Invalid or revoked API key');
             res.status(403).json({ error: 'Forbidden', message: 'Invalid or revoked API key.' });
             return;
         }
@@ -183,6 +221,10 @@ export class GatewayConfigManager {
         const fullPath = req.baseUrl + req.path;
         const isSensitiveRoute = fullPath.startsWith('/api/tokens')
             || fullPath.startsWith('/api/permissions')
+            || fullPath.startsWith('/api/gates')
+            || fullPath.startsWith('/api/emoji')
+            || fullPath.startsWith('/api/audit')
+            || fullPath.startsWith('/api/errors')
             || fullPath === '/api/health';
 
         if (this._config.auth.publicPaths.some((prefix) => fullPath.startsWith(prefix))) {
@@ -192,6 +234,7 @@ export class GatewayConfigManager {
 
         if (!permissionsManager) {
             if (isSensitiveRoute) {
+                this.recordAuthFailure(req, 'GATEWAY.POLICY_UNAVAILABLE', 503, 'Permission policy service is not initialized');
                 res.status(503).json({ error: 'Gateway Unavailable', message: 'Permission policy service is not initialized.' });
                 return;
             }
@@ -203,6 +246,7 @@ export class GatewayConfigManager {
         const policy = permissionsManager.resolveHttpRouteAccess(req.method, fullPath);
         if (!policy) {
             if (isSensitiveRoute) {
+                this.recordAuthFailure(req, 'GATEWAY.POLICY_MISSING', 500, 'No permission policy is defined for route');
                 res.status(500).json({ error: 'Misconfigured Route Policy', message: `No permission policy is defined for ${req.method} ${fullPath}.` });
                 return;
             }
@@ -218,12 +262,14 @@ export class GatewayConfigManager {
 
         const requiredBits = policy.bits ?? [];
         if (requiredBits.length === 0) {
+            this.recordAuthFailure(req, 'GATEWAY.POLICY_UNGATED', 500, 'Route policy has no permission bits configured');
             res.status(500).json({ error: 'Misconfigured Route Policy', message: `Route policy for ${req.method} ${fullPath} has no permission bits configured.` });
             return;
         }
 
         const auth = res.locals.gatewayAuth as GatewayAuthContext | undefined;
         if (!auth) {
+            this.recordAuthFailure(req, 'AUTH.REQUIRED', 403, 'Route requires API authentication');
             res.status(403).json({ error: 'Forbidden', message: policy.denyMessage ?? 'This route requires API authentication.' });
             return;
         }
@@ -233,8 +279,21 @@ export class GatewayConfigManager {
             return;
         }
 
-        const hasAllBits = requiredBits.every((bit) => auth.bits.includes(bit));
-        if (!hasAllBits) {
+        const mode = policy.bitsMode === 'any' ? 'any' : 'all';
+        const allowed =
+            mode === 'any'
+                ? requiredBits.some((bit) => auth.bits.includes(bit))
+                : requiredBits.every((bit) => auth.bits.includes(bit));
+        if (!allowed) {
+            const actorId = auth.isMaster ? 'master' : (auth.label?.trim() || 'api_key');
+            this.recordAuthFailure(
+                req,
+                'AUTH.INSUFFICIENT_BITS',
+                403,
+                'Missing required API route permission',
+                actorId,
+                'api_key',
+            );
             res.status(403).json({ error: 'Forbidden', message: policy.denyMessage ?? 'Missing required API route permission.' });
             return;
         }
@@ -256,7 +315,15 @@ export class GatewayConfigManager {
                         license: { name: 'Proprietary' },
                     },
                     tags: [
-                        { name: 'Bot Api',  description: 'Discord Bot Internal API Endpoints' }
+                        { name: 'System', description: 'Health and OpenAPI' },
+                        { name: 'Gateway', description: 'Gateway metadata' },
+                        { name: 'Tokens', description: 'API token issue, verify, refresh, revoke' },
+                        { name: 'Permissions', description: 'Permission bits and roles' },
+                        { name: 'Gates', description: 'Guild and plugin gate blocks' },
+                        { name: 'Audit', description: 'Append-only audit registry' },
+                        { name: 'Errors', description: 'Coalesced error occurrence registry' },
+                        { name: 'Emoji', description: 'Emoji map' },
+                        { name: 'Core', description: 'Core process controls' },
                     ],
                     components: {
                         securitySchemes: {
@@ -286,6 +353,14 @@ export class GatewayConfigManager {
                     },
                 },
                 apis: [
+                    path.join(process.cwd(), 'plugins', 'api', '**', 'routes', '*.js'),
+                    path.join(process.cwd(), 'plugins', 'api', '**', 'routes', '*.ts'),
+                    path.join(process.cwd(), 'plugins', 'token', '**', 'routes', '*.js'),
+                    path.join(process.cwd(), 'plugins', 'token', '**', 'routes', '*.ts'),
+                    path.join(process.cwd(), 'plugins', 'permissions', '**', 'routes', '*.js'),
+                    path.join(process.cwd(), 'plugins', 'permissions', '**', 'routes', '*.ts'),
+                    path.join(process.cwd(), 'plugins', 'core', '**', 'routes', '*.js'),
+                    path.join(process.cwd(), 'plugins', 'core', '**', 'routes', '*.ts'),
                     path.join(__dirname, '..', 'routes', '*.ts'),
                     path.join(__dirname, '..', 'routes', '*.js'),
                 ],

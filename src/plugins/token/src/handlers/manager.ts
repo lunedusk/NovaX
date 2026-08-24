@@ -1,9 +1,8 @@
 import { BaseHandler } from '#core/bases/Handler.js';
 import { secrets } from '#core/helpers/secretManager.js';
-import { sqliteDB } from '#core/database/sqlite.js';
 import {
     TokenManager,
-    SqliteTokenStore,
+    DbTokenStore,
     TokenError,
     BitSets,
     extractBearer,
@@ -30,8 +29,8 @@ export default class TokenHandler extends BaseHandler {
             throw new Error('TokenMasterSecret must be at least 32 characters. Set it in your .env file.');
         }
 
-        const db = sqliteDB.get('main');
-        const store = new SqliteTokenStore(db as any);
+        const store = new DbTokenStore();
+        await store.init();
 
         this.tokenManager = new TokenManager(masterSecret, store, {
             ttlSeconds: parseInt(secrets.getOptional('TokenTTL', '900') ?? '900'),

@@ -1,5 +1,5 @@
 import { DatabaseManager, type DbConfig, novaDB } from '#core/database/index.js';
-import { secrets } from './helpers/secretManager.js';
+import { secrets } from '../helpers/secretManager.js';
 import { getLogger } from '#core/utils/logger.js';
 import path from 'node:path';
 import fs from 'node:fs';

@@ -283,7 +283,7 @@ export default class PermissionsCommand extends BaseCommand {
         const bits = interaction.options.getString('bits', true).split(',').map(b => b.trim()).filter(Boolean);
 
         const role = scope === 'bot'
-            ? await handler.createBotRole({ name, color, bits, createdBy: interaction.user.id })
+            ? await handler.createBotRole({ name, color, bits, createdBy: interaction.user.id }, interaction.user.id)
             : await handler.createServerRole(guildId!, { name, color, bits, createdBy: interaction.user.id });
 
         await this.replyContainer(interaction, true, this.t('commands.permissions.titles.roles'),
@@ -293,7 +293,7 @@ export default class PermissionsCommand extends BaseCommand {
     private async rolesDelete(interaction: ChatInputCommandInteraction, handler: PermissionsHandler, scope: 'bot' | 'server', guildId?: string): Promise<void> {
         const roleId = interaction.options.getString('role', true);
 
-        scope === 'bot' ? await handler.deleteBotRole(roleId) : await handler.deleteServerRole(guildId!, roleId);
+        scope === 'bot' ? await handler.deleteBotRole(roleId, interaction.user.id) : await handler.deleteServerRole(guildId!, roleId);
 
         await this.replyContainer(interaction, true, this.t('commands.permissions.titles.roles'),
             this.t('commands.permissions.messages.roleDeleted', { roleId }));
@@ -314,7 +314,7 @@ export default class PermissionsCommand extends BaseCommand {
         if (color) data.color = color;
         if (bitsRaw) data.bits = bitsRaw.split(',').map(b => b.trim()).filter(Boolean);
 
-        scope === 'bot' ? await handler.updateBotRole(roleId, data as any) : await handler.updateServerRole(guildId!, roleId, data as any);
+        scope === 'bot' ? await handler.updateBotRole(roleId, data as any, interaction.user.id) : await handler.updateServerRole(guildId!, roleId, data as any);
 
         await this.replyContainer(interaction, true, this.t('commands.permissions.titles.roles'),
             this.t('commands.permissions.messages.roleEdited', { roleId }));
@@ -324,7 +324,7 @@ export default class PermissionsCommand extends BaseCommand {
         const roleId = interaction.options.getString('role', true);
         const user = interaction.options.getUser('user', true);
 
-        scope === 'bot' ? await handler.assignBotRole(roleId, [user.id]) : await handler.assignServerRole(guildId!, roleId, [user.id]);
+        scope === 'bot' ? await handler.assignBotRole(roleId, [user.id], interaction.user.id) : await handler.assignServerRole(guildId!, roleId, [user.id]);
 
         await this.replyContainer(interaction, true, this.t('commands.permissions.titles.roles'),
             this.t('commands.permissions.messages.roleAssigned', { userId: user.id, roleId }));
@@ -334,7 +334,7 @@ export default class PermissionsCommand extends BaseCommand {
         const roleId = interaction.options.getString('role', true);
         const user = interaction.options.getUser('user', true);
 
-        scope === 'bot' ? await handler.revokeBotRole(roleId, [user.id]) : await handler.revokeServerRole(guildId!, roleId, [user.id]);
+        scope === 'bot' ? await handler.revokeBotRole(roleId, [user.id], interaction.user.id) : await handler.revokeServerRole(guildId!, roleId, [user.id]);
 
         await this.replyContainer(interaction, true, this.t('commands.permissions.titles.roles'),
             this.t('commands.permissions.messages.roleRevoked', { userId: user.id, roleId }));

@@ -5,7 +5,11 @@ import { FileWatcher, type WatchEvent } from '#core/watcher/index.js';
 import { getLogger } from '#core/utils/logger.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { emojis } from './emoji.js';
-import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import {
+    resolveGlobalPlaceholders,
+    expandValue,
+    redactExpandedForApi,
+} from '#core/placeholder/index.js';
 import {
     formatIssues,
     langDocumentSchema,
@@ -218,10 +222,10 @@ function pluginIdFromLangNamespace(namespace: string): string | null {
 }
 
 export class LanguageManager {
-    private static readonly INTERPOLATION_REGEX = /\{\{\s*([^}]+)\s*\}\}/g;
-
     private readonly dictionary = new Map<string, Map<string, Map<string, CompiledTranslation>>>();
     private readonly liveNamespaces = new Map<string, Map<string, Record<string, CompiledTranslation>>>();
+    private readonly rawStore = new Map<string, Map<string, unknown>>();
+    private readonly runtimeStore = new Map<string, Map<string, unknown>>();
     private readonly targetDir: string;
     private watcher: FileWatcher | null = null;
     private readonly loadLocks = new Set<string>();
@@ -253,7 +257,8 @@ export class LanguageManager {
                         if (!this.loadLocks.has(event.path)) {
                             this.loadLocks.add(event.path);
                             await this.loadFile(event.path);
-                            setTimeout(() => this.loadLocks.delete(event.path), 100);
+                            const unlock = setTimeout(() => this.loadLocks.delete(event.path), 100);
+                            unlock.unref();
                         }
                     }
                 }
@@ -286,11 +291,17 @@ export class LanguageManager {
             const raw = await fs.readFile(filePath, 'utf-8');
             const data = JSON5.parse(raw);
 
+            const expanded = expandValue(JSON5.parse(JSON5.stringify(data)), {
+                failClosed: undefined,
+                resolveEmoji: false,
+                collectUntaggedRand: false,
+                softMiss: 'absent',
+            }).value;
+
             const pluginId = pluginIdFromLangNamespace(meta.namespace);
-            const customLangSchema = await loadPluginLangSchema(pluginId, meta.locale);
-            const schema = customLangSchema ?? langDocumentSchema;
+            const schema = await loadPluginLangSchema(pluginId, meta.locale);
             const rules = await loadPluginLangRules(pluginId, meta.locale);
-            const validated = await validateValue(data, {
+            const validated = await validateValue(expanded, {
                 kind: 'lang',
                 filePath,
                 name: path.basename(filePath),
@@ -310,8 +321,20 @@ export class LanguageManager {
                 return false;
             }
 
+            const runtimeTree = validated.data as Record<string, unknown>;
+
+            if (!this.rawStore.has(meta.locale)) {
+                this.rawStore.set(meta.locale, new Map());
+            }
+            this.rawStore.get(meta.locale)!.set(meta.namespace, data);
+
+            if (!this.runtimeStore.has(meta.locale)) {
+                this.runtimeStore.set(meta.locale, new Map());
+            }
+            this.runtimeStore.get(meta.locale)!.set(meta.namespace, runtimeTree);
+
             const flatMap = new Map<string, CompiledTranslation>();
-            this.flattenAndCompile(validated.data as Record<string, unknown>, '', flatMap);
+            this.flattenAndCompile(runtimeTree, '', flatMap);
 
             if (!this.dictionary.has(meta.locale)) {
                 this.dictionary.set(meta.locale, new Map());
@@ -355,6 +378,16 @@ export class LanguageManager {
                 if (Object.prototype.hasOwnProperty.call(liveRef, key)) delete liveRef[key];
             }
         }
+        const rawLocale = this.rawStore.get(meta.locale);
+        if (rawLocale) {
+            rawLocale.delete(meta.namespace);
+            if (rawLocale.size === 0) this.rawStore.delete(meta.locale);
+        }
+        const runtimeLocale = this.runtimeStore.get(meta.locale);
+        if (runtimeLocale) {
+            runtimeLocale.delete(meta.namespace);
+            if (runtimeLocale.size === 0) this.runtimeStore.delete(meta.locale);
+        }
     }
 
     public getLoadedNamespaces(): string[] {
@@ -383,9 +416,7 @@ export class LanguageManager {
         }
         const parts: Array<string | { varName: string }> = [];
         let lastIndex = 0;
-        let match;
-        LanguageManager.INTERPOLATION_REGEX.lastIndex = 0;
-        while ((match = LanguageManager.INTERPOLATION_REGEX.exec(template)) !== null) {
+        for (const match of template.matchAll(/\{\{\s*([^}]+)\s*\}\}/g)) {
             if (match.index > lastIndex) parts.push(template.slice(lastIndex, match.index));
             parts.push({ varName: match[1].trim() });
             lastIndex = match.index + match[0].length;
@@ -454,6 +485,8 @@ export class LanguageManager {
                 }
                 this.liveNamespaces.delete(locale);
             }
+            this.rawStore.delete(locale);
+            this.runtimeStore.delete(locale);
             log.warn(`Language cache for locale [${locale}] has been purged.`);
         } else {
             this.dictionary.clear();
@@ -463,21 +496,53 @@ export class LanguageManager {
                 }
             }
             this.liveNamespaces.clear();
+            this.rawStore.clear();
+            this.runtimeStore.clear();
             log.warn('Global language dictionary has been purged.');
         }
     }
 
-    public getNamespace(namespace: string, locale?: string): Readonly<Record<string, CompiledTranslation>> {
+    public getRaw(namespace: string, locale?: string): Record<string, unknown> | null {
         const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
         const targetLocale = locale || masterLocale;
-        if (!this.liveNamespaces.has(targetLocale)) {
-            this.liveNamespaces.set(targetLocale, new Map());
+        const fallbacks = [targetLocale];
+        const baseLocale = targetLocale.split('-')[0];
+        if (baseLocale !== targetLocale) fallbacks.push(baseLocale);
+        if (masterLocale !== targetLocale && masterLocale !== baseLocale) fallbacks.push(masterLocale);
+        if (!fallbacks.includes('en')) fallbacks.push('en');
+        for (const loc of fallbacks) {
+            const tree = this.rawStore.get(loc)?.get(namespace);
+            if (tree !== undefined) {
+                return JSON5.parse(JSON5.stringify(tree)) as Record<string, unknown>;
+            }
         }
-        const localeMap = this.liveNamespaces.get(targetLocale)!;
-        if (!localeMap.has(namespace)) {
-            localeMap.set(namespace, {});
+        return null;
+    }
+
+    public getRedacted(namespace: string, locale?: string): Record<string, unknown> | null {
+        const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
+        const targetLocale = locale || masterLocale;
+        const fallbacks = [targetLocale];
+        const baseLocale = targetLocale.split('-')[0];
+        if (baseLocale !== targetLocale) fallbacks.push(baseLocale);
+        if (masterLocale !== targetLocale && masterLocale !== baseLocale) fallbacks.push(masterLocale);
+        if (!fallbacks.includes('en')) fallbacks.push('en');
+        for (const loc of fallbacks) {
+            const tree = this.runtimeStore.get(loc)?.get(namespace);
+            if (tree !== undefined) {
+                return redactExpandedForApi(tree) as Record<string, unknown>;
+            }
         }
-        return localeMap.get(namespace)!;
+        return null;
+    }
+
+    public getNamespace(namespace: string, locale?: string): Readonly<Record<string, CompiledTranslation>> | null {
+        const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
+        const targetLocale = locale || masterLocale;
+        const localeMap = this.liveNamespaces.get(targetLocale);
+        if (!localeMap) return null;
+        const ns = localeMap.get(namespace);
+        return ns ?? null;
     }
 
     public get(namespace: string, key: string, variables?: TranslationVars, requestedLocale?: string): string {

@@ -42,40 +42,40 @@ export default class PermissionsHandler extends BaseHandler {
         return this.mgr.listServerRoles(guildId);
     }
 
-    public async createBotRole(data: CreateBotRoleInput): Promise<BotWideRoleDoc> {
-        return this.mgr.createBotRole(data);
+    public async createBotRole(data: CreateBotRoleInput, actorUserId?: string | null): Promise<BotWideRoleDoc> {
+        return this.mgr.createBotRole(data, actorUserId);
     }
 
     public async createServerRole(guildId: string, data: CreateServerRoleInput): Promise<ServerRoleDoc> {
         return this.mgr.createServerRole(guildId, data);
     }
 
-    public async deleteBotRole(roleId: string): Promise<void> {
-        return this.mgr.deleteBotRole(roleId);
+    public async deleteBotRole(roleId: string, actorUserId?: string | null): Promise<void> {
+        return this.mgr.deleteBotRole(roleId, actorUserId);
     }
 
     public async deleteServerRole(guildId: string, roleId: string): Promise<void> {
         return this.mgr.deleteServerRole(guildId, roleId);
     }
 
-    public async updateBotRole(roleId: string, data: Partial<CreateBotRoleInput>): Promise<BotWideRoleDoc> {
-        return this.mgr.updateBotRole(roleId, data);
+    public async updateBotRole(roleId: string, data: Partial<CreateBotRoleInput>, actorUserId?: string | null): Promise<BotWideRoleDoc> {
+        return this.mgr.updateBotRole(roleId, data, actorUserId);
     }
 
     public async updateServerRole(guildId: string, roleId: string, data: Partial<CreateServerRoleInput>): Promise<ServerRoleDoc> {
         return this.mgr.updateServerRole(guildId, roleId, data);
     }
 
-    public async assignBotRole(roleId: string, userIds: string[]): Promise<void> {
-        return this.mgr.assignBotRole(roleId, userIds);
+    public async assignBotRole(roleId: string, userIds: string[], actorUserId?: string | null): Promise<void> {
+        return this.mgr.assignBotRole(roleId, userIds, actorUserId);
     }
 
     public async assignServerRole(guildId: string, roleId: string, userIds: string[]): Promise<void> {
         return this.mgr.assignServerRole(guildId, roleId, userIds);
     }
 
-    public async revokeBotRole(roleId: string, userIds: string[]): Promise<void> {
-        return this.mgr.revokeBotRole(roleId, userIds);
+    public async revokeBotRole(roleId: string, userIds: string[], actorUserId?: string | null): Promise<void> {
+        return this.mgr.revokeBotRole(roleId, userIds, actorUserId);
     }
 
     public async revokeServerRole(guildId: string, roleId: string, userIds: string[]): Promise<void> {

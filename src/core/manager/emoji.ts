@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { FileWatcher, type WatchEvent } from '#core/watcher/index.js';
 import { getLogger } from '#core/utils/logger.js';
+import { registerEmojiSource } from '#core/placeholder/index.js';
 
 const log = getLogger('EmojiManager');
 
@@ -110,3 +111,5 @@ export class EmojiManager {
 }
 
 export const emojis = new EmojiManager();
+
+registerEmojiSource(() => emojis.getAll());

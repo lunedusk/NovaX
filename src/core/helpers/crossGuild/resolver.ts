@@ -23,6 +23,7 @@ export interface EligibilityFilter {
 }
 
 const eligibilityCache = new TTLCache<string, EligibleGuild[]>({
+    name: 'cross-guild.eligibility',
     defaultTTL: 120_000,
     maxSize: 512,
     cleanupInterval: 60_000

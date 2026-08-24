@@ -19,19 +19,19 @@ export class SqlRegistry {
         if (['postgres', 'postgresql'].includes(protocol)) dbType = 'postgres';
         else if (protocol === 'mysql') dbType = 'mysql';
         else if (protocol === 'mariadb') dbType = 'mariadb';
-        else if (protocol === 'sqlite') dbType = 'sqlite';
+        else if (protocol === 'sqlite') dbType = 'better-sqlite3';
         else throw new Error(`Unsupported ORM dialect: ${protocol}`);
 
         log.info(`Initializing TypeORM (${dbType}) for: [${alias}]`);
 
         const options: DataSourceOptions = {
             type: dbType as any, 
-            url: dbType === 'sqlite' ? undefined : uri,
-            database: dbType === 'sqlite' ? url.pathname.replace(/^\//, '') : undefined,
+            url: dbType === 'better-sqlite3' ? undefined : uri,
+            database: dbType === 'better-sqlite3' ? url.pathname.replace(/^\//, '') : undefined,
             synchronize: !isProd,
             logging: false,
             entities: entities,
-            extra: dbType !== 'sqlite' ? { max: poolSize } : undefined,
+            extra: dbType !== 'better-sqlite3' ? { max: poolSize } : undefined,
         };
 
         const engine = new DataSource(options);

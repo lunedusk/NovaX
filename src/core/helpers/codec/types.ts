@@ -3,7 +3,7 @@ export interface CodecInfo {
     readonly available: boolean;
 }
 
-export interface Codec<T = any> {
+export interface Codec<T = unknown> {
     readonly name: string;
     encode(obj: T): Buffer;
     decode(raw: Buffer): T;

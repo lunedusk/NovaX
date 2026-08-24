@@ -3,21 +3,29 @@ import path from 'node:path';
 import JSON5 from 'json5';
 import { FileWatcher, type WatchEvent } from '#core/watcher/index.js';
 import { getLogger } from '#core/utils/logger.js';
-import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
 import {
-    defaultPluginConfigSchema,
+    expandValue,
+    applyUntaggedRandPersists,
+    redactExpandedForApi,
+    registerConfigPlaceholderSource,
+} from '#core/placeholder/index.js';
+import {
     formatIssues,
     inferPluginIdFromConfigName,
     loadPluginConfigRules,
     loadPluginConfigSchema,
-    validateValue
+    validateValue,
 } from '#core/validation/index.js';
+import { writeJson5Preserving, persistPlaceholdersInJson5File } from '#core/loader/json5SurgicalWrite.js';
 
 const log = getLogger('ConfigManager');
 
+type JsonObject = Record<string, unknown>;
+
 export class ConfigManager {
-    private cache = new Map<string, unknown>();
-    private readonly liveConfigs = new Map<string, Record<string, any>>();
+    private readonly rawCache = new Map<string, unknown>();
+    private readonly runtimeCache = new Map<string, unknown>();
+    private readonly liveConfigs = new Map<string, Record<string, unknown>>();
     private readonly targetDir: string;
     private watcher: FileWatcher | null = null;
     private isReloading = false;
@@ -25,24 +33,10 @@ export class ConfigManager {
 
     constructor(targetDir?: string) {
         this.targetDir = targetDir ? path.resolve(targetDir) : path.join(process.cwd(), 'configuration');
-    }
-
-    private resolveObjectPlaceholders(obj: any): any {
-        if (!obj) return obj;
-        if (typeof obj === 'string') {
-            return resolveGlobalPlaceholders(obj);
-        }
-        if (Array.isArray(obj)) {
-            return obj.map(item => this.resolveObjectPlaceholders(item));
-        }
-        if (typeof obj === 'object') {
-            for (const key in obj) {
-                if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                    obj[key] = this.resolveObjectPlaceholders(obj[key]);
-                }
-            }
-        }
-        return obj;
+        registerConfigPlaceholderSource(() => {
+            const core = this.runtimeCache.get('core') as Record<string, unknown> | undefined;
+            return core?.placeholders;
+        });
     }
 
     private recordConfigFailure(pluginId: string | null, name: string): void {
@@ -55,25 +49,86 @@ export class ConfigManager {
     private async validateConfigObject(
         name: string,
         filePath: string,
-        data: unknown
+        data: unknown,
     ): Promise<{ ok: true; data: unknown } | { ok: false; message: string }> {
         const pluginId = inferPluginIdFromConfigName(name);
-        const customSchema = await loadPluginConfigSchema(pluginId, name);
-        const schema = customSchema ?? defaultPluginConfigSchema;
+        const schema = await loadPluginConfigSchema(pluginId, name);
         const rules = await loadPluginConfigRules(pluginId, name);
 
-        const result = await validateValue(data, {
-            kind: 'config',
-            filePath,
-            name,
-            pluginId
-        }, schema, rules);
+        const result = await validateValue(
+            data,
+            {
+                kind: 'config',
+                filePath,
+                name,
+                pluginId,
+            },
+            schema,
+            rules,
+        );
 
         if (!result.ok) {
             this.recordConfigFailure(pluginId, name);
             return { ok: false, message: formatIssues(result.issues) };
         }
         return { ok: true, data: result.data };
+    }
+
+    private async parseExpandValidate(
+        name: string,
+        filePath: string,
+        rawContent: string,
+        persistUntaggedRand: boolean,
+    ): Promise<{ raw: unknown; runtime: unknown } | null> {
+        let parsed: unknown;
+        try {
+            parsed = JSON5.parse(rawContent);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            log.error(`Failed to parse config file [${name}.json5]: ${message}`);
+            return null;
+        }
+
+        const rawClone = JSON5.parse(JSON5.stringify(parsed)) as unknown;
+
+        const expandResult = expandValue(rawClone, {
+            failClosed: undefined,
+            resolveEmoji: false,
+            collectUntaggedRand: persistUntaggedRand,
+            softMiss: 'absent',
+        });
+
+        let rawForStore = parsed;
+        if (persistUntaggedRand && expandResult.untaggedRandPersists.size > 0) {
+            rawForStore = applyUntaggedRandPersists(parsed, expandResult.untaggedRandPersists);
+            try {
+                const mode = await persistPlaceholdersInJson5File(
+                    filePath,
+                    expandResult.untaggedRandPersists,
+                    rawForStore as Record<string, unknown>,
+                );
+                log.info(
+                    `Persisted ${expandResult.untaggedRandPersists.size} untagged rand value(s) into ${name}.json5 (${mode})`,
+                );
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                log.error(`Failed to persist untagged rand for [${name}]: ${message}`);
+            }
+        }
+
+        const validated = await this.validateConfigObject(name, filePath, expandResult.value);
+        if (!validated.ok) {
+            log.error(`Config validation failed [${name}.json5]: ${validated.message}`);
+            const pid = inferPluginIdFromConfigName(name);
+            if (pid) log.error(`[${pid}] Plugin will be DISABLED due to invalid configuration.`);
+            return null;
+        }
+
+        return { raw: rawForStore, runtime: validated.data };
+    }
+
+    private async atomicWriteJson5(targetPath: string, data: JsonObject): Promise<void> {
+        await writeJson5Preserving(targetPath, data as Record<string, unknown>);
     }
 
     public getConfigValidationFailures(): ReadonlyMap<string, readonly string[]> {
@@ -92,9 +147,11 @@ export class ConfigManager {
 
         if (hotReload) {
             this.watcher = new FileWatcher(this.targetDir, { includePatterns: ['**/*.json5'] });
-            this.watcher.on('events', (events: WatchEvent[]) => this.handleWatchEvents(events).catch(err => {
-                log.error(`Fatal error in Config Watcher: ${(err as Error).message}`);
-            }));
+            this.watcher.on('events', (events: WatchEvent[]) =>
+                this.handleWatchEvents(events).catch((err) => {
+                    log.error(`Fatal error in Config Watcher: ${(err as Error).message}`);
+                }),
+            );
             this.watcher.start();
             log.info('Configuration Manager hot-reload active.');
         }
@@ -104,11 +161,12 @@ export class ConfigManager {
         for (const event of events) {
             const name = path.basename(event.path, '.json5');
             if (event.type === 'deleted') {
-                this.cache.delete(name);
+                this.rawCache.delete(name);
+                this.runtimeCache.delete(name);
                 const liveRef = this.liveConfigs.get(name);
                 if (liveRef) {
-                    for (const key in liveRef) {
-                        if (Object.prototype.hasOwnProperty.call(liveRef, key)) delete liveRef[key];
+                    for (const key of Object.keys(liveRef)) {
+                        delete liveRef[key];
                     }
                 }
                 log.info(`Unloaded configuration: [${name}]`);
@@ -127,19 +185,12 @@ export class ConfigManager {
         const filePath = path.join(this.targetDir, `${name}.json5`);
         try {
             const rawContent = await fs.readFile(filePath, 'utf-8');
-            let parsed = JSON5.parse(rawContent);
+            const result = await this.parseExpandValidate(name, filePath, rawContent, true);
+            if (!result) return false;
 
-            const validated = await this.validateConfigObject(name, filePath, parsed);
-            if (!validated.ok) {
-                log.error(`Config validation failed [${name}.json5]: ${validated.message}`);
-                const pid = inferPluginIdFromConfigName(name);
-                if (pid) log.error(`[${pid}] Plugin will be DISABLED due to invalid configuration.`);
-                return false;
-            }
-            parsed = validated.data;
-            parsed = this.resolveObjectPlaceholders(parsed);
-            this.cache.set(name, parsed);
-            this.updateLiveReference(name, parsed);
+            this.rawCache.set(name, result.raw);
+            this.runtimeCache.set(name, result.runtime);
+            this.updateLiveReference(name, result.runtime as Record<string, unknown>);
             log.debug(`Successfully reloaded configuration: [${name}.json5]`);
             return true;
         } catch (error: unknown) {
@@ -147,14 +198,14 @@ export class ConfigManager {
             if (err.code === 'ENOENT') {
                 log.error(`Cannot reload config [${name}]: File does not exist.`);
             } else {
-                log.error(`Failed to parse config file [${name}.json5]: ${err.message}`);
+                log.error(`Failed to reload config file [${name}.json5]: ${err.message}`);
             }
             return false;
         }
     }
 
     public getLoadedConfigs(): string[] {
-        return Array.from(this.cache.keys());
+        return Array.from(this.runtimeCache.keys());
     }
 
     private async loadAll(): Promise<boolean> {
@@ -162,34 +213,34 @@ export class ConfigManager {
         this.isReloading = true;
         try {
             const entries = await fs.readdir(this.targetDir, { withFileTypes: true });
-            const newCache = new Map<string, unknown>();
+            const newRaw = new Map<string, unknown>();
+            const newRuntime = new Map<string, unknown>();
             let loadedCount = 0;
 
             for (const entry of entries) {
                 if (entry.isDirectory() || !entry.name.endsWith('.json5')) continue;
-                const configName = entry.name.replace('.json5', '');
+                const configName = entry.name.replace(/\.json5$/, '');
                 const filePath = path.join(this.targetDir, entry.name);
                 try {
                     const rawContent = await fs.readFile(filePath, 'utf-8');
-                    let parsed = JSON5.parse(rawContent);
-                    const validated = await this.validateConfigObject(configName, filePath, parsed);
-                    if (!validated.ok) {
-                        log.error(`Config validation failed [${entry.name}]: ${validated.message}`);
-                        const pid = inferPluginIdFromConfigName(configName);
-                        if (pid) log.error(`[${pid}] Plugin will be DISABLED due to invalid configuration.`);
-                        continue;
-                    }
-                    parsed = validated.data;
-                    parsed = this.resolveObjectPlaceholders(parsed);
-                    newCache.set(configName, parsed);
-                    this.updateLiveReference(configName, parsed);
+                    const result = await this.parseExpandValidate(configName, filePath, rawContent, true);
+                    if (!result) continue;
+
+                    newRaw.set(configName, result.raw);
+                    newRuntime.set(configName, result.runtime);
+                    this.updateLiveReference(configName, result.runtime as Record<string, unknown>);
                     loadedCount++;
                 } catch (parseError: unknown) {
                     const err = parseError instanceof Error ? parseError : new Error(String(parseError));
-                    log.error(`Failed to parse config file [${entry.name}]: ${err.message}`);
+                    log.error(`Failed to load config file [${entry.name}]: ${err.message}`);
                 }
             }
-            this.cache = newCache;
+
+            this.rawCache.clear();
+            this.runtimeCache.clear();
+            for (const [k, v] of newRaw) this.rawCache.set(k, v);
+            for (const [k, v] of newRuntime) this.runtimeCache.set(k, v);
+
             log.info(`Successfully loaded ${loadedCount} configuration files.`);
             return true;
         } catch (error: unknown) {
@@ -201,7 +252,7 @@ export class ConfigManager {
         }
     }
 
-    private updateLiveReference(name: string, newData: any): void {
+    private updateLiveReference(name: string, newData: Record<string, unknown>): void {
         if (!this.liveConfigs.has(name)) {
             this.liveConfigs.set(name, {});
         }
@@ -209,21 +260,23 @@ export class ConfigManager {
         this.deepMutate(currentRef, newData);
     }
 
-    private deepMutate(target: any, source: any): void {
-        for (const key in target) {
-            if (Object.prototype.hasOwnProperty.call(target, key) && !(key in source)) {
+    private deepMutate(target: Record<string, unknown>, source: Record<string, unknown>): void {
+        for (const key of Object.keys(target)) {
+            if (!(key in source)) {
                 delete target[key];
             }
         }
-        for (const key in source) {
-            if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        for (const key of Object.keys(source)) {
             const sourceVal = source[key];
             const targetVal = target[key];
             if (sourceVal && typeof sourceVal === 'object' && !Array.isArray(sourceVal)) {
                 if (!targetVal || typeof targetVal !== 'object' || Array.isArray(targetVal)) {
                     target[key] = {};
                 }
-                this.deepMutate(target[key], sourceVal);
+                this.deepMutate(
+                    target[key] as Record<string, unknown>,
+                    sourceVal as Record<string, unknown>,
+                );
             } else {
                 target[key] = sourceVal;
             }
@@ -231,11 +284,21 @@ export class ConfigManager {
     }
 
     public get<T = Record<string, unknown>>(name: string): Readonly<T> | null {
-        if (!this.cache.has(name)) return null;
+        if (!this.runtimeCache.has(name)) return null;
         if (!this.liveConfigs.has(name)) {
             this.liveConfigs.set(name, {});
         }
         return this.liveConfigs.get(name) as unknown as Readonly<T>;
+    }
+
+    public getRaw<T = Record<string, unknown>>(name: string): Readonly<T> | null {
+        if (!this.rawCache.has(name)) return null;
+        return JSON5.parse(JSON5.stringify(this.rawCache.get(name))) as T;
+    }
+
+    public getRedacted<T = Record<string, unknown>>(name: string): Readonly<T> | null {
+        if (!this.runtimeCache.has(name)) return null;
+        return redactExpandedForApi(this.runtimeCache.get(name)) as T;
     }
 
     public getStrict<T = Record<string, unknown>>(name: string): Readonly<T> {
@@ -247,7 +310,7 @@ export class ConfigManager {
     }
 
     public has(name: string): boolean {
-        return this.cache.has(name);
+        return this.runtimeCache.has(name);
     }
 }
 
