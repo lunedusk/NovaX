@@ -1,6 +1,31 @@
-# 🌌 Project NovaX Enterprise Framework (v0.2.0)
+# 🌌 Project NovaX Enterprise Framework (v0.3.0)
 
 NovaX is a corporate-grade, highly optimized, completely modular application platform engineered in TypeScript on a strict ECMAScript Module (ESM) architecture. Built to support high-throughput, fault-tolerant Discord application infrastructures, NovaX features automated plugin workspace dependency sandboxing, cryptographic code-integrity and anti-tamper audits, a performance-tuned polyglot storage abstraction router, and an immutable context-injected dependency broker (`IHeart`) that eliminates global singletons while maintaining performance profiles.
+
+---
+
+## Credits
+
+Built by [VeduStorm](https://github.com/VeduStorm) and the [Lunedusk](https://github.com/lunedusk) organization. Made with <3.
+
+## Documentation
+
+| Doc | Audience |
+|-----|----------|
+| [SETUP.md](SETUP.md) | Install, env, first run |
+| [PLACEHOLDERS.md](PLACEHOLDERS.md) | Placeholder system (full) |
+| [LOADER.md](LOADER.md) | Config/lang merge + surgical JSON5 write |
+| [UPDATER.md](UPDATER.md) | Crash-safe updater (CLI / background) |
+| [AUDIT.md](AUDIT.md) | Audit registry |
+| [ERRORS.md](ERRORS.md) | Error registry + NovaError |
+| [CACHE.md](CACHE.md) | Cache façade + TTLCache registry |
+| [PLUGINS.md](PLUGINS.md) | Plugin developer guide (license, verification) |
+| [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) | Plugin authoring contract |
+| [ENV Reference.md](ENV%20Reference.md) | Environment variables |
+| [Database.md](Database.md) | Database configuration |
+| [NovaDB.md](NovaDB.md) | NovaDB |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributing |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Code of conduct |
 
 ---
 
@@ -22,11 +47,11 @@ NovaX operates an multi-stage bootstrap pipeline designed to enforce thread isol
 ```
 
 1. **Process Lockdown & Identity Verification (`Common777`)**: The engine locks the immutable process script entry-point path (`process.argv[1]`) immediately upon launch. Any mid-execution attempt to divert pathways results in immediate termination (`process.exit(1)`). It processes `common.json`, asserts that the global development author field evaluates precisely to `"Lunedusk"`, and merges definitions into `process.env` boundaries.
-2. **Polyglot Storage Broker (`DatabaseManager`)**: Parses a single serialized JSON object from `process.env.Database`. It instantiates independent connection pools for Native PostgreSQL clients, write-ahead logged (WAL) SQLite runtimes, sharded ioredis clustering triads (Main, Pub, and Sub clients for native pub/sub streaming out of the box), MongoDB nodes, or global multi-dialect TypeORM connections—managed by automated exponential backoff reconnect layers capped at 10-second intervals.
+2. **Polyglot Storage Broker (`DatabaseManager`)**: Parses a single serialized JSON object from `process.env.Database`. It instantiates independent connection pools for Native PostgreSQL clients, write-ahead logged (WAL) SQLite runtimes, sharded ioredis clustering triads (Main, Pub, and Sub clients for native pub/sub streaming out of the box), MongoDB nodes, or global multi-dialect TypeORM connections—managed by automated exponential backoff reconnect layers capped at 10-second intervals. Framework data planes (permissions, tokens, guild-gate) sit on a **shared backend selector** (preference sqlite → postgres → mongo, overridable per subsystem via config/env). **Schema migrations** run at boot after connect and before plugins. The **API gateway** authorizes `/api/*` with bearer API keys and a typed `httpRoutes` bit policy (`bitsMode` all|any).
 3. **Topological Dependency Graphing**: Scans all subdirectories inside `/plugins/`. It maps plugin dependencies as a strict directed acyclic graph (DAG), running depth-first search (DFS) sorting sweeps to establish proper load sequences and instantly catch circular dependency locks.
 4. **Sandboxed Module Isolation**: Each plugin executes inside an isolated workspace directory container. NovaX fires a separate child thread execution to install local plugin `package.json` requirements with optimization flags (`--no-save`, `--prefer-offline`) to maintain parent environment cleanliness. A tailored Node.js ESM module resolution hook intercepts and routes import calls to the plugin's local `node_modules` sandbox structure before falling back to the parent environment scope.
 5. **Subsystem Loader Engine**:
-   - **`ConfigLoader` & `LangLoader`**: Synchronizes, maps, and cleans JSON5 structured sheets into centralized application directories. They implement a comprehensive schema analyzer (`deepSync`) that updates missing default fields, catches type syntax shifts, prunes obsolete keys, and safely records output states via atomic file-writes utilizing temporary `.tmp` targets to prevent data corruption.
+   - **`ConfigLoader` & `LangLoader`**: Synchronizes, maps, and cleans JSON5 structured sheets into centralized application directories. They use a shared **merge-preserve** engine (add missing defaults; keep user keys/values; no prune/type-reset) and **surgical JSON5** writes with parse/deep-equal round-trip (wholesale only as fallback).
    - **`CommandLoader` / `EventLoader` / `RouteLoader`**: Automatically registers all code logic extending abstract system bases. It maps application slash syntax, hooks Express endpoint namespaces, and registers element mappings (buttons, modals, drop-downs) directly into a master handler registry.
    - **`EmojiLoader`**: Automatically aggregates local graphical resources (`data/emoji/`) and map collections (`data/emoji.json`), distributing synced instances into a global sheet file (`.data/emojis.json`).
 6. **Command Sync & Gateway Connection**: Validates shard contexts, connects to the Discord gateway, synchronizes command bindings across specified test guilds or international scopes, and sets verified plugins to a live `ENABLED` operational status.
@@ -50,7 +75,7 @@ NovaX can update a deployed instance without a local git checkout:
 - **CLI (post-build):** `npm run updater`  
   Flags: `--dry-run`, `--force`, `--baseline-only`, `--install-plugin <id>`.
 
-Full variable reference: Environment Variable Reference → **Auto Updater**.
+Full write-up: [UPDATER.md](UPDATER.md). Variable reference: [ENV Reference.md](ENV%20Reference.md) → **Auto Updater**.
 
 ---
 
@@ -62,41 +87,81 @@ The production Docker image and the auto-updater only ship / replace the build a
 ### Development / Source tree (what you work in)
 ```
 NovaX/
-├── .data/                          # Runtime cache & compiled metadata (generated, never commit)
-│   └── emojis.json
+├── .data/                          # Runtime cache & state (generated, never commit)
 ├── configuration/                  # Synced runtime configs (generated / user-edited)
 │   └── lang/
-├── core/                           # Compiled framework binaries (tsc output – do not edit)
-├── docs/                           # Generated TypeDoc (optional, `npm run docs`)
-├── logs/                           # Session-isolated rotating logs (runtime)
-├── plugins/                        # Plugin workspaces
+├── core/                           # Compiled framework output (tsc — do not edit)
+├── docs/                           # Generated TypeDoc (npm run docs)
+├── logs/                           # Rotating session logs (runtime)
+├── pterodactyl-eggs/               # Deployment egg
+├── plugins/                        # Runtime plugin workspaces (built/copied here)
 │   └── <plugin_id>/                # kebab-case, must match manifest.id
-│       ├── index.ts                # REQUIRED – extends BasePlugin
-│       ├── manifest.json           # REQUIRED – identity + novax_version
+│       ├── index.ts                # REQUIRED — extends BasePlugin
+│       ├── manifest.json           # REQUIRED — identity + novax_version
 │       ├── manifest.nvx            # Optional signed manifest
 │       ├── package.json            # Only if the plugin has external deps
 │       ├── src/
-│       │   ├── commands/           # Slash + context-menu commands
-│       │   ├── events/             # Gateway events + component handlers
-│       │   ├── routes/             # Express routes
-│       │   └── handlers/           # Inter-plugin API surface
+│       │   ├── commands/
+│       │   ├── events/
+│       │   ├── routes/
+│       │   └── handlers/
 │       └── data/
 │           ├── configuration/
-│           │   ├── config.json5    # Default schema (synced → configuration/)
+│           │   ├── config.json5
 │           │   └── lang/
-│           │       └── en.json5    # Default translations
-│           ├── emoji/              # Local image assets (optional)
-│           └── emoji.json          # Remote emoji map (optional)
-├── scripts/                        # Utility scripts (present after build if copied)
-├── src/                            # Framework source (TypeScript) – **not present in production images**
-├── common.json                     # Alternative typed config source (Common777)
+│           ├── schema/             # config + lang Zod schemas
+│           ├── rules/              # config + lang validation rules
+│           ├── emoji/
+│           └── emoji.json
+├── scripts/                        # Utility scripts
+├── src/                            # Framework source (TypeScript) — not shipped in prod images
+│   ├── index.ts
+│   ├── database/                   # NovaDB engine
+│   ├── core/
+│   │   ├── audit/
+│   │   ├── errors/
+│   │   ├── error/
+│   │   ├── bases/
+│   │   ├── bootstrap/
+│   │   ├── builders/
+│   │   ├── database/
+│   │   │   └── migrations/core/
+│   │   ├── decorators/
+│   │   ├── dependency/
+│   │   ├── flatbuffer/
+│   │   ├── heart/
+│   │   ├── helpers/
+│   │   ├── internal/
+│   │   ├── loader/
+│   │   ├── manager/
+│   │   │   └── updater/
+│   │   ├── placeholder/
+│   │   ├── scheduler/
+│   │   ├── types/
+│   │   ├── utils/
+│   │   ├── validation/
+│   │   └── watcher/
+│   └── plugins/                    # First-party plugin source
+│       ├── api/
+│       ├── core/
+│       ├── permissions/
+│       └── token/
+├── common.json
 ├── package.json
-├── plugins.txt                     # First-party plugin list used by the auto-updater
+├── plugins.txt                     # First-party plugin list (auto-updater)
 ├── tsconfig.json
 ├── typedoc.json
 ├── Dockerfile
 ├── docker-compose.yml
-└── .env / .env.example
+├── .env / .env.example
+├── sync.sh  sync-core.sh
+├── takebacks.json  takebacks.example.json
+├── README.md  SETUP.md  PLACEHOLDERS.md
+├── LOADER.md  UPDATER.md  AUDIT.md  ERRORS.md  CACHE.md          # [new]
+├── ENV Reference.md  Database.md  NovaDB.md
+├── System Prompt - AI - Plugin.md
+├── CONTRIBUTING.md  CONTRIBUTORS.md  CODE_OF_CONDUCT.md
+└── LICENSE
 ```
 
 ### Built / Production tree (what the Docker image and updater actually contain)

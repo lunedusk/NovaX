@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('SecretManager');
@@ -13,116 +12,128 @@ export class VaultSealedError extends VaultError {}
 export class VaultDecryptionError extends VaultError {}
 export class VaultMissingKeyError extends VaultError {}
 
-interface EncryptedPayload {
-    iv: Buffer;
-    authTag: Buffer;
-    ciphertext: Buffer;
+const IDENTITY_KEYS = new Set([
+    'discordtoken',
+    'discordintents',
+]);
+
+function isIdentityKey(key: string): boolean {
+    return IDENTITY_KEYS.has(key.toLowerCase());
 }
 
 export class SecretManager {
-    readonly #ephemeralKey: Buffer;
-    readonly #store = new Map<string, EncryptedPayload>();
     #isLocked = false;
+    readonly #sealedKeys = new Set<string>();
 
     static readonly DEFAULT_SENSITIVE_PATTERN = /(TOKEN|SECRET|KEY|PASSWORD|URI|DB|DATABASE|LICENSE|CERT|AUTH|PASS)/i;
 
     constructor() {
-        this.#ephemeralKey = crypto.randomBytes(32);
         Object.freeze(SecretManager.prototype);
     }
 
     public set(key: string, value: string): void {
-        if (this.#isLocked && this.#store.has(key)) {
+        if (this.#isLocked && this.#sealedKeys.has(key)) {
             log.warn(`Security Violation: Blocked attempted mutation of sealed secret [${key}].`);
             throw new VaultSealedError(`Security Violation: Secret [${key}] is sealed and cannot be overwritten.`);
         }
-
-        const iv = crypto.randomBytes(12);
-        const cipher = crypto.createCipheriv('aes-256-gcm', this.#ephemeralKey, iv);
-
-        const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-        const authTag = cipher.getAuthTag();
-
-        this.#store.set(key, { iv, authTag, ciphertext });
-        log.debug(`Variable [${key}] encrypted and stored in memory vault.`);
+        process.env[key] = value;
+        log.debug(`Variable [${key}] written to process.env.`);
     }
 
     public get(key: string): string {
-        const payload = this.#store.get(key);
-        if (!payload) {
+        const value = process.env[key];
+        if (value === undefined || value === '') {
             throw new VaultMissingKeyError(`Vault Error: Secret/Config [${key}] does not exist.`);
         }
-
-        try {
-            const decipher = crypto.createDecipheriv('aes-256-gcm', this.#ephemeralKey, payload.iv);
-            decipher.setAuthTag(payload.authTag);
-
-            const decryptedBuffer = Buffer.concat([decipher.update(payload.ciphertext), decipher.final()]);
-            const plainText = decryptedBuffer.toString('utf8');
-
-            decryptedBuffer.fill(0);
-
-            return plainText;
-        } catch (error) {
-            log.fatal(`Integrity compromise detected on vault item [${key}].`);
-            throw new VaultDecryptionError(`Memory Vault decryption failed for [${key}].`);
-        }
+        return value;
     }
 
     public getOptional(key: string, fallback?: string): string | undefined {
-        if (!this.#store.has(key)) return fallback;
-        return this.get(key);
+        const value = process.env[key];
+        if (value === undefined || value === '') return fallback;
+        return value;
     }
 
-    public assimilateEnv(pattern: RegExp = SecretManager.DEFAULT_SENSITIVE_PATTERN): void {
+    public assimilateEnv(_pattern: RegExp = SecretManager.DEFAULT_SENSITIVE_PATTERN): void {
         if (this.#isLocked) {
             log.debug('Vault is already locked. Skipping redundant environment assimilation.');
             return;
         }
-        let assimilatedCount = 0;
-        let scrubbedCount = 0;
-
+        let count = 0;
         for (const envKey of Object.keys(process.env)) {
             const value = process.env[envKey];
-            if (!value) continue;
-
-            this.set(envKey, value);
-            assimilatedCount++;
-
-            if (pattern.test(envKey)) {
-                delete process.env[envKey];
-                scrubbedCount++;
-            }
+            if (value === undefined || value === '') continue;
+            count++;
         }
+        log.info(`Environment assimilated (${count} non-empty keys). Values remain in process.env.`);
+    }
 
-        log.info(`Vault loaded ${assimilatedCount} environment variables (Scrubbed ${scrubbedCount} sensitive keys from global scope).`);
+    public replaceExpanded(key: string, value: string): void {
+        this.set(key, value);
     }
 
     public getBoolean(key: string, fallback = false): boolean {
         const val = this.getOptional(key);
-        
+
         if (val === undefined || val === null) return fallback;
         if (typeof val === 'boolean') return val;
-        
+
         if (typeof val === 'string') {
             const normalized = val.trim().toLowerCase();
             return normalized === 'true' || normalized === '1' || normalized === 'yes';
         }
-        
+
         return false;
     }
 
     public lock(): void {
         this.#isLocked = true;
-        log.info('Memory Vault is now locked in Append-Only mode. Core configs are sealed.');
+        this.#sealedKeys.clear();
+        for (const key of Object.keys(process.env)) {
+            const value = process.env[key];
+            if (value === undefined || value === '') continue;
+            this.#sealedKeys.add(key);
+        }
+        log.info(`Environment vault locked (${this.#sealedKeys.size} keys sealed, append-only).`);
+    }
+
+    public applyEnvReload(
+        mutations: ReadonlyMap<string, string>,
+        allowSet: ReadonlySet<string>,
+    ): { updated: string[]; skipped: string[] } {
+        const updated: string[] = [];
+        const skipped: string[] = [];
+
+        for (const [key, value] of mutations) {
+            if (!allowSet.has(key) || isIdentityKey(key)) {
+                skipped.push(key);
+                continue;
+            }
+            process.env[key] = value;
+            this.#sealedKeys.add(key);
+            updated.push(key);
+        }
+
+        if (updated.length > 0) {
+            log.info(`Env reload applied ${updated.length} key(s) via sanctioned path.`);
+        }
+        if (skipped.length > 0) {
+            log.info(`Env reload skipped ${skipped.length} key(s): ${skipped.join(', ')}`);
+        }
+
+        return { updated, skipped };
     }
 
     public has(key: string): boolean {
-        return this.#store.has(key);
+        const value = process.env[key];
+        return value !== undefined && value !== '';
     }
 
     public keys(): string[] {
-        return Array.from(this.#store.keys());
+        return Object.keys(process.env).filter((key) => {
+            const value = process.env[key];
+            return value !== undefined && value !== '';
+        });
     }
 }
 

@@ -75,7 +75,7 @@ export class GitHubClient {
 
         const all: TagInfo[] = [];
         let page = 1;
-        const maxPages = 3;
+        const maxPages = 50;
 
         while (page <= maxPages) {
             const url = `https://api.github.com/repos/${owner}/${repo}/tags?per_page=100&page=${page}`;
@@ -148,6 +148,18 @@ export class GitHubClient {
                 if (b.semver) return 1;
                 return b.name.localeCompare(a.name);
             });
+    }
+
+    async listTagsForPluginScheme(
+        kind: 'in-repo' | 'external',
+        owner: string,
+        repo: string,
+        pluginName: string,
+    ): Promise<TagInfo[]> {
+        if (kind === 'external') {
+            return this.listSemverTags(owner, repo);
+        }
+        return this.listPluginTags(owner, repo, pluginName);
     }
 
     async listSemverTags(owner: string, repo: string): Promise<TagInfo[]> {

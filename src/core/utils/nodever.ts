@@ -1,4 +1,4 @@
-import { SemVer, SemVerRange } from "./semver.js";
+import { SemVer, SemVerRange, type RangeInput, type SemVerSatisfiesOptions } from "./semver.js";
 
 export class NodeVersion {
   private static _current?: SemVer;
@@ -10,9 +10,9 @@ export class NodeVersion {
     return this._current;
   }
 
-  public static satisfies(requirement: string): boolean {
+  public static satisfies(requirement: RangeInput, opts?: SemVerSatisfiesOptions): boolean {
     const current = this.current();
-    const range = SemVerRange.parse(requirement);
+    const range = SemVerRange.parse(requirement, opts);
     return range.satisfies(current);
   }
 
@@ -20,11 +20,11 @@ export class NodeVersion {
     return this.satisfies(`>=${minVersion}`);
   }
 
-  public static assert(requirement: string): void {
-    if (!this.satisfies(requirement)) {
+  public static assert(requirement: RangeInput, opts?: SemVerSatisfiesOptions): void {
+    if (!this.satisfies(requirement, opts)) {
       const current = this.current().toString();
       throw new Error(
-        `Unsupported Node.js version: ${current}. Requirement: "${requirement}".`,
+        `Unsupported Node.js version: ${current}. Requirement: ${JSON.stringify(requirement)}.`,
       );
     }
   }

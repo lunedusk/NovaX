@@ -4,6 +4,8 @@ import { CooldownManager } from '#core/manager/cooldown.js';
 import { handlerRegistry } from '#core/manager/handler/registry.js';
 import { type BaseHandler } from '#core/bases/Handler.js';
 import { guildGate, type GuildGateManager } from '#core/manager/guildGate.js';
+import { audit } from '#core/audit/index.js';
+import { errors } from '#core/errors/index.js';
 
 export interface HandlerRegistryAccessor {
     [pluginId: string]:
@@ -63,6 +65,8 @@ export type SystemDomain = {
     readonly cooldowns: typeof CooldownManager;
     readonly handler: HandlerRegistryAccessor;
     readonly gates: GatesAccessor;
+    readonly audit: typeof audit;
+    readonly errors: typeof errors;
 };
 
 export const systemDomain: SystemDomain = Object.freeze({
@@ -70,5 +74,7 @@ export const systemDomain: SystemDomain = Object.freeze({
     scheduler: scheduler,
     cooldowns: CooldownManager,
     handler: handlerAccessor,
-    gates: gatesAccessor
+    gates: gatesAccessor,
+    audit,
+    errors,
 });

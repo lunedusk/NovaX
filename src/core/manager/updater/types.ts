@@ -94,6 +94,24 @@ export interface PendingHealth {
     at: string;
     healthy?: boolean;
     bootAttempts?: number;
+    backupId?: string | null;
+}
+
+export type ApplyPhase =
+    | 'backing_up'
+    | 'applying'
+    | 'rebuilding'
+    | 'baselining'
+    | 'restoring'
+    | 'complete';
+
+export interface ApplyState {
+    phase: ApplyPhase;
+    backupId: string | null;
+    toTag: string | null;
+    fromTag: string | null;
+    startedAt: string;
+    filesPlanned?: string[];
 }
 
 export interface TagInfo {

@@ -39,22 +39,22 @@ export class EventManager {
         this.isBound = true;
         log.info(`Bridged ${boundCount} dynamic Discord events.`);
 
-        eventBus.on(`discord.${Events.GuildCreate}`, () => {
+        eventBus.on('discord.guildCreate', () => {
             metricsManager.activeGuilds.set(client.guilds.cache.size);
         });
         
-        eventBus.on(`discord.${Events.GuildDelete}`, () => {
+        eventBus.on('discord.guildDelete', () => {
             metricsManager.activeGuilds.set(client.guilds.cache.size);
         });
 
-        eventBus.once(`discord.${Events.ClientReady}`, (c: Client<true>) => {
+        eventBus.once('discord.clientReady', (c: Client<true>) => {
             log.info(`Gateway Authenticated: ${c.user.tag}`);
             metricsManager.activeGuilds.set(c.guilds.cache.size);
             
             eventBus.emitConcurrent('system.ready', c).catch(e => this.logError('System Ready Hook', e));
         });
 
-        eventBus.on(`discord.${Events.Error}`, (err: Error) => {
+        eventBus.on('discord.error', (err: Error) => {
             log.error(`Gateway Error: ${err.message}`);
         });
     }

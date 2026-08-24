@@ -186,14 +186,37 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          npm install semver --no-save
-
           mkdir -p src/plugins
+
+          # Snapshot first-party plugins present before inject (INTERNAL — never auto-dropped).
+          ls -1 src/plugins 2>/dev/null > bundled-internal-plugins.txt || true
+          : > bundled-external-injected.txt
 
           echo "Current core version: $VERSION"
           echo "plugins.txt contents:"
           cat plugins.txt || true
           echo "────────────────────────────────────────"
+
+          # Fail loud if the shared semver engine cannot run under strip-types.
+          # A broken engine must never look like "every tag is incompatible".
+          SEMVER_CLI=(node --experimental-strip-types src/core/utils/semver.ts)
+          if [ ! -f src/core/utils/semver.ts ]; then
+            echo "::error::src/core/utils/semver.ts missing — cannot evaluate plugin ranges"
+            exit 1
+          fi
+          set +e
+          YES_OUT=$("${SEMVER_CLI[@]}" satisfies 1.0.0 ">=1.0.0" 2>&1)
+          YES_RC=$?
+          NO_OUT=$("${SEMVER_CLI[@]}" satisfies 1.0.0 "<1.0.0" 2>&1)
+          NO_RC=$?
+          set -e
+          if [ "$YES_RC" -ne 0 ] || [ "$NO_RC" -ne 1 ]; then
+            echo "::error::semver CLI sanity check failed (expected exit 0 for true, 1 for false)"
+            echo "  satisfies 1.0.0 '>=1.0.0' → rc=$YES_RC out=$YES_OUT"
+            echo "  satisfies 1.0.0 '<1.0.0'  → rc=$NO_RC out=$NO_OUT"
+            exit 1
+          fi
+          echo "semver CLI sanity check passed (true→0, false→1)"
 
           # Returns 0 if this plugins.txt line is allowed in the Bundled pack.
           # Allowed:
@@ -270,24 +293,20 @@ jobs:
                 continue
               fi
 
-              COMPAT=$(node -e '
-                const semver = require("semver");
-                const manifest = JSON.parse(process.argv[1]);
-                const core = process.argv[2];
-                const req = manifest.novax_version || "*";
-                const ok = semver.satisfies(core, req, { includePrerelease: true });
-                console.log(ok ? "yes|" + req : "no|" + req);
-              ' "$MANIFEST" "$CORE_VER")
-
-              STATUS=${COMPAT%%|*}
-              REQ=${COMPAT#*|}
-
-              if [ "$STATUS" = "yes" ]; then
+              REQ=$(node -e 'const m=JSON.parse(process.argv[1]); const r=m.novax_version??"*"; process.stdout.write(Array.isArray(r)?r.join(" "):String(r));' "$MANIFEST")
+              # 0 = compatible, 1 = incompatible, 2+ = parse/engine error (skip tag; engine-down is caught by sanity check above)
+              set +e
+              SEMVER_OUT=$("${SEMVER_CLI[@]}" satisfies "$CORE_VER" "$REQ" --include-prerelease 2>&1)
+              SEMVER_RC=$?
+              set -e
+              if [ "$SEMVER_RC" -eq 0 ]; then
                 echo "  ✅ $TAG compatible (requires $REQ)" >&2
                 SELECTED_REF=$TAG
                 break
-              else
+              elif [ "$SEMVER_RC" -eq 1 ]; then
                 echo "  ↳ $TAG incompatible (requires $REQ)" >&2
+              else
+                echo "  ↳ $TAG range error (requires $REQ, rc=$SEMVER_RC): $SEMVER_OUT" >&2
               fi
             done
 
@@ -353,6 +372,7 @@ jobs:
                 git -C "$TMP_DIR/repo" checkout "$SELECTED_REF"
 
               inject_from_git_archive "$SELECTED_REF" "$PLUGIN_NAME" "$TMP_DIR/repo"
+              echo "$PLUGIN_NAME" >> bundled-external-injected.txt
               trap - EXIT
               cleanup_tmp
               continue
@@ -372,11 +392,20 @@ jobs:
 
             echo "  📥 Injecting tag $SELECTED_REF → src/plugins/$PLUGIN_NAME"
             inject_from_git_archive "$SELECTED_REF" "$PLUGIN_NAME" "."
+            # Tag-injected content is external for the drop loop even when the
+            # plugins.txt line has no owner/repo colon (same-repo branch/tag).
+            # Only the pre-inject snapshot is INTERNAL (never auto-dropped).
+            if ! grep -qxF "$PLUGIN_NAME" bundled-internal-plugins.txt 2>/dev/null; then
+              echo "$PLUGIN_NAME" >> bundled-external-injected.txt
+              echo "  ↳ recorded as external-injected (not in pre-inject snapshot)"
+            fi
           done < plugins.txt
 
           echo "────────────────────────────────────────"
           echo "Final plugins present (Bundled inject):"
           ls -1 src/plugins/ || true
+          echo "External-injected (droppable on tsc failure):"
+          cat bundled-external-injected.txt || true
 
       - name: Smart Update Docs & Version References (injected plugins)
         if: steps.version_check.outputs.changed == 'true'
@@ -403,9 +432,116 @@ jobs:
           echo "🔨 Building Bundled (official pipeline)..."
           npm install
           npm run clean || true
-          npm run build
 
-          echo "🔏 Packing .nvx (Bundled: in-repo + injected plugins present)..."
+          MAX_DROP_ITERATIONS=10
+          attempt=0
+          : > bundled-dropped-plugins.txt
+          INTERNAL_FILE=bundled-internal-plugins.txt
+          EXTERNAL_FILE=bundled-external-injected.txt
+          [ -f "$INTERNAL_FILE" ] || : > "$INTERNAL_FILE"
+          [ -f "$EXTERNAL_FILE" ] || : > "$EXTERNAL_FILE"
+
+          is_internal_plugin() {
+            local id="$1"
+            if grep -qxF "$id" "$INTERNAL_FILE" 2>/dev/null; then
+              return 0
+            fi
+            return 1
+          }
+
+          is_external_plugin() {
+            local id="$1"
+            if grep -qxF "$id" "$EXTERNAL_FILE" 2>/dev/null; then
+              return 0
+            fi
+            return 1
+          }
+
+          while true; do
+            attempt=$((attempt + 1))
+            echo "── tsc attempt $attempt / $MAX_DROP_ITERATIONS ──"
+            set +e
+            BUILD_LOG=$(mktemp)
+            npm run build >"$BUILD_LOG" 2>&1
+            BUILD_RC=$?
+            set -e
+            if [ "$BUILD_RC" -eq 0 ]; then
+              echo "✅ Build clean"
+              cat "$BUILD_LOG"
+              rm -f "$BUILD_LOG"
+              break
+            fi
+            cat "$BUILD_LOG"
+
+            # Attribute errors to src/plugins/<id>/
+            mapfile -t ERR_PLUGINS < <(
+              grep -oE 'src/plugins/[A-Za-z0-9_-]+/' "$BUILD_LOG"                 | sed 's|src/plugins/||;s|/||'                 | sort -u
+            )
+
+            # Any diagnostic path outside plugins, or unattributed failure → fail closed
+            NON_PLUGIN_HITS=$(grep -E 'error TS|error TS[0-9]+' "$BUILD_LOG" | grep -vE 'src/plugins/[A-Za-z0-9_-]+/' || true)
+            if [ -n "$NON_PLUGIN_HITS" ]; then
+              echo "❌ Core/shared or non-plugin TypeScript errors — failing (will not drop plugins to hide them)"
+              echo "$NON_PLUGIN_HITS"
+              rm -f "$BUILD_LOG"
+              exit 1
+            fi
+
+            if [ ${#ERR_PLUGINS[@]} -eq 0 ]; then
+              echo "❌ Build failed with no attributable plugin path — fail closed"
+              rm -f "$BUILD_LOG"
+              exit 1
+            fi
+
+            DROP_LIST=()
+            for pid in "${ERR_PLUGINS[@]}"; do
+              if is_internal_plugin "$pid"; then
+                echo "❌ Internal/first-party plugin '$pid' failed tsc — failing release"
+                rm -f "$BUILD_LOG"
+                exit 1
+              fi
+              if ! is_external_plugin "$pid"; then
+                echo "❌ Plugin '$pid' failed tsc but is not recorded as external-injected — fail closed"
+                rm -f "$BUILD_LOG"
+                exit 1
+              fi
+              DROP_LIST+=("$pid")
+            done
+
+            if [ ${#DROP_LIST[@]} -eq 0 ]; then
+              echo "❌ Nothing safe to drop"
+              rm -f "$BUILD_LOG"
+              exit 1
+            fi
+
+            for pid in "${DROP_LIST[@]}"; do
+              REASON=$(grep -E "src/plugins/${pid}/" "$BUILD_LOG" | head -n 3 | tr '\n' ' ')
+              echo "🗑️  Dropping external plugin '$pid' due to tsc errors"
+              echo "$pid	$REASON" >> bundled-dropped-plugins.txt
+              rm -rf "src/plugins/$pid"
+              # Remove from external list so a reappear is treated carefully
+              if [ -f "$EXTERNAL_FILE" ]; then
+                grep -vxF "$pid" "$EXTERNAL_FILE" > "${EXTERNAL_FILE}.tmp" || true
+                mv "${EXTERNAL_FILE}.tmp" "$EXTERNAL_FILE"
+              fi
+            done
+
+            rm -f "$BUILD_LOG"
+
+            if [ "$attempt" -ge "$MAX_DROP_ITERATIONS" ]; then
+              echo "❌ Hit MAX_DROP_ITERATIONS=$MAX_DROP_ITERATIONS — failing"
+              exit 1
+            fi
+          done
+
+          if [ -s bundled-dropped-plugins.txt ]; then
+            echo "Dropped external plugins this release:"
+            cat bundled-dropped-plugins.txt
+          else
+            echo "No external plugins dropped"
+          fi
+
+          echo "🔏 Packing .nvx (Bundled: in-repo + remaining injected plugins)..."
           source "$NVX_PACK_LIB"
           pack_all_plugins
           # Re-run copy-assets so the new .nvx are carried into compiled output.
@@ -430,6 +566,7 @@ jobs:
 
           cp package.json package-lock.json bundled_build/
           [ -f plugins.txt ] && cp plugins.txt bundled_build/
+          [ -f bundled-dropped-plugins.txt ] && cp bundled-dropped-plugins.txt bundled_build/
           [ -f takebacks.json ] && cp takebacks.json bundled_build/
           [ -f Dockerfile ] && cp Dockerfile bundled_build/
           [ -f docker-compose.yml ] && cp docker-compose.yml bundled_build/
@@ -496,6 +633,6 @@ jobs:
               "NovaX-v${VERSION}-Slim-Compiled.zip" \
               "NovaX-v${VERSION}-Bundled-Source.zip" \
               "NovaX-v${VERSION}-Bundled-Compiled.zip" \
-              --title "${TAG_NAME} Latest" \
+              --title "${TAG_NAME}" \
               --generate-notes
           fi

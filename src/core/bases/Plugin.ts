@@ -16,7 +16,7 @@ export interface PluginManifest {
     readonly description?: string;
     readonly author?: string;
     readonly dependencies?: string[];
-    readonly novax_version?: string;
+    readonly novax_version?: string | string[];
     readonly node_version?: string;
     readonly priority?: number;
 }

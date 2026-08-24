@@ -19,7 +19,7 @@ import {
     Message,
     ClientUser,
 } from 'discord.js';
-import { resolveGlobalPlaceholders } from '#core/builders/helpers/string.js';
+import { resolveGlobalPlaceholders } from '#core/placeholder/index.js';
 import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('DiscordMiddleware');

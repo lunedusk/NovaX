@@ -1,5 +1,6 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 import { GatewayConfigManager, type GatewayPluginConfig } from './src/lib/GatewayConfigManager.js';
+import { NovaError } from '#core/errors/NovaError.js';
 
 export default class ApiGatewayPlugin extends BasePlugin {
 
@@ -17,7 +18,13 @@ export default class ApiGatewayPlugin extends BasePlugin {
         const config = this.heart.assets.config.get<GatewayPluginConfig>('api');
 
         if (!config) {
-            throw new Error('API config not found. Ensure data/configuration/config.json5 exists.');
+            throw new NovaError('API config not found. Ensure data/configuration/config.json5 exists.', {
+                code: 'GATEWAY.CONFIG_MISSING',
+                category: 'gateway',
+                severity: 'fatal',
+                userMessage: 'API gateway configuration is missing.',
+                statusCode: 500,
+            });
         }
 
         GatewayConfigManager.instance.init(config);

@@ -1,6 +1,7 @@
 import { BaseCommand, type CommandConfig } from '#core/bases/Command.js';
 import {
     SlashCommandBuilder,
+    AttachmentBuilder,
     type ChatInputCommandInteraction,
     type AutocompleteInteraction,
     MessageFlags
@@ -8,11 +9,15 @@ import {
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { buildComponentsV2, type Cv2LayoutSpec } from '#core/builders/index.js';
+import type { ContainerSpec } from '#core/builders/componentsv2Builder/types.js';
 import { Cooldown } from '#core/decorators/cooldown.js';
-import { CrossGuildResolver } from '#core/helpers/crossGuild/resolver.js';
 import { guildGate } from '#core/manager/guildGate.js';
 import type PermissionsHandler from '../../../permissions/src/handlers/manager.js';
 import { HelpUtils } from '../utils/helpUtils.js';
+import { reloadEnvFromDisk } from '#core/helpers/envReload.js';
+import { listRegisteredCaches, getRegisteredCache } from '#core/helpers/cache.js';
+import { actorFromUser } from '#core/audit/actor.js';
+import { permissionsManager } from '#core/manager/permissions.js';
 
 export default class AdminCommand extends BaseCommand {
     public readonly data = new SlashCommandBuilder()
@@ -57,6 +62,9 @@ export default class AdminCommand extends BaseCommand {
             sub.setName('reload-emoji').setDescription(this.t('commands.admin.reload.emojiDescription'))
         )
         .addSubcommand(sub =>
+            sub.setName('reload-env').setDescription(this.t('commands.admin.reload.envDescription'))
+        )
+        .addSubcommand(sub =>
             sub
                 .setName('reload-plugin')
                 .setDescription(this.t('commands.admin.reload.pluginDescription'))
@@ -67,6 +75,9 @@ export default class AdminCommand extends BaseCommand {
                         .setAutocomplete(true)
                         .setRequired(true)
                 )
+        )
+        .addSubcommand(sub =>
+            sub.setName('cache-list').setDescription(this.t('commands.admin.cache.listDescription'))
         )
         .addSubcommand(sub =>
             sub
@@ -163,6 +174,114 @@ export default class AdminCommand extends BaseCommand {
                         .setDescription(this.t('commands.admin.gate.guildIdDescription'))
                         .setRequired(false)
                 )
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('audit-list')
+                .setDescription(this.t('commands.admin.audit.listDescription'))
+                .addIntegerOption(opt =>
+                    opt
+                        .setName('limit')
+                        .setDescription(this.t('commands.admin.audit.limitDescription'))
+                        .setRequired(false)
+                )
+                .addStringOption(opt =>
+                    opt
+                        .setName('actor')
+                        .setDescription(this.t('commands.admin.audit.actorDescription'))
+                        .setRequired(false)
+                )
+                .addStringOption(opt =>
+                    opt
+                        .setName('action')
+                        .setDescription(this.t('commands.admin.audit.actionDescription'))
+                        .setRequired(false)
+                )
+                .addStringOption(opt =>
+                    opt
+                        .setName('outcome')
+                        .setDescription(this.t('commands.admin.audit.outcomeDescription'))
+                        .setRequired(false)
+                )
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('audit-get')
+                .setDescription(this.t('commands.admin.audit.getDescription'))
+                .addStringOption(opt =>
+                    opt
+                        .setName('id')
+                        .setDescription(this.t('commands.admin.audit.idDescription'))
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('error-list')
+                .setDescription(this.t('commands.admin.errors.listDescription'))
+                .addIntegerOption(opt =>
+                    opt
+                        .setName('limit')
+                        .setDescription(this.t('commands.admin.errors.limitDescription'))
+                        .setRequired(false)
+                )
+                .addStringOption(opt =>
+                    opt
+                        .setName('code')
+                        .setDescription(this.t('commands.admin.errors.codeDescription'))
+                        .setRequired(false)
+                )
+                .addStringOption(opt =>
+                    opt
+                        .setName('category')
+                        .setDescription(this.t('commands.admin.errors.categoryDescription'))
+                        .setRequired(false)
+                )
+                .addStringOption(opt =>
+                    opt
+                        .setName('severity')
+                        .setDescription(this.t('commands.admin.errors.severityDescription'))
+                        .setRequired(false)
+                )
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('error-get')
+                .setDescription(this.t('commands.admin.errors.getDescription'))
+                .addStringOption(opt =>
+                    opt
+                        .setName('id')
+                        .setDescription(this.t('commands.admin.errors.idDescription'))
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('audit-export')
+                .setDescription(this.t('commands.admin.audit.exportDescription'))
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('error-export')
+                .setDescription(this.t('commands.admin.errors.exportDescription'))
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('bit-holders')
+                .setDescription(this.t('commands.admin.bitHolders.description'))
+                .addStringOption(opt =>
+                    opt
+                        .setName('bit')
+                        .setDescription(this.t('commands.admin.bitHolders.bitDescription'))
+                        .setRequired(true)
+                        .setAutocomplete(true)
+                )
+                .addIntegerOption(opt =>
+                    opt
+                        .setName('page')
+                        .setDescription(this.t('commands.admin.bitHolders.pageDescription'))
+                        .setRequired(false)
+                )
         );
 
     public readonly config: CommandConfig = {
@@ -170,8 +289,6 @@ export default class AdminCommand extends BaseCommand {
         autoDefer: false,
         allowInDm: true
     };
-
-    private readonly KNOWN_CACHES = ['cross-guild', 'help-menu'];
 
     private async requireBotOwner(interaction: ChatInputCommandInteraction): Promise<boolean> {
         const perms = this.heart.system.handler.$get('permissions', 'manager') as
@@ -187,13 +304,7 @@ export default class AdminCommand extends BaseCommand {
             return false;
         }
         const guildId = interaction.guildId ?? undefined;
-        const allowed =
-            (await perms.hasBit(interaction.user.id, 'bot.owner', guildId)) ||
-            (await (perms as any).cachedResolve?.(interaction.user.id, guildId).then(
-                (r: { botOwner?: boolean }) => !!r?.botOwner
-            ));
-
-        const resolved = await (perms as any).cachedResolve?.(interaction.user.id, guildId);
+        const resolved = await perms.resolve(interaction.user.id, guildId);
         if (resolved?.botOwner) return true;
         if (await perms.hasBit(interaction.user.id, 'bot.owner', guildId)) return true;
 
@@ -219,7 +330,11 @@ export default class AdminCommand extends BaseCommand {
         try {
             if (sub === 'restart') return this.handleRestart(interaction);
             if (sub.startsWith('reload-')) return this.handleReload(interaction, sub);
-            if (sub === 'cache-pop') return this.handleCache(interaction);
+            if (sub === 'cache-list' || sub === 'cache-pop') return this.handleCache(interaction, sub);
+            if (sub === 'audit-list' || sub === 'audit-get') return this.handleAudit(interaction, sub);
+            if (sub === 'error-list' || sub === 'error-get' || sub === 'error-export') return this.handleErrors(interaction, sub);
+            if (sub === 'audit-export') return this.handleAudit(interaction, sub);
+            if (sub === 'bit-holders') return this.handleBitHolders(interaction);
             if (sub.startsWith('gate-')) return this.handleGate(interaction, sub);
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
@@ -252,9 +367,15 @@ export default class AdminCommand extends BaseCommand {
     private async handleReload(interaction: ChatInputCommandInteraction, sub: string): Promise<void> {
         if (sub === 'reload-config') {
             const file = interaction.options.getString('file');
-            const manager = this.heart.assets.config as any;
+            const manager = this.heart.assets.config;
             const success =
                 !file || file === 'all' ? await manager.reloadAll() : await manager.reloadFile(file);
+            void this.heart.system.audit.record({
+                ...actorFromUser(interaction.user.id),
+                action: 'admin.reload.config',
+                target: file ?? 'all',
+                outcome: success ? 'success' : 'fail',
+            });
             const loaded = manager.getLoadedConfigs?.() ?? [];
             const details = success
                 ? this.t('commands.admin.reload.configSuccess', {
@@ -266,11 +387,17 @@ export default class AdminCommand extends BaseCommand {
         }
         if (sub === 'reload-lang') {
             const namespace = interaction.options.getString('namespace');
-            const manager = this.heart.assets.lang as any;
+            const manager = this.heart.assets.lang;
             const success =
                 !namespace || namespace === 'all'
                     ? await manager.reloadAll()
                     : await manager.reloadFile(namespace);
+            void this.heart.system.audit.record({
+                ...actorFromUser(interaction.user.id),
+                action: 'admin.reload.lang',
+                target: namespace ?? 'all',
+                outcome: success ? 'success' : 'fail',
+            });
             const loaded = manager.getLoadedNamespaces?.() ?? [];
             const details = success
                 ? this.t('commands.admin.reload.langSuccess', {
@@ -282,15 +409,53 @@ export default class AdminCommand extends BaseCommand {
         }
         if (sub === 'reload-emoji') {
             const manager =
-                (this.heart.assets as any).emojis ??
-                ((await import('#core/loader/emoji.js').catch(() => null)) as any)?.emojis;
+                this.heart.assets.emoji;
             if (!manager) throw new Error('EmojiManager is not accessible.');
             const success = await manager.reload();
+            void this.heart.system.audit.record({
+                ...actorFromUser(interaction.user.id),
+                action: 'admin.reload.emoji',
+                target: 'emoji',
+                outcome: success ? 'success' : 'fail',
+            });
             const count = Object.keys(manager.getAll?.() || {}).length;
             const details = success
                 ? this.t('commands.admin.reload.emojiSuccess', { count })
                 : this.t('commands.admin.reload.emojiError');
             return this.replyContainer(interaction, success, this.t('commands.admin.titles.emoji'), details);
+        }
+        if (sub === 'reload-env') {
+            try {
+                const result = reloadEnvFromDisk();
+                void this.heart.system.audit.record({
+                    ...actorFromUser(interaction.user.id),
+                    action: 'admin.reload.env',
+                    target: 'env',
+                    outcome: 'success',
+                    meta: { count: result.updated.length },
+                });
+                const details = this.t('commands.admin.reload.envSuccess', {
+                    files: result.filesRead.length ? result.filesRead.join(', ') : 'none',
+                    updated: String(result.updated.length),
+                    skipped: String(result.skipped.length),
+                    skippedList: result.skipped.length ? result.skipped.join(', ') : '—',
+                });
+                return this.replyContainer(
+                    interaction,
+                    true,
+                    this.t('commands.admin.titles.env'),
+                    details,
+                );
+            } catch (err) {
+                void this.heart.system.audit.record({
+                    ...actorFromUser(interaction.user.id),
+                    action: 'admin.reload.env',
+                    target: 'env',
+                    outcome: 'fail',
+                    reason: 'error',
+                });
+                throw err;
+            }
         }
         if (sub === 'reload-plugin') {
             const pluginId = interaction.options.getString('id', true);
@@ -304,8 +469,7 @@ export default class AdminCommand extends BaseCommand {
         pluginId: string
     ): Promise<void> {
         const manager =
-            (this.heart.system as any).plugins ??
-            ((await import('#core/loader/index.js').catch(() => null)) as any)?.pluginManager;
+            (await import('#core/loader/index.js')).pluginManager;
         if (!manager) throw new Error('PluginManager is not accessible.');
         const results = await manager.reload(pluginId, interaction.client);
         const success = results.success.includes(pluginId);
@@ -326,25 +490,66 @@ export default class AdminCommand extends BaseCommand {
         return this.replyContainer(interaction, success, this.t('commands.admin.titles.plugin'), details);
     }
 
-    private async handleCache(interaction: ChatInputCommandInteraction): Promise<void> {
-        const target = interaction.options.getString('target', true).toLowerCase();
-        let success = false;
-        let details = '';
-        switch (target) {
-            case 'cross-guild':
-                CrossGuildResolver.clearCache();
-                success = true;
-                details = this.t('commands.admin.cache.popped', { target });
-                break;
-            case 'help-menu':
-                HelpUtils.clearCache();
-                success = true;
-                details = this.t('commands.admin.cache.popped', { target });
-                break;
-            default:
-                details = this.t('commands.admin.cache.unknown', { target });
+    private async handleCache(interaction: ChatInputCommandInteraction, sub: string): Promise<void> {
+        if (sub === 'cache-list') {
+            const listed = listRegisteredCaches();
+            if (listed.length === 0) {
+                return this.replyContainer(
+                    interaction,
+                    true,
+                    this.t('commands.admin.titles.cache'),
+                    this.t('commands.admin.cache.listEmpty'),
+                );
+            }
+            const lines = listed.map((e) =>
+                this.t('commands.admin.cache.listLine', {
+                    name: e.name,
+                    size: String(e.size),
+                }),
+            );
+            const details = this.t('commands.admin.cache.listHeader', {
+                count: String(listed.length),
+                grid: lines.join('\n'),
+            });
+            return this.replyContainer(
+                interaction,
+                true,
+                this.t('commands.admin.titles.cache'),
+                details,
+            );
         }
-        return this.replyContainer(interaction, success, this.t('commands.admin.titles.cache'), details);
+
+        const target = interaction.options.getString('target', true).trim();
+        const cache = getRegisteredCache(target);
+        if (!cache) {
+            void this.heart.system.audit.record({
+                ...actorFromUser(interaction.user.id),
+                action: 'admin.cache.pop',
+                target,
+                outcome: 'fail',
+                reason: 'unknown_cache',
+            });
+            return this.replyContainer(
+                interaction,
+                false,
+                this.t('commands.admin.titles.cache'),
+                this.t('commands.admin.cache.unknown', { target }),
+            );
+        }
+        cache.clear();
+        void this.heart.system.audit.record({
+            ...actorFromUser(interaction.user.id),
+            action: 'admin.cache.pop',
+            target,
+            outcome: 'success',
+            meta: { cacheName: target },
+        });
+        return this.replyContainer(
+            interaction,
+            true,
+            this.t('commands.admin.titles.cache'),
+            this.t('commands.admin.cache.popped', { target }),
+        );
     }
 
     private async handleGate(interaction: ChatInputCommandInteraction, sub: string): Promise<void> {
@@ -368,7 +573,25 @@ export default class AdminCommand extends BaseCommand {
                 );
             }
             const reason = interaction.options.getString('reason');
-            await guildGate.blockGuild(guildId, interaction.user.id, reason);
+            try {
+                await guildGate.blockGuild(guildId, interaction.user.id, reason);
+                void this.heart.system.audit.record({
+                    ...actorFromUser(interaction.user.id),
+                    action: 'gate.guild.block',
+                    target: guildId,
+                    outcome: 'success',
+                    reason: reason ?? undefined,
+                });
+            } catch (err) {
+                void this.heart.system.audit.record({
+                    ...actorFromUser(interaction.user.id),
+                    action: 'gate.guild.block',
+                    target: guildId,
+                    outcome: 'fail',
+                    reason: 'error',
+                });
+                throw err;
+            }
             return this.replyContainer(
                 interaction,
                 true,
@@ -388,6 +611,13 @@ export default class AdminCommand extends BaseCommand {
                 );
             }
             const ok = await guildGate.unblockGuild(guildId);
+            void this.heart.system.audit.record({
+                ...actorFromUser(interaction.user.id),
+                action: 'gate.guild.unblock',
+                target: guildId,
+                outcome: ok ? 'success' : 'fail',
+                reason: ok ? undefined : 'not_blocked',
+            });
             return this.replyContainer(
                 interaction,
                 ok,
@@ -427,7 +657,27 @@ export default class AdminCommand extends BaseCommand {
                 );
             }
             const reason = interaction.options.getString('reason');
-            await guildGate.blockPlugin(guildId, pluginId, interaction.user.id, reason);
+            try {
+                await guildGate.blockPlugin(guildId, pluginId, interaction.user.id, reason);
+                void this.heart.system.audit.record({
+                    ...actorFromUser(interaction.user.id),
+                    action: 'gate.plugin.block',
+                    target: pluginId,
+                    outcome: 'success',
+                    reason: reason ?? undefined,
+                    meta: { guildId },
+                });
+            } catch (err) {
+                void this.heart.system.audit.record({
+                    ...actorFromUser(interaction.user.id),
+                    action: 'gate.plugin.block',
+                    target: pluginId,
+                    outcome: 'fail',
+                    reason: 'error',
+                    meta: { guildId },
+                });
+                throw err;
+            }
             return this.replyContainer(
                 interaction,
                 true,
@@ -452,6 +702,14 @@ export default class AdminCommand extends BaseCommand {
                 );
             }
             const ok = await guildGate.unblockPlugin(guildId, pluginId);
+            void this.heart.system.audit.record({
+                ...actorFromUser(interaction.user.id),
+                action: 'gate.plugin.unblock',
+                target: pluginId,
+                outcome: ok ? 'success' : 'fail',
+                reason: ok ? undefined : 'not_blocked',
+                meta: { guildId },
+            });
             return this.replyContainer(
                 interaction,
                 ok,
@@ -484,6 +742,282 @@ export default class AdminCommand extends BaseCommand {
         }
     }
 
+
+
+    private async handleErrors(
+        interaction: ChatInputCommandInteraction,
+        sub: string,
+    ): Promise<void> {
+        if (sub === 'error-list') {
+            const limit = 10;
+            const code = interaction.options.getString('code') ?? undefined;
+            const category = interaction.options.getString('category') ?? undefined;
+            const severity = interaction.options.getString('severity') ?? undefined;
+            const entries = await this.heart.system.errors.list({
+                code,
+                category,
+                severity,
+                limit,
+            });
+            if (entries.length === 0) {
+                return this.replyContainer(
+                    interaction,
+                    true,
+                    this.t('commands.admin.titles.errors'),
+                    this.t('commands.admin.errors.listEmpty'),
+                );
+            }
+            const lines = entries.map(e =>
+                this.t('commands.admin.errors.listLine', {
+                    id: e.id,
+                    code: e.code,
+                    count: e.count,
+                    severity: e.severity,
+                    category: e.category,
+                    firstSeen: String(e.firstSeen),
+                    lastSeen: String(e.lastSeen),
+                }),
+            );
+            return this.replyContainer(
+                interaction,
+                true,
+                this.t('commands.admin.titles.errors'),
+                this.t('commands.admin.errors.listHeader', {
+                    count: entries.length,
+                    grid: lines.join('\n'),
+                }),
+            );
+        }
+
+        if (sub === 'error-export') {
+            const entries = await this.heart.system.errors.list({ limit: 100_000 });
+            if (entries.length === 0) {
+                return this.replyContainer(
+                    interaction,
+                    true,
+                    this.t('commands.admin.titles.errors'),
+                    this.t('commands.admin.errors.exportEmpty'),
+                );
+            }
+            const body = JSON.stringify(entries, null, 2);
+            const file = new AttachmentBuilder(Buffer.from(body, 'utf8'), {
+                name: `error-export-${Date.now()}.json`,
+            });
+            await interaction.editReply({
+                content: this.t('commands.admin.errors.exportDone', { count: entries.length }),
+                files: [file],
+            });
+            return;
+        }
+
+        const id = interaction.options.getString('id', true).trim();
+        const entry = await this.heart.system.errors.getById(id);
+        if (!entry) {
+            return this.replyContainer(
+                interaction,
+                false,
+                this.t('commands.admin.titles.errors'),
+                this.t('commands.admin.errors.notFound', { id }),
+            );
+        }
+        return this.replyContainer(
+            interaction,
+            true,
+            this.t('commands.admin.titles.errors'),
+            this.t('commands.admin.errors.getHeader', { id: entry.id }) +
+                '\n' +
+                this.t('commands.admin.errors.getBody', {
+                    code: entry.code,
+                    category: entry.category,
+                    severity: entry.severity,
+                    count: entry.count,
+                    message: entry.message,
+                    firstSeen: String(entry.firstSeen),
+                    lastSeen: String(entry.lastSeen),
+                    context: JSON.stringify(entry.context),
+                }),
+        );
+    }
+
+    private async handleAudit(
+        interaction: ChatInputCommandInteraction,
+        sub: string,
+    ): Promise<void> {
+        if (sub === 'audit-list') {
+            const limit = 10;
+            const actor = interaction.options.getString('actor') ?? undefined;
+            const action = interaction.options.getString('action') ?? undefined;
+            const outcomeRaw = interaction.options.getString('outcome');
+            const outcome =
+                outcomeRaw === 'success' || outcomeRaw === 'fail' ? outcomeRaw : undefined;
+            const entries = await this.heart.system.audit.list({
+                actorId: actor,
+                action,
+                outcome,
+                limit,
+            });
+            if (entries.length === 0) {
+                return this.replyContainer(
+                    interaction,
+                    true,
+                    this.t('commands.admin.titles.audit'),
+                    this.t('commands.admin.audit.listEmpty'),
+                );
+            }
+            const lines = entries.map(e =>
+                this.t('commands.admin.audit.listLine', {
+                    id: e.id,
+                    action: e.action,
+                    outcome: e.outcome,
+                    actor: `${e.actorType}:${e.actorId}`,
+                    target: e.target,
+                    when: String(e.createdAt),
+                }),
+            );
+            return this.replyContainer(
+                interaction,
+                true,
+                this.t('commands.admin.titles.audit'),
+                this.t('commands.admin.audit.listHeader', {
+                    count: entries.length,
+                    grid: lines.join('\n'),
+                }),
+            );
+        }
+
+        if (sub === 'audit-export') {
+            const entries = await this.heart.system.audit.list({ limit: 100_000 });
+            if (entries.length === 0) {
+                return this.replyContainer(
+                    interaction,
+                    true,
+                    this.t('commands.admin.titles.audit'),
+                    this.t('commands.admin.audit.exportEmpty'),
+                );
+            }
+            const body = JSON.stringify(entries, null, 2);
+            const file = new AttachmentBuilder(Buffer.from(body, 'utf8'), {
+                name: `audit-export-${Date.now()}.json`,
+            });
+            await interaction.editReply({
+                content: this.t('commands.admin.audit.exportDone', { count: entries.length }),
+                files: [file],
+            });
+            return;
+        }
+
+        const id = interaction.options.getString('id', true).trim();
+        const entry = await this.heart.system.audit.getById(id);
+        if (!entry) {
+            return this.replyContainer(
+                interaction,
+                false,
+                this.t('commands.admin.titles.audit'),
+                this.t('commands.admin.audit.notFound', { id }),
+            );
+        }
+        const metaStr = JSON.stringify(entry.meta);
+        return this.replyContainer(
+            interaction,
+            true,
+            this.t('commands.admin.titles.audit'),
+            this.t('commands.admin.audit.getHeader', { id: entry.id }) +
+                '\n' +
+                this.t('commands.admin.audit.getBody', {
+                    action: entry.action,
+                    outcome: entry.outcome,
+                    actorType: entry.actorType,
+                    actorId: entry.actorId,
+                    target: entry.target,
+                    reason: entry.reason ?? '—',
+                    createdAt: String(entry.createdAt),
+                    meta: metaStr,
+                }),
+        );
+    }
+
+
+    private async handleBitHolders(interaction: ChatInputCommandInteraction): Promise<void> {
+        const bit = interaction.options.getString('bit', true).trim();
+        const pageRaw = interaction.options.getInteger('page');
+        const page = Math.max(1, pageRaw ?? 1);
+
+        if (!permissionsManager) {
+            return this.replyContainer(
+                interaction,
+                false,
+                this.t('commands.admin.titles.bitHolders'),
+                this.t('commands.admin.bitHolders.unavailable'),
+            );
+        }
+
+        const { botWide, byGuild } = await permissionsManager.findHoldersOfBit(bit);
+        type Section = { title: string; members: string[] };
+        const sections: Section[] = [];
+        if (botWide.length > 0) {
+            sections.push({
+                title: this.t('commands.admin.bitHolders.sectionBotWide'),
+                members: botWide,
+            });
+        }
+        const guildIds = [...byGuild.keys()].sort();
+        for (const gid of guildIds) {
+            const members = byGuild.get(gid) ?? [];
+            if (members.length === 0) continue;
+            sections.push({
+                title: this.t('commands.admin.bitHolders.sectionGuild', { guildId: gid }),
+                members,
+            });
+        }
+
+        if (sections.length === 0) {
+            return this.replyContainer(
+                interaction,
+                true,
+                this.t('commands.admin.titles.bitHolders'),
+                this.t('commands.admin.bitHolders.empty', { bit }),
+            );
+        }
+
+        const PAGE_SIZE = 10;
+        const pages: string[][] = [];
+        for (const section of sections) {
+            for (let i = 0; i < section.members.length; i += PAGE_SIZE) {
+                const chunk = section.members.slice(i, i + PAGE_SIZE);
+                const lines: string[] = [];
+                if (i === 0) {
+                    lines.push(`**${section.title}**`);
+                } else {
+                    lines.push(
+                        `**${section.title}** (${this.t('commands.admin.bitHolders.continued')})`,
+                    );
+                }
+                for (const uid of chunk) {
+                    lines.push(this.t('commands.admin.bitHolders.memberLine', { userId: uid }));
+                }
+                pages.push(lines);
+            }
+        }
+
+        const totalPages = pages.length;
+        const idx = Math.min(page, totalPages) - 1;
+        const body = (pages[idx] ?? []).join(
+            String.fromCharCode(10),
+        );
+        return this.replyContainer(
+            interaction,
+            true,
+            this.t('commands.admin.titles.bitHolders'),
+            this.t('commands.admin.bitHolders.pageHeader', {
+                bit,
+                page: idx + 1,
+                totalPages,
+            }) +
+                String.fromCharCode(10) +
+                body,
+        );
+    }
+
     private formatGrid(items: string[], columns: number = 3): string {
         if (!items?.length) return '> *None*';
         const rows: string[] = [];
@@ -512,8 +1046,11 @@ export default class AdminCommand extends BaseCommand {
         const layoutKey = success ? 'layouts.containerSuccess' : 'layouts.containerError';
         const rawJson = this.t(layoutKey, { title });
         const layout: Cv2LayoutSpec = JSON.parse(rawJson);
-        const container = layout.components[0] as any;
-        if (container?.children?.[2]) container.children[2].content = details;
+        const container = layout.components[0] as ContainerSpec;
+        const detailsChild = container?.children?.[2];
+        if (detailsChild && detailsChild.type === 'text') {
+            detailsChild.content = details;
+        }
         await interaction.editReply(buildComponentsV2(layout));
     }
 
@@ -542,7 +1079,12 @@ export default class AdminCommand extends BaseCommand {
                 const entries = await fs.readdir(pluginsDir, { withFileTypes: true }).catch(() => []);
                 choices = entries.filter(e => e.isDirectory()).map(e => e.name);
             } else if (sub === 'cache-pop' && focused.name === 'target') {
-                choices = this.KNOWN_CACHES;
+                choices = listRegisteredCaches().map((e) => e.name);
+            } else if (sub === 'bit-holders' && focused.name === 'bit') {
+                if (permissionsManager) {
+                    const bits = await permissionsManager.listBits();
+                    choices = bits.map((b) => String(b._id));
+                }
             }
         } catch {
             /* ignore */

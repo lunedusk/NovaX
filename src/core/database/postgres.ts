@@ -26,6 +26,10 @@ export class PostgresRegistry {
         log.info(`Native Postgres [${alias}] connected successfully.`);
     }
 
+    public has(alias: string): boolean {
+        return this.pools.has(alias);
+    }
+
     public get(alias: string): pkg.Pool {
         const pool = this.pools.get(alias);
         if (!pool) throw new Error(`Postgres pool [${alias}] not found!`);

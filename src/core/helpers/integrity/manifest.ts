@@ -71,7 +71,10 @@ export class PackageManager {
         const versionOffset = builder.createString(metadata.version);
         const descOffset = metadata.description ? builder.createString(metadata.description) : 0;
         const authorOffset = metadata.author ? builder.createString(metadata.author) : 0;
-        const nvxVersionOffset = metadata.novax_version ? builder.createString(metadata.novax_version) : 0;
+        const novaxVersionStr = Array.isArray(metadata.novax_version)
+            ? metadata.novax_version.map(String).filter(Boolean).join(' ')
+            : metadata.novax_version;
+        const nvxVersionOffset = novaxVersionStr ? builder.createString(novaxVersionStr) : 0;
         const nodeVersionOffset = metadata.node_version ? builder.createString(metadata.node_version) : 0;
 
         let depsOffset = 0;

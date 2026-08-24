@@ -1,5 +1,6 @@
 import { getLogger } from '#core/utils/logger.js';
 import { sqliteDB } from '#core/database/sqlite.js';
+import { cacheFacade } from '#core/manager/cacheFacade.js';
 
 const log = getLogger('GuildGate');
 
@@ -25,17 +26,60 @@ export interface GuildPluginGateRow {
     updatedBy: string | null;
 }
 
+interface SqliteRunResult {
+    changes: number;
+    lastInsertRowid: number | bigint;
+}
+
 interface SqliteDb {
     prepare(sql: string): {
-        run: (...params: unknown[]) => unknown;
-        get: (...params: unknown[]) => any;
-        all: (...params: unknown[]) => any[];
+        run: (...params: unknown[]) => SqliteRunResult;
+        get: (...params: unknown[]) => Record<string, unknown> | undefined;
+        all: (...params: unknown[]) => Record<string, unknown>[];
     };
     exec(sql: string): void;
 }
 
+interface PgQueryResult {
+    rows: Record<string, unknown>[];
+    rowCount?: number | null;
+}
+
+interface MongoGateDoc {
+    guild_id?: string;
+    plugin_id?: string;
+    reason?: string | null;
+    updated_at?: number;
+    updated_by?: string | null;
+    [key: string]: unknown;
+}
+
+interface MongoGateCollection {
+    find(filter: object): {
+        project(spec: object): { toArray(): Promise<MongoGateDoc[]> };
+        sort(spec: object): { toArray(): Promise<MongoGateDoc[]> };
+        toArray(): Promise<MongoGateDoc[]>;
+    };
+    updateOne(filter: object, update: object, opts?: { upsert?: boolean }): Promise<unknown>;
+    deleteOne(filter: object): Promise<{ deletedCount?: number }>;
+}
+
+type MongoConn = {
+    collection?: (name: string) => MongoGateCollection;
+    db?: { collection: (name: string) => MongoGateCollection };
+};
+
 function nowSeconds(): number {
     return Math.floor(Date.now() / 1000);
+}
+
+function nestString(obj: unknown, path: string[]): string | null {
+    let cur: unknown = obj;
+    for (const key of path) {
+        if (cur === null || cur === undefined || typeof cur !== 'object') return null;
+        cur = (cur as Record<string, unknown>)[key];
+    }
+    return typeof cur === 'string' && cur ? cur : null;
 }
 
 export class GuildGateManager {
@@ -43,13 +87,11 @@ export class GuildGateManager {
     private engine: GuildGateEngine = 'sqlite';
     private alias = 'main';
     private sqlite: SqliteDb | null = null;
-    private pgPool: { query: (text: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }> } | null =
-        null;
-    private mongoColGuild: any = null;
-    private mongoColPlugin: any = null;
+    private pgPool: { query: (text: string, params?: unknown[]) => Promise<PgQueryResult> } | null = null;
+    private mongoColGuild: MongoGateCollection | null = null;
+    private mongoColPlugin: MongoGateCollection | null = null;
 
-    private guildCache = new Map<string, boolean>();
-    private pluginCache = new Map<string, boolean>();
+    private readonly presence = cacheFacade.guildGate();
 
     public isReady(): boolean {
         return this.ready;
@@ -82,129 +124,94 @@ export class GuildGateManager {
 
     private async initSqlite(alias: string): Promise<void> {
         try {
-            this.sqlite = sqliteDB.get(alias) as unknown as SqliteDb;
+            this.sqlite = sqliteDB.get(alias) as SqliteDb;
         } catch {
             throw new Error(`GuildGate: sqlite alias "${alias}" is not connected.`);
         }
-        this.sqlite.exec(`
-            CREATE TABLE IF NOT EXISTS guild_gates (
-                guild_id   TEXT PRIMARY KEY,
-                reason     TEXT,
-                updated_at INTEGER NOT NULL,
-                updated_by TEXT
-            );
-            CREATE TABLE IF NOT EXISTS guild_plugin_gates (
-                guild_id   TEXT NOT NULL,
-                plugin_id  TEXT NOT NULL,
-                reason     TEXT,
-                updated_at INTEGER NOT NULL,
-                updated_by TEXT,
-                PRIMARY KEY (guild_id, plugin_id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_gpg_plugin ON guild_plugin_gates(plugin_id);
-        `);
     }
 
     private async initPostgres(alias: string): Promise<void> {
         const { pgDB } = await import('#core/database/postgres.js');
         try {
-            this.pgPool = pgDB.get(alias);
+            this.pgPool = pgDB.get(alias) as { query: (text: string, params?: unknown[]) => Promise<PgQueryResult> };
         } catch {
             throw new Error(`GuildGate: postgres alias "${alias}" is not connected.`);
         }
-        await this.pgPool.query(`
-            CREATE TABLE IF NOT EXISTS guild_gates (
-                guild_id   TEXT PRIMARY KEY,
-                reason     TEXT,
-                updated_at BIGINT NOT NULL,
-                updated_by TEXT
-            );
-        `);
-        await this.pgPool.query(`
-            CREATE TABLE IF NOT EXISTS guild_plugin_gates (
-                guild_id   TEXT NOT NULL,
-                plugin_id  TEXT NOT NULL,
-                reason     TEXT,
-                updated_at BIGINT NOT NULL,
-                updated_by TEXT,
-                PRIMARY KEY (guild_id, plugin_id)
-            );
-        `);
-        await this.pgPool
-            .query(`CREATE INDEX IF NOT EXISTS idx_gpg_plugin ON guild_plugin_gates(plugin_id);`)
-            .catch(() => {});
     }
 
     private async initMongo(alias: string): Promise<void> {
         const { mongoDB } = await import('#core/database/mongo.js');
-        let conn: any;
+        let conn: MongoConn;
         try {
-            conn = mongoDB.get(alias);
+            conn = mongoDB.get(alias) as MongoConn;
         } catch {
             throw new Error(`GuildGate: mongo alias "${alias}" is not connected.`);
         }
-        const getCol = (name: string) => {
+        const getCol = (name: string): MongoGateCollection => {
             if (typeof conn.collection === 'function') return conn.collection(name);
             if (conn.db && typeof conn.db.collection === 'function') return conn.db.collection(name);
             throw new Error(`GuildGate: mongoose connection [${alias}] has no collection()`);
         };
         this.mongoColGuild = getCol('guild_gates');
         this.mongoColPlugin = getCol('guild_plugin_gates');
-        await this.mongoColGuild.createIndex({ guild_id: 1 }, { unique: true }).catch(() => {});
-        await this.mongoColPlugin
-            .createIndex({ guild_id: 1, plugin_id: 1 }, { unique: true })
-            .catch(() => {});
     }
 
     private async warmCache(): Promise<void> {
-        this.guildCache.clear();
-        this.pluginCache.clear();
+        this.presence.clearPresence();
+        const guildKeys: string[] = [];
+        const pluginKeys: string[] = [];
 
         if (this.engine === 'sqlite' && this.sqlite) {
             for (const row of this.sqlite.prepare(`SELECT guild_id FROM guild_gates`).all()) {
-                this.guildCache.set(String(row.guild_id), true);
+                guildKeys.push(`g:${String(row.guild_id)}`);
             }
             for (const row of this.sqlite.prepare(`SELECT guild_id, plugin_id FROM guild_plugin_gates`).all()) {
-                this.pluginCache.set(`${row.guild_id}\0${row.plugin_id}`, true);
+                pluginKeys.push(`p:${row.guild_id}\0${row.plugin_id}`);
             }
+            this.presence.loadPresence(guildKeys);
+            this.presence.loadPresence(pluginKeys);
             return;
         }
 
         if (this.engine === 'postgres' && this.pgPool) {
             const g = await this.pgPool.query(`SELECT guild_id FROM guild_gates`);
-            for (const row of g.rows) this.guildCache.set(String(row.guild_id), true);
+            for (const row of g.rows) guildKeys.push(`g:${String(row.guild_id)}`);
             const p = await this.pgPool.query(`SELECT guild_id, plugin_id FROM guild_plugin_gates`);
-            for (const row of p.rows) this.pluginCache.set(`${row.guild_id}\0${row.plugin_id}`, true);
+            for (const row of p.rows) pluginKeys.push(`p:${row.guild_id}\0${row.plugin_id}`);
+            this.presence.loadPresence(guildKeys);
+            this.presence.loadPresence(pluginKeys);
             return;
         }
 
         if (this.engine === 'mongo' && this.mongoColGuild && this.mongoColPlugin) {
             const guilds = await this.mongoColGuild.find({}).project({ guild_id: 1 }).toArray();
-            for (const row of guilds) this.guildCache.set(String(row.guild_id), true);
+            for (const row of guilds) guildKeys.push(`g:${String(row.guild_id)}`);
             const plugins = await this.mongoColPlugin
                 .find({})
                 .project({ guild_id: 1, plugin_id: 1 })
                 .toArray();
-            for (const row of plugins) this.pluginCache.set(`${row.guild_id}\0${row.plugin_id}`, true);
+            for (const row of plugins) pluginKeys.push(`p:${row.guild_id}\0${row.plugin_id}`);
+            this.presence.loadPresence(guildKeys);
+            this.presence.loadPresence(pluginKeys);
         }
     }
 
     public isGuildBlocked(guildId: string | null | undefined): boolean {
         if (!this.ready || !guildId) return false;
-        return this.guildCache.has(guildId);
+        return this.presence.hasPresence(`g:${guildId}`);
     }
 
     public isPluginBlocked(pluginId: string, guildId: string | null | undefined): boolean {
         if (!this.ready || !guildId || !pluginId) return false;
-        if (this.guildCache.has(guildId)) return true;
-        return this.pluginCache.has(`${guildId}\0${pluginId}`);
+        if (this.presence.hasPresence(`g:${guildId}`)) return true;
+        return this.presence.hasPresence(`p:${guildId}\0${pluginId}`);
     }
 
     public isInteractionBlocked(ownerPluginId: string | undefined, guildId: string | null | undefined): boolean {
         if (!this.ready || !guildId) return false;
-        if (this.guildCache.has(guildId)) return true;
+        if (this.presence.hasPresence(`g:${guildId}`)) return true;
         if (!ownerPluginId) return false;
-        return this.pluginCache.has(`${guildId}\0${ownerPluginId}`);
+        return this.presence.hasPresence(`p:${guildId}\0${ownerPluginId}`);
     }
 
     public async blockGuild(guildId: string, updatedBy?: string, reason?: string | null): Promise<void> {
@@ -217,7 +224,7 @@ export class GuildGateManager {
                 .prepare(
                     `INSERT INTO guild_gates (guild_id, reason, updated_at, updated_by)
                      VALUES (?, ?, ?, ?)
-                     ON CONFLICT(guild_id) DO UPDATE SET reason = excluded.reason, updated_at = excluded.updated_at, updated_by = excluded.updated_by`
+                     ON CONFLICT(guild_id) DO UPDATE SET reason = excluded.reason, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
                 )
                 .run(guildId, why, at, by);
         } else if (this.engine === 'postgres' && this.pgPool) {
@@ -225,32 +232,32 @@ export class GuildGateManager {
                 `INSERT INTO guild_gates (guild_id, reason, updated_at, updated_by)
                  VALUES ($1, $2, $3, $4)
                  ON CONFLICT (guild_id) DO UPDATE SET reason = EXCLUDED.reason, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by`,
-                [guildId, why, at, by]
+                [guildId, why, at, by],
             );
         } else if (this.engine === 'mongo' && this.mongoColGuild) {
             await this.mongoColGuild.updateOne(
                 { guild_id: guildId },
                 { $set: { guild_id: guildId, reason: why, updated_at: at, updated_by: by } },
-                { upsert: true }
+                { upsert: true },
             );
         }
-        this.guildCache.set(guildId, true);
+        this.presence.setPresence(`g:${guildId}`);
         log.info(`Guild blocked: ${guildId} by ${by ?? 'system'}`);
     }
 
     public async unblockGuild(guildId: string): Promise<boolean> {
         let changed = false;
         if (this.engine === 'sqlite' && this.sqlite) {
-            const r = this.sqlite.prepare(`DELETE FROM guild_gates WHERE guild_id = ?`).run(guildId) as any;
-            changed = (r?.changes ?? 0) > 0;
+            const r = this.sqlite.prepare(`DELETE FROM guild_gates WHERE guild_id = ?`).run(guildId);
+            changed = (r.changes ?? 0) > 0;
         } else if (this.engine === 'postgres' && this.pgPool) {
             const r = await this.pgPool.query(`DELETE FROM guild_gates WHERE guild_id = $1`, [guildId]);
             changed = (r.rowCount ?? 0) > 0;
         } else if (this.engine === 'mongo' && this.mongoColGuild) {
             const r = await this.mongoColGuild.deleteOne({ guild_id: guildId });
-            changed = (r?.deletedCount ?? 0) > 0;
+            changed = (r.deletedCount ?? 0) > 0;
         }
-        this.guildCache.delete(guildId);
+        this.presence.deletePresence(`g:${guildId}`);
         if (changed) log.info(`Guild unblocked: ${guildId}`);
         return changed;
     }
@@ -259,7 +266,7 @@ export class GuildGateManager {
         guildId: string,
         pluginId: string,
         updatedBy?: string,
-        reason?: string | null
+        reason?: string | null,
     ): Promise<void> {
         const at = nowSeconds();
         const by = updatedBy ?? null;
@@ -270,7 +277,7 @@ export class GuildGateManager {
                 .prepare(
                     `INSERT INTO guild_plugin_gates (guild_id, plugin_id, reason, updated_at, updated_by)
                      VALUES (?, ?, ?, ?, ?)
-                     ON CONFLICT(guild_id, plugin_id) DO UPDATE SET reason = excluded.reason, updated_at = excluded.updated_at, updated_by = excluded.updated_by`
+                     ON CONFLICT(guild_id, plugin_id) DO UPDATE SET reason = excluded.reason, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
                 )
                 .run(guildId, pluginId, why, at, by);
         } else if (this.engine === 'postgres' && this.pgPool) {
@@ -278,7 +285,7 @@ export class GuildGateManager {
                 `INSERT INTO guild_plugin_gates (guild_id, plugin_id, reason, updated_at, updated_by)
                  VALUES ($1, $2, $3, $4, $5)
                  ON CONFLICT (guild_id, plugin_id) DO UPDATE SET reason = EXCLUDED.reason, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by`,
-                [guildId, pluginId, why, at, by]
+                [guildId, pluginId, why, at, by],
             );
         } else if (this.engine === 'mongo' && this.mongoColPlugin) {
             await this.mongoColPlugin.updateOne(
@@ -289,13 +296,13 @@ export class GuildGateManager {
                         plugin_id: pluginId,
                         reason: why,
                         updated_at: at,
-                        updated_by: by
-                    }
+                        updated_by: by,
+                    },
                 },
-                { upsert: true }
+                { upsert: true },
             );
         }
-        this.pluginCache.set(`${guildId}\0${pluginId}`, true);
+        this.presence.setPresence(`p:${guildId}\0${pluginId}`);
         log.info(`Plugin blocked: ${pluginId} @ ${guildId} by ${by ?? 'system'}`);
     }
 
@@ -304,19 +311,19 @@ export class GuildGateManager {
         if (this.engine === 'sqlite' && this.sqlite) {
             const r = this.sqlite
                 .prepare(`DELETE FROM guild_plugin_gates WHERE guild_id = ? AND plugin_id = ?`)
-                .run(guildId, pluginId) as any;
-            changed = (r?.changes ?? 0) > 0;
+                .run(guildId, pluginId);
+            changed = (r.changes ?? 0) > 0;
         } else if (this.engine === 'postgres' && this.pgPool) {
             const r = await this.pgPool.query(
                 `DELETE FROM guild_plugin_gates WHERE guild_id = $1 AND plugin_id = $2`,
-                [guildId, pluginId]
+                [guildId, pluginId],
             );
             changed = (r.rowCount ?? 0) > 0;
         } else if (this.engine === 'mongo' && this.mongoColPlugin) {
             const r = await this.mongoColPlugin.deleteOne({ guild_id: guildId, plugin_id: pluginId });
-            changed = (r?.deletedCount ?? 0) > 0;
+            changed = (r.deletedCount ?? 0) > 0;
         }
-        this.pluginCache.delete(`${guildId}\0${pluginId}`);
+        this.presence.deletePresence(`p:${guildId}\0${pluginId}`);
         if (changed) log.info(`Plugin unblocked: ${pluginId} @ ${guildId}`);
         return changed;
     }
@@ -325,23 +332,23 @@ export class GuildGateManager {
         if (this.engine === 'sqlite' && this.sqlite) {
             return this.sqlite
                 .prepare(
-                    `SELECT guild_id AS guildId, reason, updated_at AS updatedAt, updated_by AS updatedBy FROM guild_gates ORDER BY updated_at DESC`
+                    `SELECT guild_id AS guildId, reason, updated_at AS updatedAt, updated_by AS updatedBy FROM guild_gates ORDER BY updated_at DESC`,
                 )
-                .all() as GuildGateRow[];
+                .all() as unknown as GuildGateRow[];
         }
         if (this.engine === 'postgres' && this.pgPool) {
             const r = await this.pgPool.query(
-                `SELECT guild_id AS "guildId", reason, updated_at AS "updatedAt", updated_by AS "updatedBy" FROM guild_gates ORDER BY updated_at DESC`
+                `SELECT guild_id AS "guildId", reason, updated_at AS "updatedAt", updated_by AS "updatedBy" FROM guild_gates ORDER BY updated_at DESC`,
             );
-            return r.rows as GuildGateRow[];
+            return r.rows as unknown as GuildGateRow[];
         }
         if (this.engine === 'mongo' && this.mongoColGuild) {
             const rows = await this.mongoColGuild.find({}).sort({ updated_at: -1 }).toArray();
-            return rows.map((r: any) => ({
-                guildId: r.guild_id,
+            return rows.map((r: MongoGateDoc) => ({
+                guildId: String(r.guild_id ?? ''),
                 reason: r.reason ?? null,
-                updatedAt: r.updated_at,
-                updatedBy: r.updated_by ?? null
+                updatedAt: Number(r.updated_at ?? 0),
+                updatedBy: r.updated_by ?? null,
             }));
         }
         return [];
@@ -352,38 +359,38 @@ export class GuildGateManager {
             if (guildId) {
                 return this.sqlite
                     .prepare(
-                        `SELECT guild_id AS guildId, plugin_id AS pluginId, reason, updated_at AS updatedAt, updated_by AS updatedBy FROM guild_plugin_gates WHERE guild_id = ? ORDER BY plugin_id`
+                        `SELECT guild_id AS guildId, plugin_id AS pluginId, reason, updated_at AS updatedAt, updated_by AS updatedBy FROM guild_plugin_gates WHERE guild_id = ? ORDER BY plugin_id`,
                     )
-                    .all(guildId) as GuildPluginGateRow[];
+                    .all(guildId) as unknown as GuildPluginGateRow[];
             }
             return this.sqlite
                 .prepare(
-                    `SELECT guild_id AS guildId, plugin_id AS pluginId, reason, updated_at AS updatedAt, updated_by AS updatedBy FROM guild_plugin_gates ORDER BY guild_id, plugin_id`
+                    `SELECT guild_id AS guildId, plugin_id AS pluginId, reason, updated_at AS updatedAt, updated_by AS updatedBy FROM guild_plugin_gates ORDER BY guild_id, plugin_id`,
                 )
-                .all() as GuildPluginGateRow[];
+                .all() as unknown as GuildPluginGateRow[];
         }
         if (this.engine === 'postgres' && this.pgPool) {
             if (guildId) {
                 const r = await this.pgPool.query(
                     `SELECT guild_id AS "guildId", plugin_id AS "pluginId", reason, updated_at AS "updatedAt", updated_by AS "updatedBy" FROM guild_plugin_gates WHERE guild_id = $1 ORDER BY plugin_id`,
-                    [guildId]
+                    [guildId],
                 );
-                return r.rows as GuildPluginGateRow[];
+                return r.rows as unknown as GuildPluginGateRow[];
             }
             const r = await this.pgPool.query(
-                `SELECT guild_id AS "guildId", plugin_id AS "pluginId", reason, updated_at AS "updatedAt", updated_by AS "updatedBy" FROM guild_plugin_gates ORDER BY guild_id, plugin_id`
+                `SELECT guild_id AS "guildId", plugin_id AS "pluginId", reason, updated_at AS "updatedAt", updated_by AS "updatedBy" FROM guild_plugin_gates ORDER BY guild_id, plugin_id`,
             );
-            return r.rows as GuildPluginGateRow[];
+            return r.rows as unknown as GuildPluginGateRow[];
         }
         if (this.engine === 'mongo' && this.mongoColPlugin) {
             const q = guildId ? { guild_id: guildId } : {};
             const rows = await this.mongoColPlugin.find(q).sort({ guild_id: 1, plugin_id: 1 }).toArray();
-            return rows.map((r: any) => ({
-                guildId: r.guild_id,
-                pluginId: r.plugin_id,
+            return rows.map((r: MongoGateDoc) => ({
+                guildId: String(r.guild_id ?? ''),
+                pluginId: String(r.plugin_id ?? ''),
                 reason: r.reason ?? null,
-                updatedAt: r.updated_at,
-                updatedBy: r.updated_by ?? null
+                updatedAt: Number(r.updated_at ?? 0),
+                updatedBy: r.updated_by ?? null,
             }));
         }
         return [];
@@ -395,12 +402,16 @@ export const guildGate = new GuildGateManager();
 export function extractGuildIdFromEventArgs(args: unknown[]): string | null {
     for (const a of args) {
         if (a == null || typeof a !== 'object') continue;
-        const o = a as Record<string, any>;
+        const o = a as Record<string, unknown>;
         if (typeof o.guildId === 'string' && o.guildId) return o.guildId;
-        if (typeof o.guild?.id === 'string' && o.guild.id) return o.guild.id;
-        if (typeof o.member?.guild?.id === 'string' && o.member.guild.id) return o.member.guild.id;
-        if (typeof o.message?.guildId === 'string' && o.message.guildId) return o.message.guildId;
-        if (typeof o.channel?.guildId === 'string' && o.channel.guildId) return o.channel.guildId;
+        const guildId = nestString(o, ['guild', 'id']);
+        if (guildId) return guildId;
+        const memberGuildId = nestString(o, ['member', 'guild', 'id']);
+        if (memberGuildId) return memberGuildId;
+        const messageGuildId = nestString(o, ['message', 'guildId']);
+        if (messageGuildId) return messageGuildId;
+        const channelGuildId = nestString(o, ['channel', 'guildId']);
+        if (channelGuildId) return channelGuildId;
         if (typeof o.id === 'string' && o.members && o.channels) return o.id;
     }
     return null;

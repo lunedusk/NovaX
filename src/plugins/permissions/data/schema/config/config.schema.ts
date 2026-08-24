@@ -10,11 +10,22 @@ const levelSchema = z
     })
     .catchall(z.unknown());
 
+const httpRouteSchema = z
+    .object({
+        method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', '*']),
+        path: z.string().min(1).refine((p) => p.startsWith('/'), { message: 'path must start with /' }),
+        bits: z.array(z.string().min(1)).default([]),
+        bitsMode: z.enum(['all', 'any']).default('all'),
+        public: z.boolean().optional()
+    })
+    .catchall(z.unknown());
+
 export const configSchema = z
     .object({
         enabled: z.boolean().default(true),
         defaultLevel: z.string().min(1).default('public'),
-        levels: z.record(z.string(), levelSchema).default({})
+        levels: z.record(z.string(), levelSchema).default({}),
+        httpRoutes: z.array(httpRouteSchema).default([])
     })
     .catchall(z.unknown());
 
