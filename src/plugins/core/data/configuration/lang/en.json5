@@ -55,7 +55,8 @@
                 gate: "Guild Gate",
                 env: "Environment",
                 audit: "Audit Registry",
-                errors: "Error Registry"
+                errors: "Error Registry",
+                bitHolders: "Bit Holders"
             },
             messages: {
                 denied: "%%emoji_no_entry%% Bot owner only (BotOwnerIds / bot.owner).",
@@ -101,7 +102,7 @@
                 listDescription: "List recent audit entries (filterable).",
                 getDescription: "Fetch one audit entry by id.",
                 idDescription: "Audit entry id",
-                limitDescription: "Max entries (default 20, max 50)",
+                limitDescription: "Shows the 10 most recent entries",
                 actorDescription: "Filter by actor id",
                 actionDescription: "Filter by action code",
                 outcomeDescription: "Filter by outcome (success|fail)",
@@ -110,13 +111,16 @@
                 listLine: "`{{id}}` · {{action}} · {{outcome}} · actor={{actor}} · target={{target}} · {{when}}",
                 getHeader: "%%emoji_tick%% Audit `{{id}}`",
                 getBody: "**action:** {{action}}\n**outcome:** {{outcome}}\n**actor:** {{actorType}}:{{actorId}}\n**target:** {{target}}\n**reason:** {{reason}}\n**createdAt:** {{createdAt}}\n**meta:** {{meta}}",
-                notFound: "%%emoji_question%% No audit entry `{{id}}`."
+                notFound: "%%emoji_question%% No audit entry `{{id}}`.",
+                exportDescription: "Export the full audit log as a JSON file.",
+                exportEmpty: "There are none",
+                exportDone: "%%emoji_tick%% Exported **{{count}}** audit entr(y/ies)."
             },
             errors: {
                 listDescription: "List coalesced error occurrences (filterable).",
                 getDescription: "Fetch one error occurrence by id.",
                 idDescription: "Error occurrence id",
-                limitDescription: "Max entries (default 20, max 50)",
+                limitDescription: "Shows the 10 most recent entries",
                 codeDescription: "Filter by error code",
                 categoryDescription: "Filter by category",
                 severityDescription: "Filter by severity",
@@ -125,8 +129,24 @@
                 listLine: "`{{id}}` · **{{code}}** ×{{count}} · {{severity}} · {{category}} · since={{firstSeen}} · last={{lastSeen}}",
                 getHeader: "%%emoji_tick%% Error `{{id}}`",
                 getBody: "**code:** {{code}}\n**category:** {{category}}\n**severity:** {{severity}}\n**count:** {{count}}\n**message:** {{message}}\n**firstSeen:** {{firstSeen}}\n**lastSeen:** {{lastSeen}}\n**context:** {{context}}",
-                notFound: "%%emoji_question%% No error occurrence `{{id}}`."
+                notFound: "%%emoji_question%% No error occurrence `{{id}}`.",
+                exportDescription: "Export the full error registry as a JSON file.",
+                exportEmpty: "There are none",
+                exportDone: "%%emoji_tick%% Exported **{{count}}** error occurrence(s)."
             },
+            bitHolders: {
+                description: "List members who hold a permission bit (bot-wide and all guilds).",
+                bitDescription: "Permission bit",
+                pageDescription: "Page number",
+                unavailable: "%%emoji_cross%% Permissions manager is not available.",
+                empty: "%%emoji_caution%% No members hold `{{bit}}`.",
+                sectionBotWide: "Bot-wide",
+                sectionGuild: "Guild `{{guildId}}`",
+                continued: "cont.",
+                memberLine: "• `<@{{userId}}>` (`{{userId}}`)",
+                pageHeader: "Bit `{{bit}}` — page **{{page}}** / **{{totalPages}}**"
+            },
+
 
             gate: {
                 guildBlockDescription: "Block the entire bot in a guild.",

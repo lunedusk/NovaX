@@ -21,6 +21,7 @@ const adminTitles = z
         env: nonEmpty,
         audit: nonEmpty,
         errors: nonEmpty,
+        bitHolders: nonEmpty,
     })
     .catchall(node);
 
@@ -74,6 +75,9 @@ const adminAudit = z
         getHeader: nonEmpty,
         getBody: nonEmpty,
         notFound: nonEmpty,
+        exportDescription: nonEmpty,
+        exportEmpty: nonEmpty,
+        exportDone: nonEmpty,
     })
     .catchall(node);
 
@@ -92,6 +96,24 @@ const adminErrors = z
         getHeader: nonEmpty,
         getBody: nonEmpty,
         notFound: nonEmpty,
+        exportDescription: nonEmpty,
+        exportEmpty: nonEmpty,
+        exportDone: nonEmpty,
+    })
+    .catchall(node);
+
+const adminBitHolders = z
+    .object({
+        description: nonEmpty,
+        bitDescription: nonEmpty,
+        pageDescription: nonEmpty,
+        unavailable: nonEmpty,
+        empty: nonEmpty,
+        sectionBotWide: nonEmpty,
+        sectionGuild: nonEmpty,
+        continued: nonEmpty,
+        memberLine: nonEmpty,
+        pageHeader: nonEmpty,
     })
     .catchall(node);
 
@@ -103,6 +125,7 @@ const adminCommands = z
         cache: adminCache,
         audit: adminAudit,
         errors: adminErrors,
+        bitHolders: adminBitHolders,
     })
     .catchall(node);
 

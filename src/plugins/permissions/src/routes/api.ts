@@ -250,7 +250,7 @@ export default class PermissionsApiRoute extends BaseRoute {
     private async createBotRole(req: Request, res: Response): Promise<void> {
         const actor = actorFromGateway(res);
         try {
-            const role = await this.mgr.createBotRole(req.body);
+            const role = await this.mgr.createBotRole(req.body, null);
             void this.heart.system.audit.record({
                 ...actor,
                 action: 'perm.role.create',
@@ -267,7 +267,7 @@ export default class PermissionsApiRoute extends BaseRoute {
                 outcome: 'fail',
                 reason: err instanceof PermissionError ? err.code : 'error',
             });
-            if (err instanceof PermissionError) { res.status(400).json({ error: err.code, message: err.userMessage }); return; }
+            if (err instanceof PermissionError) { res.status(err.statusCode ?? 400).json({ error: err.code, message: err.userMessage }); return; }
             throw err;
         }
     }
@@ -293,7 +293,7 @@ export default class PermissionsApiRoute extends BaseRoute {
         const actor = actorFromGateway(res);
         const roleId = this.param(req, 'roleId');
         try {
-            const role = await this.mgr.updateBotRole(roleId, req.body);
+            const role = await this.mgr.updateBotRole(roleId, req.body, null);
             void this.heart.system.audit.record({
                 ...actor,
                 action: 'perm.role.update',
@@ -309,7 +309,7 @@ export default class PermissionsApiRoute extends BaseRoute {
                 outcome: 'fail',
                 reason: err instanceof PermissionError ? err.code : 'error',
             });
-            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            if (err instanceof PermissionError) { res.status(err.statusCode ?? 404).json({ error: err.code, message: err.userMessage }); return; }
             throw err;
         }
     }
@@ -332,7 +332,7 @@ export default class PermissionsApiRoute extends BaseRoute {
      *         description: Role deleted
      */
     private async deleteBotRole(req: Request, res: Response): Promise<void> {
-        await this.mgr.deleteBotRole(this.param(req, 'roleId'));
+        await this.mgr.deleteBotRole(this.param(req, 'roleId'), null);
         res.json({ deleted: true });
     }
 
@@ -368,7 +368,7 @@ export default class PermissionsApiRoute extends BaseRoute {
         const actor = actorFromGateway(res);
         const roleId = this.param(req, 'roleId');
         try {
-            await this.mgr.assignBotRole(roleId, userIds);
+            await this.mgr.assignBotRole(roleId, userIds, null);
             void this.heart.system.audit.record({
                 ...actor,
                 action: 'perm.role.assign',
@@ -385,7 +385,7 @@ export default class PermissionsApiRoute extends BaseRoute {
                 outcome: 'fail',
                 reason: err instanceof PermissionError ? err.code : 'error',
             });
-            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            if (err instanceof PermissionError) { res.status(err.statusCode ?? 404).json({ error: err.code, message: err.userMessage }); return; }
             throw err;
         }
     }
@@ -422,7 +422,7 @@ export default class PermissionsApiRoute extends BaseRoute {
         const actor = actorFromGateway(res);
         const roleId = this.param(req, 'roleId');
         try {
-            await this.mgr.revokeBotRole(roleId, userIds);
+            await this.mgr.revokeBotRole(roleId, userIds, null);
             void this.heart.system.audit.record({
                 ...actor,
                 action: 'perm.role.revoke',
@@ -439,7 +439,7 @@ export default class PermissionsApiRoute extends BaseRoute {
                 outcome: 'fail',
                 reason: err instanceof PermissionError ? err.code : 'error',
             });
-            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            if (err instanceof PermissionError) { res.status(err.statusCode ?? 404).json({ error: err.code, message: err.userMessage }); return; }
             throw err;
         }
     }
@@ -516,7 +516,7 @@ export default class PermissionsApiRoute extends BaseRoute {
                 reason: err instanceof PermissionError ? err.code : 'error',
                 meta: { guildId },
             });
-            if (err instanceof PermissionError) { res.status(400).json({ error: err.code, message: err.userMessage }); return; }
+            if (err instanceof PermissionError) { res.status(err.statusCode ?? 400).json({ error: err.code, message: err.userMessage }); return; }
             throw err;
         }
     }
@@ -565,7 +565,7 @@ export default class PermissionsApiRoute extends BaseRoute {
                 reason: err instanceof PermissionError ? err.code : 'error',
                 meta: { guildId },
             });
-            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            if (err instanceof PermissionError) { res.status(err.statusCode ?? 404).json({ error: err.code, message: err.userMessage }); return; }
             throw err;
         }
     }
@@ -673,7 +673,7 @@ export default class PermissionsApiRoute extends BaseRoute {
                 reason: err instanceof PermissionError ? err.code : 'error',
                 meta: { guildId },
             });
-            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            if (err instanceof PermissionError) { res.status(err.statusCode ?? 404).json({ error: err.code, message: err.userMessage }); return; }
             throw err;
         }
     }
@@ -733,7 +733,7 @@ export default class PermissionsApiRoute extends BaseRoute {
                 reason: err instanceof PermissionError ? err.code : 'error',
                 meta: { guildId },
             });
-            if (err instanceof PermissionError) { res.status(404).json({ error: err.code, message: err.userMessage }); return; }
+            if (err instanceof PermissionError) { res.status(err.statusCode ?? 404).json({ error: err.code, message: err.userMessage }); return; }
             throw err;
         }
     }

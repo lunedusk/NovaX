@@ -267,7 +267,7 @@ export interface ErrorListFilter {
 function clampLimit(limit: number | undefined): number {
     const n = typeof limit === 'number' && Number.isFinite(limit) ? Math.floor(limit) : 50;
     if (n < 1) return 1;
-    if (n > 200) return 200;
+    if (n > 100_000) return 100_000;
     return n;
 }
 

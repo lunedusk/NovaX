@@ -574,14 +574,44 @@ export class Updater {
 
         const pluginsTxtRef = coreTarget?.name ?? baseline?.tag ?? null;
         let officialLines: PluginSourceLine[] = [];
-        if (pluginsTxtRef) {
-            const body = await this.gh.getFileText(owner, repo, pluginsTxtRef, 'plugins.txt');
-            if (body) {
-                officialLines = parsePluginsTxt(body);
-                log.info(`Tag ${pluginsTxtRef} plugins.txt → ${officialLines.length} plugin line(s)`);
-            } else {
-                log.info(`No plugins.txt on ref ${pluginsTxtRef} – no plugin updates from list`);
+        let pluginsTxtSource: string | null = null;
+        let pluginsTxtFetchOk = false;
+        try {
+            const headBody = await this.gh.getFileText(owner, repo, this.config.branch, 'plugins.txt');
+            if (headBody) {
+                officialLines = parsePluginsTxt(headBody);
+                pluginsTxtSource = `branch:${this.config.branch}`;
+                pluginsTxtFetchOk = true;
+                log.info(
+                    `Branch ${this.config.branch} plugins.txt → ${officialLines.length} plugin line(s)`,
+                );
             }
+        } catch (e) {
+            log.warn(
+                `plugins.txt HEAD (${this.config.branch}) failed: ${(e as Error).message} — falling back to tag`,
+            );
+        }
+        if (!pluginsTxtFetchOk && pluginsTxtRef) {
+            try {
+                const body = await this.gh.getFileText(owner, repo, pluginsTxtRef, 'plugins.txt');
+                if (body) {
+                    officialLines = parsePluginsTxt(body);
+                    pluginsTxtSource = `tag:${pluginsTxtRef}`;
+                    pluginsTxtFetchOk = true;
+                    log.info(
+                        `Tag ${pluginsTxtRef} plugins.txt → ${officialLines.length} plugin line(s)`,
+                    );
+                }
+            } catch (e) {
+                log.warn(
+                    `plugins.txt tag ${pluginsTxtRef} failed: ${(e as Error).message}`,
+                );
+            }
+        }
+        if (!pluginsTxtFetchOk) {
+            log.warn(
+                'plugins.txt unavailable (HEAD and tag) — skipping plugin plan changes (no removals)',
+            );
         }
 
         if (installPlugin) {
@@ -1044,7 +1074,7 @@ export class Updater {
                 }
             } else {
                 log.info(`[plugin] ${pluginName}: resolving tags (${line.kind}) on ${pOwner}/${pRepo}…`);
-                let pluginTags = await this.gh.listPluginTags(pOwner, pRepo, pluginName);
+                let pluginTags = await this.gh.listTagsForPluginScheme(line.kind, pOwner, pRepo, pluginName);
                 log.info(`[plugin] ${pluginName}: ${pluginTags.length} plugin-* tag(s)`);
 
                 if (line.kind !== 'in-repo' && pluginTags.length === 0) {
@@ -1076,8 +1106,8 @@ export class Updater {
                         remotePath: null,
                         action: 'skip',
                         reason: line.kind === 'in-repo'
-                            ? `No tags matching plugin-${pluginName}-v* (tags only)`
-                            : 'No plugin-* / semver tags on external repo (tags only)',
+                            ? `No tags matching plugin-${pluginName}-v* (in-repo scheme)`
+                            : 'No v* semver tags on external/standalone repo',
                         source: line
                     });
                     continue;

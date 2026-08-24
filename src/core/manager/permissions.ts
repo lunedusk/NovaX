@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '#core/utils/logger.js';
+import { audit } from '#core/audit/index.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { configManager } from '#core/manager/config.js';
 import {
@@ -35,6 +36,7 @@ function nowSeconds(): number {
 
 function parseJsonArray(value: unknown): string[] {
     if (!value) return [];
+    if (Array.isArray(value)) return value.map(String);
     try {
         const parsed = JSON.parse(String(value));
         return Array.isArray(parsed) ? parsed.map(String) : [];
@@ -42,6 +44,47 @@ function parseJsonArray(value: unknown): string[] {
         return [];
     }
 }
+
+const OWNER_BIT = 'bot.owner';
+
+function bitsIncludeOwner(bits: string[] | undefined | null): boolean {
+    return Array.isArray(bits) && bits.includes(OWNER_BIT);
+}
+
+function envOwnerIds(): string[] {
+    const raw = secrets.getOptional('BotOwnerIds', '') ?? '';
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function isEnvOwner(userId: string | null | undefined): boolean {
+    if (!userId) return false;
+    return envOwnerIds().includes(userId);
+}
+
+function assertCanMutateOwnerInvolved(
+    actorUserId: string | null | undefined,
+    involvesOwner: boolean,
+    action: string,
+    target: string,
+): void {
+    if (!involvesOwner) return;
+    if (!isEnvOwner(actorUserId)) {
+        void audit.record({
+            actorType: actorUserId ? 'user' : 'api_key',
+            actorId: actorUserId ?? 'api_key',
+            action,
+            target,
+            outcome: 'fail',
+            reason: 'FORBIDDEN',
+            meta: { bit: OWNER_BIT },
+        });
+        throw new PermissionError(
+            'FORBIDDEN',
+            'Only BotOwnerIds (env) Discord users may create, modify, assign, revoke, or delete roles that include bot.owner. API keys cannot perform these mutations.',
+        );
+    }
+}
+
 
 export interface RouteAccessConfig {
     permissionLevel?: string;
@@ -99,7 +142,21 @@ export class PermissionsManager {
         this.db = openSqlAdapter(choice);
 
         await this.seedBuiltInBits();
+        await this.warnPreexistingOwnerRoles();
         log.info(`PermissionsManager initialized (engine=${choice.engine}, alias=${choice.alias}).`);
+    }
+
+    private async warnPreexistingOwnerRoles(): Promise<void> {
+        try {
+            const roles = await this.listBotRoles();
+            const hits = roles.filter((r) => bitsIncludeOwner(r.bits));
+            if (hits.length === 0) return;
+            log.warn(
+                `Found ${hits.length} bot-wide role(s) carrying bot.owner (pre-existing). They are active for resolve; only BotOwnerIds may mutate them: ${hits.map((r) => r._id).join(', ')}`,
+            );
+        } catch (err) {
+            log.warn(`Owner-role boot scan failed: ${(err as Error).message}`);
+        }
     }
 
 
@@ -258,7 +315,11 @@ export class PermissionsManager {
         return Number(row?.cnt ?? 0) === bits.length;
     }
 
-    public async createBotRole(data: CreateBotRoleInput): Promise<BotWideRoleDoc> {
+    public async createBotRole(
+        data: CreateBotRoleInput,
+        actorUserId?: string | null,
+    ): Promise<BotWideRoleDoc> {
+        assertCanMutateOwnerInvolved(actorUserId, bitsIncludeOwner(data.bits), 'perm.role.create', 'bot-role');
         if (!(await this.bitsExist(data.bits))) {
             throw new PermissionError('INVALID_BIT', 'One or more bits do not exist in the catalogue.');
         }
@@ -284,30 +345,52 @@ export class PermissionsManager {
                 createdBy: doc.createdBy,
                 updatedAt: doc.updatedAt,
             });
-            return doc;
-        }
-        await this.db.run(
-            `INSERT INTO perm_bwroles (id, name, color, bits, assignedUserIds, createdAt, createdBy, updatedAt)
+        } else {
+            await this.db.run(
+                `INSERT INTO perm_bwroles (id, name, color, bits, assignedUserIds, createdAt, createdBy, updatedAt)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                doc._id,
-                doc.name,
-                doc.color,
-                JSON.stringify(doc.bits),
-                JSON.stringify(doc.assignedUserIds),
-                doc.createdAt,
-                doc.createdBy,
-                doc.updatedAt,
-            ],
-        );
+                [
+                    doc._id,
+                    doc.name,
+                    doc.color,
+                    JSON.stringify(doc.bits),
+                    JSON.stringify(doc.assignedUserIds),
+                    doc.createdAt,
+                    doc.createdBy,
+                    doc.updatedAt,
+                ],
+            );
+        }
+        if (bitsIncludeOwner(doc.bits)) {
+            void audit.record({
+                actorType: actorUserId ? 'user' : 'api_key',
+                actorId: actorUserId ?? 'api_key',
+                action: 'perm.role.create',
+                target: doc._id,
+                outcome: 'success',
+                meta: { bit: OWNER_BIT, name: doc.name },
+            });
+        }
         return doc;
     }
 
-    public async updateBotRole(roleId: string, data: Partial<CreateBotRoleInput>): Promise<BotWideRoleDoc> {
+    public async updateBotRole(
+        roleId: string,
+        data: Partial<CreateBotRoleInput>,
+        actorUserId?: string | null,
+    ): Promise<BotWideRoleDoc> {
         const existing = await this.getBotRole(roleId);
         if (!existing) throw new PermissionError('INVALID_BIT', `Bot role ${roleId} not found.`);
-        if (data.bits && !(await this.bitsExist(data.bits))) {
-            throw new PermissionError('INVALID_BIT', 'One or more bits do not exist in the catalogue.');
+        const nextBits = data.bits ?? existing.bits;
+        const involves =
+            bitsIncludeOwner(existing.bits) ||
+            bitsIncludeOwner(data.bits) ||
+            (Array.isArray(data.bits) && bitsIncludeOwner(nextBits));
+        assertCanMutateOwnerInvolved(actorUserId, involves, 'perm.role.update', roleId);
+        if (data.bits) {
+            if (!(await this.bitsExist(data.bits))) {
+                throw new PermissionError('INVALID_BIT', 'One or more bits do not exist in the catalogue.');
+            }
         }
         const updated: BotWideRoleDoc = {
             ...existing,
@@ -327,17 +410,38 @@ export class PermissionsManager {
                     },
                 },
             );
+            if (involves) {
+                void audit.record({
+                    actorType: actorUserId ? 'user' : 'api_key',
+                    actorId: actorUserId ?? 'api_key',
+                    action: 'perm.role.update',
+                    target: roleId,
+                    outcome: 'success',
+                    meta: { bit: OWNER_BIT },
+                });
+            }
             return updated;
         }
         await this.db.run(
             `UPDATE perm_bwroles SET name = ?, color = ?, bits = ?, updatedAt = ? WHERE id = ?`,
             [updated.name, updated.color, JSON.stringify(updated.bits), updated.updatedAt, roleId],
         );
+        if (involves) {
+            void audit.record({
+                actorType: actorUserId ? 'user' : 'api_key',
+                actorId: actorUserId ?? 'api_key',
+                action: 'perm.role.update',
+                target: roleId,
+                outcome: 'success',
+                meta: { bit: OWNER_BIT },
+            });
+        }
         return updated;
     }
 
-    public async deleteBotRole(roleId: string): Promise<void> {
+    public async deleteBotRole(roleId: string, actorUserId?: string | null): Promise<void> {
         const existing = await this.getBotRole(roleId);
+        assertCanMutateOwnerInvolved(actorUserId, bitsIncludeOwner(existing?.bits), 'perm.role.delete', roleId);
         if (this.db.engine === 'mongo') {
             await this.db.mongoCollection('perm_bwroles').deleteOne({ $or: [{ _id: roleId }, { id: roleId }] });
         } else {
@@ -345,6 +449,16 @@ export class PermissionsManager {
         }
         if (existing) {
             await Promise.all(existing.assignedUserIds.map((uid) => this.invalidateUserCache(uid)));
+            if (bitsIncludeOwner(existing.bits)) {
+                void audit.record({
+                    actorType: actorUserId ? 'user' : 'api_key',
+                    actorId: actorUserId ?? 'api_key',
+                    action: 'perm.role.delete',
+                    target: roleId,
+                    outcome: 'success',
+                    meta: { bit: OWNER_BIT },
+                });
+            }
         }
     }
 
@@ -368,20 +482,50 @@ export class PermissionsManager {
         return rows.map((r) => this.rowToBotRole(r));
     }
 
-    public async assignBotRole(roleId: string, userIds: string[]): Promise<void> {
+    public async assignBotRole(
+        roleId: string,
+        userIds: string[],
+        actorUserId?: string | null,
+    ): Promise<void> {
         const existing = await this.getBotRole(roleId);
         if (!existing) throw new PermissionError('INVALID_BIT', `Bot role ${roleId} not found.`);
+        assertCanMutateOwnerInvolved(actorUserId, bitsIncludeOwner(existing.bits), 'perm.role.assign', roleId);
         const merged = Array.from(new Set([...existing.assignedUserIds, ...userIds]));
         await this.writeBotAssigned(roleId, merged);
         await Promise.all(userIds.map((uid) => this.invalidateUserCache(uid)));
+        if (bitsIncludeOwner(existing.bits)) {
+            void audit.record({
+                actorType: actorUserId ? 'user' : 'api_key',
+                actorId: actorUserId ?? 'api_key',
+                action: 'perm.role.assign',
+                target: roleId,
+                outcome: 'success',
+                meta: { bit: OWNER_BIT, count: userIds.length },
+            });
+        }
     }
 
-    public async revokeBotRole(roleId: string, userIds: string[]): Promise<void> {
+    public async revokeBotRole(
+        roleId: string,
+        userIds: string[],
+        actorUserId?: string | null,
+    ): Promise<void> {
         const existing = await this.getBotRole(roleId);
         if (!existing) throw new PermissionError('INVALID_BIT', `Bot role ${roleId} not found.`);
+        assertCanMutateOwnerInvolved(actorUserId, bitsIncludeOwner(existing.bits), 'perm.role.revoke', roleId);
         const remaining = existing.assignedUserIds.filter((uid) => !userIds.includes(uid));
         await this.writeBotAssigned(roleId, remaining);
         await Promise.all(userIds.map((uid) => this.invalidateUserCache(uid)));
+        if (bitsIncludeOwner(existing.bits)) {
+            void audit.record({
+                actorType: actorUserId ? 'user' : 'api_key',
+                actorId: actorUserId ?? 'api_key',
+                action: 'perm.role.revoke',
+                target: roleId,
+                outcome: 'success',
+                meta: { bit: OWNER_BIT, count: userIds.length },
+            });
+        }
     }
 
     private async writeBotAssigned(roleId: string, assigned: string[]): Promise<void> {
@@ -551,6 +695,46 @@ export class PermissionsManager {
         return rows.map((r) => this.rowToServerRole(r));
     }
 
+    public async listAllServerRoles(): Promise<ServerRoleDoc[]> {
+        if (this.db.engine === 'mongo') {
+            const rows = await this.db.mongoCollection('perm_sroles').find({});
+            return rows.map((r) => this.rowToServerRole(r));
+        }
+        const rows = await this.db.all(`SELECT * FROM perm_sroles ORDER BY guildId, createdAt`);
+        return rows.map((r) => this.rowToServerRole(r));
+    }
+
+    public async findHoldersOfBit(bit: string): Promise<{
+        botWide: string[];
+        byGuild: Map<string, string[]>;
+    }> {
+        const botWide = new Set<string>();
+        const byGuild = new Map<string, Set<string>>();
+
+        const botRoles = await this.listBotRoles();
+        for (const role of botRoles) {
+            if (!role.bits.includes(bit)) continue;
+            for (const uid of role.assignedUserIds) botWide.add(uid);
+        }
+
+        const serverRoles = await this.listAllServerRoles();
+        for (const role of serverRoles) {
+            if (!role.bits.includes(bit)) continue;
+            let set = byGuild.get(role.guildId);
+            if (!set) {
+                set = new Set<string>();
+                byGuild.set(role.guildId, set);
+            }
+            for (const uid of role.assignedUserIds) set.add(uid);
+        }
+
+        const byGuildOut = new Map<string, string[]>();
+        for (const [gid, set] of byGuild) {
+            byGuildOut.set(gid, [...set].sort());
+        }
+        return { botWide: [...botWide].sort(), byGuild: byGuildOut };
+    }
+
     public async assignServerRole(guildId: string, roleId: string, userIds: string[]): Promise<void> {
         const existing = await this.getServerRole(guildId, roleId);
         if (!existing) throw new PermissionError('INVALID_BIT', `Server role ${roleId} not found.`);
@@ -654,6 +838,15 @@ export class PermissionsManager {
                     }
                 }
             }
+        }
+
+        if (effectiveBits.has(OWNER_BIT)) {
+            return {
+                botOwner: true,
+                bits: new Set(ALL_BOT_BITS),
+                guildId,
+                resolvedAt: nowSeconds(),
+            };
         }
 
         return {

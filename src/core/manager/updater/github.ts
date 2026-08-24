@@ -150,6 +150,18 @@ export class GitHubClient {
             });
     }
 
+    async listTagsForPluginScheme(
+        kind: 'in-repo' | 'external',
+        owner: string,
+        repo: string,
+        pluginName: string,
+    ): Promise<TagInfo[]> {
+        if (kind === 'external') {
+            return this.listSemverTags(owner, repo);
+        }
+        return this.listPluginTags(owner, repo, pluginName);
+    }
+
     async listSemverTags(owner: string, repo: string): Promise<TagInfo[]> {
         return (await this.listTags(owner, repo))
             .filter(t => t.semver !== null)

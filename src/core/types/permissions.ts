@@ -79,7 +79,8 @@ export type PermissionErrorCode =
     | 'NOT_IN_GUILD'
     | 'BOT_WIDE_ONLY'
     | 'INVALID_BIT'
-    | 'INVALID_SCOPE';
+    | 'INVALID_SCOPE'
+    | 'FORBIDDEN';
 
 const PERMISSION_HTTP_STATUS: Record<PermissionErrorCode, number> = {
     MISSING_BIT: 403,
@@ -87,6 +88,7 @@ const PERMISSION_HTTP_STATUS: Record<PermissionErrorCode, number> = {
     BOT_WIDE_ONLY: 400,
     INVALID_BIT: 400,
     INVALID_SCOPE: 400,
+    FORBIDDEN: 403,
 };
 
 const PERMISSION_USER_MESSAGE: Record<PermissionErrorCode, string> = {
@@ -95,6 +97,7 @@ const PERMISSION_USER_MESSAGE: Record<PermissionErrorCode, string> = {
     BOT_WIDE_ONLY: 'This action is only available at bot-wide scope.',
     INVALID_BIT: 'One or more permission bits or roles are invalid.',
     INVALID_SCOPE: 'The permission scope is invalid.',
+    FORBIDDEN: 'You are not allowed to perform this action.',
 };
 
 export class PermissionError extends NovaError {
@@ -121,7 +124,7 @@ interface BuiltInBitSeed {
 }
 
 export const BUILT_IN_BITS: BuiltInBitSeed[] = [
-    { bit: 'bot.owner', description: 'Synthetic superuser bit. Never stored in roles — resolved from env only.', scope: 'bot' },
+    { bit: 'bot.owner', description: 'Superuser bit. Granted via BotOwnerIds env and/or bot-wide roles (env owners only may assign).', scope: 'bot' },
     { bit: 'bot.servers.view', description: 'View all servers the bot is in.', scope: 'bot' },
     { bit: 'bot.servers.manage', description: 'Edit server-level bot configuration.', scope: 'bot' },
     { bit: 'bot.servers.ban', description: 'Force-ban a server and leave.', scope: 'bot' },

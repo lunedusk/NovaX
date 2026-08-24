@@ -1,6 +1,7 @@
 import { BaseCommand, type CommandConfig } from '#core/bases/Command.js';
 import {
     SlashCommandBuilder,
+    AttachmentBuilder,
     type ChatInputCommandInteraction,
     type AutocompleteInteraction,
     MessageFlags
@@ -16,6 +17,7 @@ import { HelpUtils } from '../utils/helpUtils.js';
 import { reloadEnvFromDisk } from '#core/helpers/envReload.js';
 import { listRegisteredCaches, getRegisteredCache } from '#core/helpers/cache.js';
 import { actorFromUser } from '#core/audit/actor.js';
+import { permissionsManager } from '#core/manager/permissions.js';
 
 export default class AdminCommand extends BaseCommand {
     public readonly data = new SlashCommandBuilder()
@@ -252,6 +254,34 @@ export default class AdminCommand extends BaseCommand {
                         .setDescription(this.t('commands.admin.errors.idDescription'))
                         .setRequired(true)
                 )
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('audit-export')
+                .setDescription(this.t('commands.admin.audit.exportDescription'))
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('error-export')
+                .setDescription(this.t('commands.admin.errors.exportDescription'))
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('bit-holders')
+                .setDescription(this.t('commands.admin.bitHolders.description'))
+                .addStringOption(opt =>
+                    opt
+                        .setName('bit')
+                        .setDescription(this.t('commands.admin.bitHolders.bitDescription'))
+                        .setRequired(true)
+                        .setAutocomplete(true)
+                )
+                .addIntegerOption(opt =>
+                    opt
+                        .setName('page')
+                        .setDescription(this.t('commands.admin.bitHolders.pageDescription'))
+                        .setRequired(false)
+                )
         );
 
     public readonly config: CommandConfig = {
@@ -302,7 +332,9 @@ export default class AdminCommand extends BaseCommand {
             if (sub.startsWith('reload-')) return this.handleReload(interaction, sub);
             if (sub === 'cache-list' || sub === 'cache-pop') return this.handleCache(interaction, sub);
             if (sub === 'audit-list' || sub === 'audit-get') return this.handleAudit(interaction, sub);
-            if (sub === 'error-list' || sub === 'error-get') return this.handleErrors(interaction, sub);
+            if (sub === 'error-list' || sub === 'error-get' || sub === 'error-export') return this.handleErrors(interaction, sub);
+            if (sub === 'audit-export') return this.handleAudit(interaction, sub);
+            if (sub === 'bit-holders') return this.handleBitHolders(interaction);
             if (sub.startsWith('gate-')) return this.handleGate(interaction, sub);
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
@@ -717,8 +749,7 @@ export default class AdminCommand extends BaseCommand {
         sub: string,
     ): Promise<void> {
         if (sub === 'error-list') {
-            const limitRaw = interaction.options.getInteger('limit');
-            const limit = Math.min(50, Math.max(1, limitRaw ?? 20));
+            const limit = 10;
             const code = interaction.options.getString('code') ?? undefined;
             const category = interaction.options.getString('category') ?? undefined;
             const severity = interaction.options.getString('severity') ?? undefined;
@@ -738,7 +769,7 @@ export default class AdminCommand extends BaseCommand {
             }
             const lines = entries.map(e =>
                 this.t('commands.admin.errors.listLine', {
-                    id: e.id.slice(0, 12),
+                    id: e.id,
                     code: e.code,
                     count: e.count,
                     severity: e.severity,
@@ -756,6 +787,27 @@ export default class AdminCommand extends BaseCommand {
                     grid: lines.join('\n'),
                 }),
             );
+        }
+
+        if (sub === 'error-export') {
+            const entries = await this.heart.system.errors.list({ limit: 100_000 });
+            if (entries.length === 0) {
+                return this.replyContainer(
+                    interaction,
+                    true,
+                    this.t('commands.admin.titles.errors'),
+                    this.t('commands.admin.errors.exportEmpty'),
+                );
+            }
+            const body = JSON.stringify(entries, null, 2);
+            const file = new AttachmentBuilder(Buffer.from(body, 'utf8'), {
+                name: `error-export-${Date.now()}.json`,
+            });
+            await interaction.editReply({
+                content: this.t('commands.admin.errors.exportDone', { count: entries.length }),
+                files: [file],
+            });
+            return;
         }
 
         const id = interaction.options.getString('id', true).trim();
@@ -792,8 +844,7 @@ export default class AdminCommand extends BaseCommand {
         sub: string,
     ): Promise<void> {
         if (sub === 'audit-list') {
-            const limitRaw = interaction.options.getInteger('limit');
-            const limit = Math.min(50, Math.max(1, limitRaw ?? 20));
+            const limit = 10;
             const actor = interaction.options.getString('actor') ?? undefined;
             const action = interaction.options.getString('action') ?? undefined;
             const outcomeRaw = interaction.options.getString('outcome');
@@ -815,7 +866,7 @@ export default class AdminCommand extends BaseCommand {
             }
             const lines = entries.map(e =>
                 this.t('commands.admin.audit.listLine', {
-                    id: e.id.slice(0, 12),
+                    id: e.id,
                     action: e.action,
                     outcome: e.outcome,
                     actor: `${e.actorType}:${e.actorId}`,
@@ -832,6 +883,27 @@ export default class AdminCommand extends BaseCommand {
                     grid: lines.join('\n'),
                 }),
             );
+        }
+
+        if (sub === 'audit-export') {
+            const entries = await this.heart.system.audit.list({ limit: 100_000 });
+            if (entries.length === 0) {
+                return this.replyContainer(
+                    interaction,
+                    true,
+                    this.t('commands.admin.titles.audit'),
+                    this.t('commands.admin.audit.exportEmpty'),
+                );
+            }
+            const body = JSON.stringify(entries, null, 2);
+            const file = new AttachmentBuilder(Buffer.from(body, 'utf8'), {
+                name: `audit-export-${Date.now()}.json`,
+            });
+            await interaction.editReply({
+                content: this.t('commands.admin.audit.exportDone', { count: entries.length }),
+                files: [file],
+            });
+            return;
         }
 
         const id = interaction.options.getString('id', true).trim();
@@ -861,6 +933,88 @@ export default class AdminCommand extends BaseCommand {
                     createdAt: String(entry.createdAt),
                     meta: metaStr,
                 }),
+        );
+    }
+
+
+    private async handleBitHolders(interaction: ChatInputCommandInteraction): Promise<void> {
+        const bit = interaction.options.getString('bit', true).trim();
+        const pageRaw = interaction.options.getInteger('page');
+        const page = Math.max(1, pageRaw ?? 1);
+
+        if (!permissionsManager) {
+            return this.replyContainer(
+                interaction,
+                false,
+                this.t('commands.admin.titles.bitHolders'),
+                this.t('commands.admin.bitHolders.unavailable'),
+            );
+        }
+
+        const { botWide, byGuild } = await permissionsManager.findHoldersOfBit(bit);
+        type Section = { title: string; members: string[] };
+        const sections: Section[] = [];
+        if (botWide.length > 0) {
+            sections.push({
+                title: this.t('commands.admin.bitHolders.sectionBotWide'),
+                members: botWide,
+            });
+        }
+        const guildIds = [...byGuild.keys()].sort();
+        for (const gid of guildIds) {
+            const members = byGuild.get(gid) ?? [];
+            if (members.length === 0) continue;
+            sections.push({
+                title: this.t('commands.admin.bitHolders.sectionGuild', { guildId: gid }),
+                members,
+            });
+        }
+
+        if (sections.length === 0) {
+            return this.replyContainer(
+                interaction,
+                true,
+                this.t('commands.admin.titles.bitHolders'),
+                this.t('commands.admin.bitHolders.empty', { bit }),
+            );
+        }
+
+        const PAGE_SIZE = 10;
+        const pages: string[][] = [];
+        for (const section of sections) {
+            for (let i = 0; i < section.members.length; i += PAGE_SIZE) {
+                const chunk = section.members.slice(i, i + PAGE_SIZE);
+                const lines: string[] = [];
+                if (i === 0) {
+                    lines.push(`**${section.title}**`);
+                } else {
+                    lines.push(
+                        `**${section.title}** (${this.t('commands.admin.bitHolders.continued')})`,
+                    );
+                }
+                for (const uid of chunk) {
+                    lines.push(this.t('commands.admin.bitHolders.memberLine', { userId: uid }));
+                }
+                pages.push(lines);
+            }
+        }
+
+        const totalPages = pages.length;
+        const idx = Math.min(page, totalPages) - 1;
+        const body = (pages[idx] ?? []).join(
+            String.fromCharCode(10),
+        );
+        return this.replyContainer(
+            interaction,
+            true,
+            this.t('commands.admin.titles.bitHolders'),
+            this.t('commands.admin.bitHolders.pageHeader', {
+                bit,
+                page: idx + 1,
+                totalPages,
+            }) +
+                String.fromCharCode(10) +
+                body,
         );
     }
 
@@ -926,6 +1080,11 @@ export default class AdminCommand extends BaseCommand {
                 choices = entries.filter(e => e.isDirectory()).map(e => e.name);
             } else if (sub === 'cache-pop' && focused.name === 'target') {
                 choices = listRegisteredCaches().map((e) => e.name);
+            } else if (sub === 'bit-holders' && focused.name === 'bit') {
+                if (permissionsManager) {
+                    const bits = await permissionsManager.listBits();
+                    choices = bits.map((b) => String(b._id));
+                }
             }
         } catch {
             /* ignore */

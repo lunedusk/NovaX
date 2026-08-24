@@ -4,6 +4,10 @@ NovaX is a corporate-grade, highly optimized, completely modular application pla
 
 ---
 
+## Credits
+
+Built by [VeduStorm](https://github.com/VeduStorm) and the [Lunedusk](https://github.com/lunedusk) organization. Made with <3.
+
 ## Documentation
 
 | Doc | Audience |
@@ -15,6 +19,7 @@ NovaX is a corporate-grade, highly optimized, completely modular application pla
 | [AUDIT.md](AUDIT.md) | Audit registry |
 | [ERRORS.md](ERRORS.md) | Error registry + NovaError |
 | [CACHE.md](CACHE.md) | Cache façade + TTLCache registry |
+| [PLUGINS.md](PLUGINS.md) | Plugin developer guide (license, verification) |
 | [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) | Plugin authoring contract |
 | [ENV Reference.md](ENV%20Reference.md) | Environment variables |
 | [Database.md](Database.md) | Database configuration |

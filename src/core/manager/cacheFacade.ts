@@ -137,6 +137,34 @@ export class CacheNamespace {
         return n;
     }
 
+    public async deleteKeysMatching(predicate: (key: string) => boolean): Promise<number> {
+        let n = 0;
+        for (const [key] of this.kvLocal.entries()) {
+            if (predicate(key)) {
+                this.kvLocal.delete(key);
+                n++;
+            }
+        }
+        const redis = this.redis();
+        if (redis) {
+            try {
+                let cursor = '0';
+                do {
+                    const [next, keys] = await redis.scan(cursor, 'MATCH', 'permcache_*', 'COUNT', 100);
+                    cursor = next;
+                    const matched = keys.filter((k) => predicate(k));
+                    if (matched.length > 0) {
+                        await redis.del(...matched);
+                        n += matched.length;
+                    }
+                } while (cursor !== '0');
+            } catch (err) {
+                log.warn(`Cache deleteKeysMatching Redis failed [${this.alias}]: ${(err as Error).message}`);
+            }
+        }
+        return n;
+    }
+
     public async has(key: string): Promise<boolean> {
         const redis = this.redis();
         if (redis) {

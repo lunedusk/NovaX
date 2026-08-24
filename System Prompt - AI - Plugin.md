@@ -1898,3 +1898,18 @@ Master key bypasses bit checks after a policy exists. Prefer dedicated `auth.key
 ## Known limitations
 
 - NovaDB replica resync is limited to the designed WAL/manifest recovery model.
+
+## Licensing & Plugin Verification
+
+NovaX is under the PolyForm Noncommercial License 1.0.0 (non-commercial use/modification; commercial use requires written permission). Original plugin code you author remains your IP.
+
+**Plugin rules** (verification/signing requires compliance — full text in [PLUGINS.md](PLUGINS.md)):
+
+- No malware or harmful content.
+- No undisclosed data exfiltration, external call-outs, or telemetry of confidential user/guild data.
+- No unnecessary access to `common.json`, env, or framework secrets.
+- If the plugin is not monetized, it must be open source.
+- Do not steal or republish others’ code as your own.
+
+To get a Lunedusk-signed `manifest.nvx` (or listing in official `plugins.txt`), submit **readable source** for review as described in [PLUGINS.md](PLUGINS.md). Signed manifests load without the cryptographic-bypass boot warning.
+

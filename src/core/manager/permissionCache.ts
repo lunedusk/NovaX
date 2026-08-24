@@ -69,7 +69,14 @@ export class PermissionCache {
     }
 
     public async invalidate(userId: string, guildId?: string): Promise<void> {
-        await this.store.delete(this.cacheId(userId, guildId));
+        await this.store.delete(this.cacheId(userId));
+        if (guildId) {
+            await this.store.delete(this.cacheId(userId, guildId));
+        }
+        const suffix = `_${userId}`;
+        await this.store.deleteKeysMatching(
+            (key) => key.startsWith('permcache_') && key.endsWith(suffix),
+        );
     }
 
     public async invalidateGuild(guildId: string): Promise<void> {
