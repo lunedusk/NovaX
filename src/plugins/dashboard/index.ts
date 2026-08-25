@@ -10,7 +10,7 @@ export default class DashboardPlugin extends BasePlugin {
         name: 'Dashboard API',
         version: '1.0.0',
         description: 'REST API surface consumed by the web dashboard.',
-        dependencies: ['api', 'permissions', 'token'],
+        dependencies: ['dash-data', 'api', 'permissions', 'token'],
         priority: 10,
     };
 

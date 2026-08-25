@@ -51,6 +51,8 @@ export class PluginManager extends EventEmitter {
     public readonly registry = new Map<string, BasePlugin>();
     private preloadedPlugins: PreloadedPlugin[] = [];
     private readonly bootStatuses = new Map<string, PluginBootStatus>();
+    private readonly integrityById = new Map<string, 'signed' | 'unsigned' | 'failed' | 'bypassed'>();
+    private readonly pluginDirs = new Map<string, string>();
 
     private readonly LIFECYCLE_TIMEOUT_MS = 15000;
     private coreVersion: string = '0.0.0';
@@ -170,6 +172,7 @@ export class PluginManager extends EventEmitter {
                             try {
                                 manifest = await PackageManager.unpackAndVerify(pluginDir, publicKeyB64, 'manifest.nvx');
                                 integrityPassed = true;
+                                this.integrityById.set(manifest.id, 'signed');
                             } catch (verifyError: unknown) {
                                 const err = verifyError as Error;
                                 log.warn(`[${entry.name}] INTEGRITY FAILURE: ${err.message}`);
@@ -192,6 +195,7 @@ export class PluginManager extends EventEmitter {
                         });
                         
                         manifest = JSON.parse(jsonRaw);
+                        if (manifest?.id) this.integrityById.set(manifest.id, 'bypassed');
 
                         if (!manifest || !manifest.id || !manifest.name || !manifest.version) {
                             throw new Error('Invalid manifest.json: Missing required fields (id, name, version).');
@@ -220,6 +224,7 @@ export class PluginManager extends EventEmitter {
                     }
 
                     discovered.set(manifest!.id, { dir: pluginDir, manifest: manifest! });
+                    this.pluginDirs.set(manifest!.id, pluginDir);
                     this.bootStatuses.set(manifest!.id, PluginBootStatus.Pending);
                     
                 } catch (error: unknown) {
@@ -415,6 +420,18 @@ export class PluginManager extends EventEmitter {
         }
     }
 
+    public getIntegrityStatus(pluginId: string): 'signed' | 'unsigned' | 'failed' | 'bypassed' | 'unknown' {
+        return this.integrityById.get(pluginId) ?? 'unknown';
+    }
+
+    public listLoadedPlugins(): BasePlugin[] {
+        return Array.from(this.registry.values());
+    }
+
+    public getPluginDir(pluginId: string): string | null {
+        return this.pluginDirs.get(pluginId) ?? null;
+    }
+
     public async shutdownAll(): Promise<void> {
         log.info('Initiating graceful shutdown of all plugins...');
         
@@ -439,6 +456,8 @@ export class PluginManager extends EventEmitter {
         
         this.registry.clear();
         this.bootStatuses.clear();
+        this.integrityById.clear();
+        this.pluginDirs.clear();
         this.emit('ecosystemOffline');
     }
 

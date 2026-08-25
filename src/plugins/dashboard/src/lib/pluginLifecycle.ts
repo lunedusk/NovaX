@@ -4,6 +4,7 @@ import { type Dirent } from 'node:fs';
 import { type IHeart } from '#core/heart/index.js';
 import { pluginManager as coreLoader } from '#core/loader/index.js';
 import { HttpError } from './http.js';
+import { bumpRegistryVersion } from './dashRegistry.js';
 
 const PLUGINS_DIR = path.join(process.cwd(), 'plugins');
 
@@ -145,13 +146,17 @@ export interface BatchResult {
 export async function enablePlugins(heart: IHeart, pluginIds: string[]): Promise<BatchResult> {
     const ids = dedupe(pluginIds);
     assertLifecycleCooldown();
-    return coreLoader.reload(ids.join('$'), heart.client);
+    const result = await coreLoader.reload(ids.join('$'), heart.client);
+    if (result.success.length) bumpRegistryVersion(`enable:${result.success.join(',')}`);
+    return result;
 }
 
 export async function reloadPlugins(heart: IHeart, pluginIds: string[]): Promise<BatchResult> {
     const ids = dedupe(pluginIds);
     assertLifecycleCooldown();
-    return coreLoader.reload(ids.join('$'), heart.client);
+    const result = await coreLoader.reload(ids.join('$'), heart.client);
+    if (result.success.length) bumpRegistryVersion(`reload:${result.success.join(',')}`);
+    return result;
 }
 
 export async function disablePlugins(pluginIds: string[]): Promise<BatchResult> {
@@ -171,5 +176,6 @@ export async function disablePlugins(pluginIds: string[]): Promise<BatchResult> 
         const ok = await coreLoader.disable(id);
         (ok ? success : failed).push(id);
     }
+    if (success.length) bumpRegistryVersion(`disable:${success.join(',')}`);
     return { success, failed };
 }

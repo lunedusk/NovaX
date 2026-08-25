@@ -4,7 +4,12 @@
     "version": "1.0.0",
     "description": "REST API surface consumed by the web dashboard: auth, bot-owner admin, server-scoped management, and self-service user endpoints.",
     "author": "Dev",
-    "dependencies": ["api", "permissions", "token"],
+    "dependencies": [
+        "dash-data",
+        "api",
+        "permissions",
+        "token"
+    ],
     "novax_version": ">=0.1.6",
     "node_version": ">=20",
     "priority": 10

@@ -201,3 +201,4 @@ Skill.md
 .CONTRIBUTING.md
 .claude-flow/**/*
 !.github/scripts/bump-doc-versions.js
+make-takeback.cjs

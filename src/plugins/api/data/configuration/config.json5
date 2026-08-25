@@ -6,7 +6,14 @@
     cors: {
         allowedOrigins: ["http://localhost:3000"],
         allowedMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
+        allowedHeaders: [
+            "Content-Type",
+            "Authorization",
+            "X-Request-ID",
+            "X-Dash-Session",
+            "X-Discord-Access-Token",
+            "X-Dash-Device-Id",
+        ],
         exposedHeaders: ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-Request-ID"],
         credentials: false,
         maxAge: 600,

@@ -22,7 +22,7 @@ Built by [VeduStorm](https://github.com/VeduStorm) and the [Lunedusk](https://gi
 | [PLUGINS.md](PLUGINS.md) | Plugin developer guide (license, verification) |
 | [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) | Plugin authoring contract |
 | [ENV Reference.md](ENV%20Reference.md) | Environment variables |
-| [Database.md](Database.md) | Database configuration |
+| [Database.md (includes **dash-data** dashboard persistence)](Database.md) | Database configuration |
 | [NovaDB.md](NovaDB.md) | NovaDB |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributing |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Code of conduct |
@@ -473,3 +473,8 @@ const interactiveSpec = {
 
 const finalComponents = ComponentEngine.build(interactiveSpec);
 ```
+
+
+## Dashboard realtime
+
+`GET /api/dash/events/sse` (session) streams `registry.updated` after plugin lifecycle changes so the dashboard can refresh the surface registry. WebSocket support is deferred (see PLUGINS.md).

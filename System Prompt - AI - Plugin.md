@@ -1913,3 +1913,76 @@ NovaX is under the PolyForm Noncommercial License 1.0.0 (non-commercial use/modi
 
 To get a Lunedusk-signed `manifest.nvx` (or listing in official `plugins.txt`), submit **readable source** for review as described in [PLUGINS.md](PLUGINS.md). Signed manifests load without the cryptographic-bypass boot warning.
 
+
+
+---
+
+## Plugin Dashboard UI SDK (tiered executable surfaces)
+
+Plugins may ship **dashboard UI** via `plugins/<id>/dashboard/manifest.json` (schemaVersion `1`). The web dashboard loads a live registry snapshot (`GET /api/dash/registry`) and mounts surfaces without rebuilding the Next app.
+
+### Tiers (locked)
+
+| Tier | Runtime | Trust |
+|------|---------|--------|
+| **1** | Declarative descriptors only — first-party React renders config forms, tables, stats, markdown, link-out. **No plugin JS runs.** | Allowed for signed **and** unsigned plugins |
+| **2** | **Default for executable UI.** Plugin ships HTML/JS/CSS served from the **plugin-assets origin**; runs in a **sandboxed iframe** (`allow-scripts`, **no** `allow-same-origin`); host communication **only** via the capability broker (`postMessage`). | Any plugin that **loaded** (integrity/whitelist/uncertified-allow is decided at load time only). Signed status is a UI badge only. |
+| **3** | Host-origin React module (no iframe sandbox). | Operator must list the plugin id in env **`DashHostOriginPlugins`**. Signature is not the gate. |
+
+Load-time integrity (signed / whitelist / uncertified-allow) is the **only** trust decision. The dashboard does not re-check signatures. Tier 2 sandbox applies to all plugins; Tier 3 is opt-in because it is unsandboxed.
+
+### Surfaces
+
+Declare any of: `page`, `subpage`, `home_widget`, `tab`, `settings_section`, `server_page`, `modal`, `drawer`, `row_action`, `header_badge`, `command_palette`, `toast`, `onboarding_step`.
+
+Unknown `kind` or `tier` values are **rejected** (surface dropped, logged).
+
+### Manifest sketch
+
+```json
+{
+  "schemaVersion": 1,
+  "pluginId": "my-plugin",
+  "dashCompat": ">=1.0.0",
+  "surfaces": [
+    {
+      "id": "settings",
+      "kind": "page",
+      "tier": 1,
+      "title": "My settings",
+      "visibility": { "requiredBits": ["bot.plugins.view"], "bitsMode": "all" },
+      "declarative": { "type": "config_form" }
+    },
+    {
+      "id": "live",
+      "kind": "page",
+      "tier": 2,
+      "title": "Live panel",
+      "iframe": { "entryHtml": "index.html" },
+      "visibility": { "requiredBits": ["bot.plugins.manage"] }
+    }
+  ]
+}
+```
+
+### Tier 2 assets
+
+Static assets live under `plugins/<id>/dashboard/dist/` (or equivalent). The bot (or edge) serves them from the dedicated origin configured by **`PluginAssetsOrigin`** (default `http://plugin-assets.localhost:{APIPort}`). Iframe `src` is `{PluginAssetsOrigin}/plugins/{pluginId}/{entryHtml}`.
+
+### Hot reload
+
+Enable / disable / reload of a plugin bumps the registry version and emits in-process `dash.registry.updated` (SSE transport in a later slice). The dashboard shell remounts surfaces without a process restart.
+
+### Do **not**
+
+- Ship arbitrary TSX for the host to `eval` or execute on the dashboard origin (except Tier 3 first-party modules).
+- Call the bot API directly from an iframe — all data goes through the host broker → BFF → bot.
+
+
+### Capability broker (server)
+
+Host↔iframe data plane is enforced on the bot/dashboard BFF:
+
+- Grants from surface visibility + session bits (`api.read` / `api.write` / `api.path:…`).
+- `POST /api/dash/broker/proxy` rejects missing capabilities and paths outside the segment-normalized allowlist.
+- Frame **nonce** issued at session open; bound on ready so a rogue window cannot impersonate the surface.

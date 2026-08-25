@@ -77,6 +77,11 @@ export class HttpServer {
         log.debug(`Unmounted API Router: ${basePath}`);
     }
 
+
+    public listMounts(): string[] {
+        return Array.from(this.mounts.keys()).sort();
+    }
+
     public async start(port: number = parseInt(secrets.getOptional('APIPort') || '3000')): Promise<void> {
         if (this.isRunning) return;
 
