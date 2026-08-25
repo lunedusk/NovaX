@@ -1,0 +1,22 @@
+{
+    errors: {
+        unauthorized: "%%emoji_no_entry%% Missing or invalid dashboard session.",
+        forbidden: "%%emoji_no_entry%% You do not have permission to perform this action.",
+        notFound: "%%emoji_question%% The requested resource was not found.",
+        badRequest: "%%emoji_caution%% The request was malformed or missing required fields.",
+        conflict: "%%emoji_caution%% The resource already exists or is in a conflicting state.",
+        internal: "%%emoji_alert%% Something went wrong processing your request.",
+        botOwnerOnly: "%%emoji_crown%% This endpoint is restricted to bot owners.",
+        guildRequired: "%%emoji_globe%% A guildId is required for this action.",
+        sessionExpired: "%%emoji_clock%% Your dashboard session has expired. Please sign in again.",
+        rotationDetected: "%%emoji_shield%% A token replay was detected; all sessions for this device were revoked. Please sign in again.",
+    },
+    audit: {
+        serverBanned: "%%emoji_no_entry%% Server {{guildId}} was banned: {{reason}}",
+        serverUnbanned: "%%emoji_tick%% Server {{guildId}} was unbanned.",
+        serverLeft: "%%emoji_arrow_left%% Bot left server {{guildId}}.",
+        memberKicked: "%%emoji_no_entry%% Member {{userId}} kicked from {{guildId}}: {{reason}}",
+        memberBanned: "%%emoji_no_entry%% Member {{userId}} banned from {{guildId}}: {{reason}}",
+        memberMuted: "%%emoji_clock%% Member {{userId}} muted in {{guildId}} for {{duration}}ms: {{reason}}",
+    },
+}
