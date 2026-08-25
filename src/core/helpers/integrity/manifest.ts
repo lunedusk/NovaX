@@ -113,7 +113,7 @@ export class PackageManager {
         await fs.writeFile(tempPath, finalBinaryFile);
         await fs.rename(tempPath, manifestPath);
         
-        log.info(`[${metadata.id}] Packaged perfectly. ${sortedPaths.length} files locked (Excluding dynamic data/).`);
+        log.info(`[${metadata.id}] Packaged perfectly. ${sortedPaths.length} files locked (data/schema + data/rules included; mutable data excluded).`);
     }
 
     public static async unpackAndVerify(
