@@ -1,4 +1,4 @@
-# 🌌 Project NovaX Enterprise Framework (v0.3.0)
+# 🌌 Project NovaX Enterprise Framework (v0.4.0)
 
 NovaX is a corporate-grade, highly optimized, completely modular application platform engineered in TypeScript on a strict ECMAScript Module (ESM) architecture. Built to support high-throughput, fault-tolerant Discord application infrastructures, NovaX features automated plugin workspace dependency sandboxing, cryptographic code-integrity and anti-tamper audits, a performance-tuned polyglot storage abstraction router, and an immutable context-injected dependency broker (`IHeart`) that eliminates global singletons while maintaining performance profiles.
 

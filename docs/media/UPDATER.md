@@ -35,3 +35,8 @@ Apply is boot/CLI/system only. Audit records `updater.apply` as `system` when em
 
 - [ENV Reference.md](ENV%20Reference.md) — updater variables
 - [README.md](README.md) — short summary
+
+
+## Dashboard status (read-only)
+
+`GET /api/dash/admin/updater/status` (session + **bot.owner**) returns `UpdaterStatusDto` from baseline/receipts/package metadata. **No HTTP apply or trigger** — apply remains CLI (`npm run updater`) / explicit background opt-in only.
