@@ -39,3 +39,64 @@ https://github.com/lunedusk/NovaX
 - [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) — authoring contract  
 - [LOADER.md](LOADER.md) — config/lang defaults merge  
 - [UPDATER.md](UPDATER.md) — installing plugins via the updater  
+
+
+## Registry inspect API
+
+Dashboard (when enabled) exposes read-only inspect endpoints under `/api/dash/admin/registry/`:
+
+- `commands` — slash commands currently registered on the interaction registry
+- `events` — EventBus listeners (name/pattern, once, priority, owning plugin)
+- `routes` — HTTP access policy routes plus mounted Express base paths
+
+Requires a valid dash session carrying `bot.plugins.view`. Fields that cannot be derived are returned as `null` or empty arrays.
+
+
+## `dash-data` plugin
+
+Owns **all** dashboard persistence (`dash_*` tables, KV, layouts, surface flags). The `dashboard` plugin depends on it and keeps the HTTP API only; `dashboard/src/lib/db.ts` re-exports the shared store so routes do not change.
+
+Priority `-5` so it loads before `dashboard` (priority `10`).
+
+
+## Plugin dashboard manifest (`dashboard/manifest.json`)
+
+Optional per-plugin file declaring dashboard surfaces for the **Plugin Dashboard UI SDK**.
+
+- Path: `plugins/<id>/dashboard/manifest.json` (`schemaVersion: 1`)
+- Loaded into `GET /api/dash/registry` (session required; visibility filtered for the caller)
+- **Tier 1** declarative · **Tier 2** sandboxed iframe (any loaded plugin) · **Tier 3** host module only if operator sets **`DashHostOriginPlugins`**
+- Signed/unsigned is a **badge** in registry data only — not a functional gate
+- Unknown `kind` / `tier` → surface dropped
+- Asset origin: env **`PluginAssetsOrigin`** (default `http://plugin-assets.localhost:{APIPort}`)
+- Lifecycle enable/disable/reload bumps registry version and emits `dash.registry.updated`
+
+See **System Prompt - AI - Plugin.md** → *Plugin Dashboard UI SDK*.
+
+
+## Capability broker (dashboard)
+
+Server-side policy for Tier 2 iframe UI (iframe host is frontend Track B).
+
+| Endpoint | Role |
+|----------|------|
+| `POST /api/dash/broker/session` | Issue frame **nonce** + capability grants for a registry surface |
+| `POST /api/dash/broker/ready` | Bind nonce on first `plugin:ready` (frame identity) |
+| `POST /api/dash/broker/proxy` | Authorize a plugin API path under grants + path allowlist |
+| `POST /api/dash/broker/dispose` | Dispose surface (rate-limit / host teardown) |
+
+**Path allowlist:** segment-boundary + path-normalized (decode, resolve `.`/`..`). Patterns are `/api/dash/plugins/{pluginId}` and `/api/dash/plugins/{pluginId}/*`. Prefix tricks (`…/foobar`) and traversal are rejected.
+
+**Flood limits:** 60 messages / 10s / surface, max payload 64 KiB, 5 strikes → dispose.
+
+See **System Prompt - AI - Plugin.md** → Plugin Dashboard UI SDK (broker).
+
+
+## Realtime (SSE)
+
+| Endpoint | Auth | Role |
+|----------|------|------|
+| `GET /api/dash/events/sse` | Session | Server-Sent Events: `registry.updated`, `surface.invalidate`, `theme.updated`, `layout.updated`, `widget.data`, `heartbeat` |
+| `GET /api/dash/events/ws` | Session | **Deferred** (501) — WebSocket via Next BFF upgrade is a follow-up; does not block SSE |
+
+`registry.updated` is emitted when plugin enable/disable/reload bumps the dash registry version (A5). Clients should re-fetch `GET /api/dash/registry` so surfaces for plugins that failed the load gate disappear.

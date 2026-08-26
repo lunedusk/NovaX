@@ -1,0 +1,11 @@
+{
+    "id": "dash-data",
+    "name": "Dashboard Data",
+    "version": "1.0.0",
+    "description": "Owns all dashboard persistence (dash_* tables, layouts, KV, surface flags). HTTP surface remains on the dashboard plugin.",
+    "author": "Lunedusk",
+    "dependencies": [],
+    "novax_version": ">=0.3.0",
+    "node_version": ">=20",
+    "priority": -5
+}

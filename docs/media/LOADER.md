@@ -35,3 +35,18 @@ Config untagged `${rand:…}` persists by replacing the placeholder string in th
 
 - [PLACEHOLDERS.md](PLACEHOLDERS.md)
 - [SETUP.md](SETUP.md)
+
+
+## Registry inspect (dashboard)
+
+Best-effort live metadata for the dashboard admin UI (nulls allowed where unknowable):
+
+| Endpoint | Source |
+|----------|--------|
+| `GET /api/dash/admin/registry/commands` | `interactionRegistry.chat` entries (`data` + command `config` as access) |
+| `GET /api/dash/admin/registry/events` | `eventBus.listInspect()` (pattern, once, priority, owner plugin id) |
+| `GET /api/dash/admin/registry/routes` | Permissions `httpRoutes` policy + `httpServer.listMounts()` base paths |
+
+Gate: session + `bot.plugins.view`.
+
+Core helpers: `EventBus.listInspect()`, `HttpServer.listMounts()`.

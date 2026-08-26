@@ -6,7 +6,14 @@
     cors: {
         allowedOrigins: ["http://localhost:3000"],
         allowedMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
+        allowedHeaders: [
+            "Content-Type",
+            "Authorization",
+            "X-Request-ID",
+            "X-Dash-Session",
+            "X-Discord-Access-Token",
+            "X-Dash-Device-Id",
+        ],
         exposedHeaders: ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-Request-ID"],
         credentials: false,
         maxAge: 600,
@@ -23,7 +30,7 @@
         //   masterKeySource: "config"
         //   and add an enabled entry under keys[] with a real key (never REPLACE_ME_*).
         enabled: true,
-        masterKeySource: "env", // "env" | "config"
+        masterKeySource: "config", // "env" | "config"
         masterKeyEnvVar: "GatewayMasterKey",
 
         // Paths that skip bearer auth (health, OpenAPI, etc.).
@@ -46,6 +53,12 @@
         //     enabled: true,
         //     bits: ["dashboard"],
         // },
-        keys: [],
+        keys: [
+                {
+                    key: "${rand:hex:32}",
+                    label: "GatewayMasterKey",
+                    enabled: true,
+                }
+        ],
     },
 }

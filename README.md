@@ -1,4 +1,4 @@
-# 🌌 Project NovaX Enterprise Framework (v0.3.0)
+# 🌌 Project NovaX Enterprise Framework (v0.4.0)
 
 NovaX is a corporate-grade, highly optimized, completely modular application platform engineered in TypeScript on a strict ECMAScript Module (ESM) architecture. Built to support high-throughput, fault-tolerant Discord application infrastructures, NovaX features automated plugin workspace dependency sandboxing, cryptographic code-integrity and anti-tamper audits, a performance-tuned polyglot storage abstraction router, and an immutable context-injected dependency broker (`IHeart`) that eliminates global singletons while maintaining performance profiles.
 
@@ -22,7 +22,7 @@ Built by [VeduStorm](https://github.com/VeduStorm) and the [Lunedusk](https://gi
 | [PLUGINS.md](PLUGINS.md) | Plugin developer guide (license, verification) |
 | [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) | Plugin authoring contract |
 | [ENV Reference.md](ENV%20Reference.md) | Environment variables |
-| [Database.md](Database.md) | Database configuration |
+| [Database.md (includes **dash-data** dashboard persistence)](Database.md) | Database configuration |
 | [NovaDB.md](NovaDB.md) | NovaDB |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributing |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Code of conduct |
@@ -473,3 +473,8 @@ const interactiveSpec = {
 
 const finalComponents = ComponentEngine.build(interactiveSpec);
 ```
+
+
+## Dashboard realtime
+
+`GET /api/dash/events/sse` (session) streams `registry.updated` after plugin lifecycle changes so the dashboard can refresh the surface registry. WebSocket support is deferred (see PLUGINS.md).

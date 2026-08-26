@@ -31,3 +31,8 @@ List/get expose coalesce fields. Reads do not call `errors.record`.
 
 - [AUDIT.md](AUDIT.md)
 - OpenAPI: `/api/openapi.json`
+
+
+## Export
+
+`GET /api/dash/admin/errors/export?format=json|csv` (bit **bot.errors.view**) — coalesced occurrence fields only (already secret-safe context).

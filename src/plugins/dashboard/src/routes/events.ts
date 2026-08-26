@@ -1,0 +1,84 @@
+import { randomBytes } from 'node:crypto';
+import { BaseRoute } from '#core/bases/Route.js';
+import { type Response } from 'express';
+import { applyGateway, requireSession, type DashRequest } from '../lib/authz.js';
+import { guarded, HttpError, err } from '../lib/http.js';
+import { secrets } from '#core/helpers/secretManager.js';
+import { BOT_OWNER_BIT } from '../lib/bits.js';
+import type { Bit } from '#core/manager/token.js';
+import { tryTokens } from '../lib/tokens.js';
+import { ensureDashEventWiring, addSseClient } from '../lib/dashEvents.js';
+import { getLogger } from '#core/utils/logger.js';
+
+const log = getLogger('DashEventsRoute');
+
+function envOwnerIds(): string[] {
+    const raw = secrets.getOptional('BotOwnerIds', '') ?? '';
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+export default class DashEventsRoute extends BaseRoute {
+    public readonly basePath = '/api/dash/events';
+
+    protected register(): void {
+        applyGateway(this.heart, this.router);
+        ensureDashEventWiring();
+
+        this.router.get(
+            '/sse',
+            requireSession(this.heart),
+            this.asyncHandler(guarded(this.heart, this.sse.bind(this))),
+        );
+
+        this.router.get('/ws', requireSession(this.heart), (req: DashRequest, res: Response) => {
+            err(
+                res,
+                501,
+                'ws_deferred',
+                'WebSocket transport is deferred to a follow-up slice (Next BFF upgrade auth). Use GET /api/dash/events/sse for registry hot-reload.',
+            );
+        });
+    }
+
+    private async sse(req: DashRequest, res: Response): Promise<void> {
+        const session = req.dashSession;
+        if (!session) {
+            throw new HttpError(401, 'unauthorized', 'session required');
+        }
+
+        const bits = new Set<string>((session.payload.bits ?? []).map(String));
+        const t = tryTokens(this.heart);
+        if (t?.hasBit(session, BOT_OWNER_BIT as Bit)) bits.add(BOT_OWNER_BIT);
+
+        res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        if (typeof res.flushHeaders === 'function') {
+            res.flushHeaders();
+        }
+
+        const id = randomBytes(12).toString('hex');
+        const remove = addSseClient({
+            id,
+            res,
+            userId: session.payload.userId,
+            bits,
+            isEnvOwner: envOwnerIds().includes(session.payload.userId),
+        });
+
+        log.debug(`SSE client ${id} connected user=${session.payload.userId}`);
+
+        const onClose = () => {
+            remove();
+            log.debug(`SSE client ${id} disconnected`);
+        };
+        req.on('close', onClose);
+        res.on('close', onClose);
+
+        await new Promise<void>((resolve) => {
+            req.on('close', () => resolve());
+            res.on('close', () => resolve());
+        });
+    }
+}

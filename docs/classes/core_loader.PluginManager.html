@@ -1,5 +1,5 @@
-<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>PluginManager | @lunedusk/novax - v0.3.0</title><meta name="description" content="Documentation for @lunedusk/novax"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script><script async src="../assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
-<div class="tsd-toolbar-contents container"><a href="../index.html" class="title">@lunedusk/novax - v0.3.0</a>
+<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>PluginManager | @lunedusk/novax - v0.4.0</title><meta name="description" content="Documentation for @lunedusk/novax"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script><script async src="../assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<div class="tsd-toolbar-contents container"><a href="../index.html" class="title">@lunedusk/novax - v0.4.0</a>
 <div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
 <ul role="listbox" id="tsd-search-results"></ul>
 <div id="tsd-search-status" aria-live="polite" aria-atomic="true">
@@ -11,14 +11,14 @@
 <li><a href="../modules/core_loader.html">core/loader</a></li>
 <li><a href="" aria-current="page">PluginManager</a></li></ul>
 <h1>Class PluginManager</h1></div>
-<section class="tsd-panel tsd-hierarchy" data-refl="2286">
+<section class="tsd-panel tsd-hierarchy" data-refl="2321">
 <h4>Hierarchy</h4>
 <ul class="tsd-hierarchy">
 <li class="tsd-hierarchy-item"><span class="tsd-signature-type">EventEmitter</span>
 <ul class="tsd-hierarchy">
 <li class="tsd-hierarchy-item"><span class="tsd-hierarchy-target">PluginManager</span></li></ul></li></ul></section><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/7fffb6a18f2aaf1ac9602f9dd8e2ec1d9dcf2da8/src/core/loader/index.ts#L49">core/loader/index.ts:49</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L49">core/loader/index.ts:49</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -36,7 +36,10 @@
 <h3 class="tsd-index-heading tsd-anchor-link" id="methods">Methods<a href="#methods" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-index-list"><a href="#bootall" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>boot<wbr/>All</span></a>
 <a href="#disable" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>disable</span></a>
+<a href="#getintegritystatus" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr/>Integrity<wbr/>Status</span></a>
+<a href="#getplugindir" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr/>Plugin<wbr/>Dir</span></a>
 <a href="#getpreloadedplugindirs" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr/>Preloaded<wbr/>Plugin<wbr/>Dirs</span></a>
+<a href="#listloadedplugins" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>list<wbr/>Loaded<wbr/>Plugins</span></a>
 <a href="#preloadall" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>preload<wbr/>All</span></a>
 <a href="#reload" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>reload</span></a>
 <a href="#shutdownall" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shutdown<wbr/>All</span></a>
@@ -57,7 +60,7 @@
 <h4 class="tsd-returns-title">Returns <a href="" class="tsd-signature-type tsd-kind-class">PluginManager</a></h4><aside class="tsd-sources">
 <p>Overrides EventEmitter.constructor</p>
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/7fffb6a18f2aaf1ac9602f9dd8e2ec1d9dcf2da8/src/core/loader/index.ts#L58">core/loader/index.ts:58</a></li></ul></aside></div></li></ul></section></section></details>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L60">core/loader/index.ts:60</a></li></ul></aside></div></li></ul></section></section></details>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open><summary class="tsd-accordion-summary" data-key="section-Properties"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="properties-1">Properties<a href="#properties-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
@@ -65,7 +68,7 @@
 <h3 class="tsd-anchor-link" id="registry"><code class="tsd-tag">Readonly</code><span>registry</span><a href="#registry" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">registry</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Map</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <a href="core_bases_Plugin.BasePlugin.html" class="tsd-signature-type tsd-kind-class">BasePlugin</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = ...</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/7fffb6a18f2aaf1ac9602f9dd8e2ec1d9dcf2da8/src/core/loader/index.ts#L51">core/loader/index.ts:51</a></li></ul></aside></section></section></details>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L51">core/loader/index.ts:51</a></li></ul></aside></section></section></details>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="methods-1">Methods<a href="#methods-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
@@ -81,7 +84,7 @@
 <li><span><span class="tsd-kind-parameter">baseClient</span>: <span class="tsd-signature-type">Client</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">true</span><span class="tsd-signature-symbol">&gt;</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/7fffb6a18f2aaf1ac9602f9dd8e2ec1d9dcf2da8/src/core/loader/index.ts#L290">core/loader/index.ts:290</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L295">core/loader/index.ts:295</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="disable"><span>disable</span><a href="#disable" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -94,7 +97,33 @@
 <li><span><span class="tsd-kind-parameter">pluginId</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/7fffb6a18f2aaf1ac9602f9dd8e2ec1d9dcf2da8/src/core/loader/index.ts#L370">core/loader/index.ts:370</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L375">core/loader/index.ts:375</a></li></ul></aside></div></li></ul></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="getintegritystatus"><span>get<wbr/>Integrity<wbr/>Status</span><a href="#getintegritystatus" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="getintegritystatus-1"><span class="tsd-kind-call-signature">getIntegrityStatus</span><span class="tsd-signature-symbol">(</span><br/>    <span class="tsd-kind-parameter">pluginId</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span><br/><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">&quot;unknown&quot;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">&quot;failed&quot;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">&quot;signed&quot;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">&quot;unsigned&quot;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">&quot;bypassed&quot;</span><a href="#getintegritystatus-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<div class="tsd-parameters">
+<h4 class="tsd-parameters-title">Parameters</h4>
+<ul class="tsd-parameter-list">
+<li><span><span class="tsd-kind-parameter">pluginId</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
+<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">&quot;unknown&quot;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">&quot;failed&quot;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">&quot;signed&quot;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">&quot;unsigned&quot;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">&quot;bypassed&quot;</span></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L423">core/loader/index.ts:423</a></li></ul></aside></div></li></ul></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="getplugindir"><span>get<wbr/>Plugin<wbr/>Dir</span><a href="#getplugindir" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="getplugindir-1"><span class="tsd-kind-call-signature">getPluginDir</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">pluginId</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><a href="#getplugindir-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<div class="tsd-parameters">
+<h4 class="tsd-parameters-title">Parameters</h4>
+<ul class="tsd-parameter-list">
+<li><span><span class="tsd-kind-parameter">pluginId</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
+<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L431">core/loader/index.ts:431</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="getpreloadedplugindirs"><span>get<wbr/>Preloaded<wbr/>Plugin<wbr/>Dirs</span><a href="#getpreloadedplugindirs" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -103,7 +132,16 @@
 <div class="tsd-description">
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">dir</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">id</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">[]</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/7fffb6a18f2aaf1ac9602f9dd8e2ec1d9dcf2da8/src/core/loader/index.ts#L283">core/loader/index.ts:283</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L288">core/loader/index.ts:288</a></li></ul></aside></div></li></ul></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="listloadedplugins"><span>list<wbr/>Loaded<wbr/>Plugins</span><a href="#listloadedplugins" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="listloadedplugins-1"><span class="tsd-kind-call-signature">listLoadedPlugins</span><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <a href="core_bases_Plugin.BasePlugin.html" class="tsd-signature-type tsd-kind-class">BasePlugin</a><span class="tsd-signature-symbol">[]</span><a href="#listloadedplugins-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<h4 class="tsd-returns-title">Returns <a href="core_bases_Plugin.BasePlugin.html" class="tsd-signature-type tsd-kind-class">BasePlugin</a><span class="tsd-signature-symbol">[]</span></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L427">core/loader/index.ts:427</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="preloadall"><span>preload<wbr/>All</span><a href="#preloadall" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -112,7 +150,7 @@
 <div class="tsd-description">
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/7fffb6a18f2aaf1ac9602f9dd8e2ec1d9dcf2da8/src/core/loader/index.ts#L239">core/loader/index.ts:239</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L244">core/loader/index.ts:244</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="reload"><span>reload</span><a href="#reload" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -126,7 +164,7 @@
 <li><span><span class="tsd-kind-parameter">baseClient</span>: <span class="tsd-signature-type">Client</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">true</span><span class="tsd-signature-symbol">&gt;</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">failed</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">success</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/7fffb6a18f2aaf1ac9602f9dd8e2ec1d9dcf2da8/src/core/loader/index.ts#L445">core/loader/index.ts:445</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L464">core/loader/index.ts:464</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="shutdownall"><span>shutdown<wbr/>All</span><a href="#shutdownall" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -135,7 +173,7 @@
 <div class="tsd-description">
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/7fffb6a18f2aaf1ac9602f9dd8e2ec1d9dcf2da8/src/core/loader/index.ts#L418">core/loader/index.ts:418</a></li></ul></aside></div></li></ul></section></section></details></div>
+<li>Defined in <a href="https://github.com/lunedusk/NovaX/blob/4a6501711fbecedb6512b419f41808676fd0d08c/src/core/loader/index.ts#L435">core/loader/index.ts:435</a></li></ul></aside></div></li></ul></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
@@ -155,9 +193,9 @@
 <details open class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Properties"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Properties</summary>
 <div><a href="#registry"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>registry</span></a></div></details>
 <details open class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Methods</summary>
-<div><a href="#bootall"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>boot<wbr/>All</span></a><a href="#disable"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>disable</span></a><a href="#getpreloadedplugindirs"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr/>Preloaded<wbr/>Plugin<wbr/>Dirs</span></a><a href="#preloadall"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>preload<wbr/>All</span></a><a href="#reload"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>reload</span></a><a href="#shutdownall"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shutdown<wbr/>All</span></a></div></details></div></details></div>
+<div><a href="#bootall"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>boot<wbr/>All</span></a><a href="#disable"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>disable</span></a><a href="#getintegritystatus"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr/>Integrity<wbr/>Status</span></a><a href="#getplugindir"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr/>Plugin<wbr/>Dir</span></a><a href="#getpreloadedplugindirs"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr/>Preloaded<wbr/>Plugin<wbr/>Dirs</span></a><a href="#listloadedplugins"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>list<wbr/>Loaded<wbr/>Plugins</span></a><a href="#preloadall"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>preload<wbr/>All</span></a><a href="#reload"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>reload</span></a><a href="#shutdownall"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shutdown<wbr/>All</span></a></div></details></div></details></div>
 <div class="site-menu">
-<nav class="tsd-navigation"><a href="../modules.html">@lunedusk/novax - v0.3.0</a>
+<nav class="tsd-navigation"><a href="../modules.html">@lunedusk/novax - v0.4.0</a>
 <ul class="tsd-small-nested-navigation" id="tsd-nav-container">
 <li>Loading...</li></ul></nav></div></div></div><footer>
 <p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer>

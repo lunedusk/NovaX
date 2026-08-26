@@ -1,6 +1,6 @@
 # NovaX — Environment Variable Reference
 
-> **Framework Version:** NovaX v0.3.0
+> **Framework Version:** NovaX v0.4.0
 > **Last Updated:** 2026
 > **Node.js Requirement:** ≥ 20
 
@@ -1642,3 +1642,21 @@ Default alias: `main`. Core migrations use the permissions-resolved backend.
 - **MongoDB / PostgreSQL paths** are implemented and selected via the backend selector, but this repository’s primary CI/runtime verification is SQLite. Treat first deploy on mongo/pg as a validation pass.
 - **NovaDB replica resync** follows the engine’s designed recovery path (WAL + manifest); full remote replica catch-up semantics are not a separate product feature beyond that design.
 
+
+
+### PluginAssetsOrigin
+
+| | |
+|--|--|
+| **Purpose** | Base URL for Tier 2 plugin dashboard static assets (iframe origin) |
+| **Default** | `http://plugin-assets.localhost:{APIPort}` |
+| **Safe to Change** | Yes (requires restart; update CSP / dashboard shell config) |
+
+
+### DashHostOriginPlugins
+
+| | |
+|--|--|
+| **Purpose** | Comma-separated plugin ids allowed to register **Tier 3** (host-origin, unsandboxed) dashboard surfaces |
+| **Default** | empty (no Tier 3) |
+| **Safe to Change** | Yes (requires restart or registry rebuild after lifecycle) |

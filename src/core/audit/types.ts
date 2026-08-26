@@ -2,6 +2,8 @@ export type AuditActorType = 'user' | 'api_key' | 'system';
 
 export type AuditOutcome = 'success' | 'fail';
 
+export type AuditSurface = 'discord' | 'http' | 'cli' | 'system' | 'dashboard';
+
 export type AuditActionCode =
     | 'token.issue'
     | 'token.refresh'
@@ -30,6 +32,21 @@ export type AuditMetaValue = string | number | boolean | null;
 
 export type AuditMeta = Record<string, AuditMetaValue>;
 
+export type AuditTargetType =
+    | 'user'
+    | 'guild'
+    | 'plugin'
+    | 'role'
+    | 'token_device'
+    | 'config'
+    | 'other';
+
+export interface AuditTargetRef {
+    type: AuditTargetType;
+    id: string;
+    label?: string;
+}
+
 export interface AuditRecordInput {
     actorType: AuditActorType;
     actorId: string;
@@ -38,6 +55,11 @@ export interface AuditRecordInput {
     outcome: AuditOutcome;
     reason?: string;
     meta?: Record<string, unknown>;
+    surface?: AuditSurface;
+    requestId?: string;
+    targetRef?: AuditTargetRef;
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
 }
 
 export interface AuditRecord {
@@ -50,4 +72,9 @@ export interface AuditRecord {
     reason: string | null;
     meta: AuditMeta;
     createdAt: number;
+    surface: AuditSurface | null;
+    requestId: string | null;
+    targetRef: AuditTargetRef | null;
+    before: AuditMeta | null;
+    after: AuditMeta | null;
 }

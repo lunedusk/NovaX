@@ -190,3 +190,27 @@ Schema is owned by the **migration runner**, not by ad-hoc `CREATE TABLE` in man
 If a plugin has migrations but no connected backend for its alias, that scope is skipped (debug log) and boot continues.
 
 See also the authoring contract in [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) (Migrations section).
+
+
+---
+
+## Dashboard data plugin (`dash-data`)
+
+Persistence for the web dashboard lives in the **`dash-data`** plugin (not the HTTP `dashboard` plugin).
+
+### Strategy (existing data)
+
+- **Same physical tables/collections** (`dash_*`) on the same backend selected by `resolveDashboardBackend()` / `DashboardEngine` env.
+- Migrations use `CREATE TABLE IF NOT EXISTS` / create collection if missing — **rows are not copied or deleted**.
+- Installs that already ran `plugin:dashboard` v1 keep their data; `plugin:dash-data` v1 is idempotent against the same names.
+- **New** tables in `plugin:dash-data` v2: `dash_kv`, `dash_layouts`, `dash_surface_flags`.
+
+### Access
+
+| Path | Role |
+|------|------|
+| `src/plugins/dash-data/src/lib/store.ts` | Shared store (SQL/mongo helpers + domain API) |
+| Handler `dash-data` / `store` | Inter-plugin API (`kv*`, `getLayout`, `getTheme`, bans, …) |
+| `dashboard/src/lib/db.ts` | Compatibility **re-export** of the store — existing `/api/dash/*` routes unchanged |
+
+Nova collections `dash_infractions`, `dash_audit_log`, `dash_command_counters` remain on NovaDB `main`.
