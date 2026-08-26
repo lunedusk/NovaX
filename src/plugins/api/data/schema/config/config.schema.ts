@@ -12,7 +12,12 @@ const corsSchema = z.object({
         'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'
     ]),
     allowedHeaders: z.array(z.string().min(1)).default([
-        'Content-Type', 'Authorization'
+        'Content-Type',
+        'Authorization',
+        'X-Request-ID',
+        'X-Dash-Session',
+        'X-Discord-Access-Token',
+        'X-Dash-Device-Id',
     ]),
     exposedHeaders: z.array(z.string().min(1)).default([]),
     credentials: z.boolean().default(false),

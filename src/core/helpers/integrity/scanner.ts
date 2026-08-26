@@ -1,7 +1,5 @@
 import fs from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
 import path from 'node:path';
-import { pipeline } from 'node:stream/promises';
 import { getLogger } from '#core/utils/logger.js';
 import { hashFile } from '#core/helpers/hash/index.js';
 import type { FileMetadata } from './types.js';
@@ -9,8 +7,9 @@ import type { FileMetadata } from './types.js';
 const log = getLogger('IntegrityScanner');
 
 export class IntegrityScanner {
-    static readonly #EXCLUDE_DIRS = new Set(['.git', 'node_modules', 'dist', '.data', 'logs', 'configuration', 'data']);
+    static readonly #EXCLUDE_DIRS = new Set(['.git', 'node_modules', 'dist', '.data', 'logs', 'configuration']);
     static readonly #EXCLUDE_EXTENSIONS = new Set(['.log', '.tmp', '.map', '.env', '.bin', '.nc']);
+    static readonly #DATA_CODE_SUBDIRS = new Set(['schema', 'rules']);
     static readonly #MAX_CONCURRENCY = 50;
 
     public static async runConcurrently(tasks: (() => Promise<void>)[]): Promise<void> {
@@ -30,6 +29,22 @@ export class IntegrityScanner {
         return { hash, size };
     }
 
+    static #isUnderData(relPath: string): boolean {
+        return relPath === 'data' || relPath.startsWith('data/') || relPath.includes('/data/');
+    }
+
+    static #dataCodeAllowed(relPath: string, isDirectory: boolean): boolean {
+        if (!this.#isUnderData(relPath)) return true;
+        const parts = relPath.split('/');
+        const dataIdx = parts.indexOf('data');
+        if (dataIdx === -1) return true;
+        if (parts.length === dataIdx + 1) {
+            return isDirectory;
+        }
+        const sub = parts[dataIdx + 1];
+        return this.#DATA_CODE_SUBDIRS.has(sub);
+    }
+
     public static async *discoverFiles(dir: string, root = dir): AsyncGenerator<{ fullPath: string; relPath: string }> {
         const entries = await fs.readdir(dir, { withFileTypes: true });
 
@@ -41,12 +56,16 @@ export class IntegrityScanner {
                 continue;
             }
 
+            const relPath = path.relative(root, res).replace(/\\/g, '/');
+
             if (entry.isDirectory()) {
                 if (this.#EXCLUDE_DIRS.has(entry.name)) continue;
+                if (!this.#dataCodeAllowed(relPath, true)) continue;
                 yield* this.discoverFiles(res, root);
             } else {
                 if (this.#EXCLUDE_EXTENSIONS.has(path.extname(entry.name)) || entry.name.startsWith('manifest')) continue;
-                yield { fullPath: res, relPath: path.relative(root, res).replace(/\\/g, '/') };
+                if (!this.#dataCodeAllowed(relPath, false)) continue;
+                yield { fullPath: res, relPath };
             }
         }
     }

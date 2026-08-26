@@ -6,8 +6,19 @@ import type { AuditRecord, AuditRecordInput } from './types.js';
 
 const log = getLogger('Audit');
 
-export type { AuditRecord, AuditRecordInput, AuditActionCode, AuditActorType, AuditOutcome, AuditMeta } from './types.js';
+export type {
+    AuditRecord,
+    AuditRecordInput,
+    AuditActionCode,
+    AuditActorType,
+    AuditOutcome,
+    AuditMeta,
+    AuditSurface,
+    AuditTargetRef,
+    AuditTargetType,
+} from './types.js';
 export type { AuditListFilter } from './store.js';
+export { sanitizeAuditFields, sanitizeAuditMeta } from './redact.js';
 
 function auditFailClosed(): boolean {
     return secrets.getBoolean('AuditFailClosed', false);
@@ -48,4 +59,3 @@ export const audit = Object.freeze({
     list,
     getById,
 });
-

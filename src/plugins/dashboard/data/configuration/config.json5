@@ -1,0 +1,26 @@
+{
+    enabled: true,
+
+    // Pagination defaults applied across all list endpoints
+    pagination: {
+        defaultLimit: 25,
+        maxLimit: 100,
+    },
+
+    // Optional override passed to the token plugin's issueWithResolvedBits()
+    // when creating a dashboard session. Omit to use the token plugin's own
+    // configured default TTL (TokenTTL env var).
+    session: {
+        ttlSeconds: 900,
+    },
+
+    // GDPR-style self-service data deletion
+    dataDeletion: {
+        graceDays: 14,
+    },
+
+    // Default member ban message-delete window when not specified by caller
+    moderation: {
+        defaultDeleteMessageDays: 0,
+    },
+}

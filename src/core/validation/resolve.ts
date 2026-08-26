@@ -43,7 +43,18 @@ function existing(...files: string[]): string | null {
     return null;
 }
 
+function assertDataCodePath(full: string): void {
+    const normalized = full.replace(/\\/g, '/');
+    const dataIdx = normalized.lastIndexOf('/data/');
+    if (dataIdx === -1) return;
+    const after = normalized.slice(dataIdx + '/data/'.length);
+    if (!after.startsWith('schema/') && !after.startsWith('rules/')) {
+        throw new Error(`Refusing to load executable module outside data/schema or data/rules: ${full}`);
+    }
+}
+
 async function importModule(full: string): Promise<Record<string, unknown> | null> {
+    assertDataCodePath(full);
     try {
         return (await import(pathToFileURL(full).href + `?t=${Date.now()}`)) as Record<string, unknown>;
     } catch {

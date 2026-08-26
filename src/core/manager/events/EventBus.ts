@@ -254,6 +254,42 @@ export class EventBus {
 
         return { event, listenerCount: listeners.length, results };
     }
+
+    public listInspect(): Array<{
+        name: string;
+        once: boolean;
+        priority: number;
+        pluginId: string | null;
+    }> {
+        const out: Array<{
+            name: string;
+            once: boolean;
+            priority: number;
+            pluginId: string | null;
+        }> = [];
+        for (const [pattern, bucket] of this.exactListeners.entries()) {
+            for (const listener of bucket) {
+                out.push({
+                    name: pattern,
+                    once: listener.once,
+                    priority: listener.priority,
+                    pluginId: listener.owner ?? null,
+                });
+            }
+        }
+        for (const [pattern, bucket] of this.wildcardListeners.entries()) {
+            for (const listener of bucket) {
+                out.push({
+                    name: pattern,
+                    once: listener.once,
+                    priority: listener.priority,
+                    pluginId: listener.owner ?? null,
+                });
+            }
+        }
+        out.sort((a, b) => a.name.localeCompare(b.name) || (b.priority - a.priority));
+        return out;
+    }
 }
 
 export const eventBus = new EventBus();
