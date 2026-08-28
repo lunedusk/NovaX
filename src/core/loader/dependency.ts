@@ -6,48 +6,95 @@ import { getLogger } from '#core/utils/logger.js';
 const log = getLogger('DependencyLoader');
 
 export class DependencyLoader {
-    public static async installFromPackageJson(pluginDir: string, pluginId: string): Promise<void> {
-        const pkgPath = path.join(pluginDir, 'package.json');
+    public static async installFromPackageJson(
+        pluginDir: string,
+        pluginId: string,
+        nodeDependencies?: Record<string, string>,
+    ): Promise<void> {
+        const merged = await this.buildMergedDependencies(pluginDir, pluginId, nodeDependencies);
+        const names = Object.keys(merged);
 
-        try {
-            const rawPkg = await fs.readFile(pkgPath, 'utf-8');
-            const pkg = JSON.parse(rawPkg);
-
-            const hasDependencies = pkg.dependencies && Object.keys(pkg.dependencies).length > 0;
-
-            if (!hasDependencies) {
-                log.debug(`[${pluginId}] No external dependencies defined in package.json.`);
-                return;
-            }
-
-            const depCount = Object.keys(pkg.dependencies).length;
-            log.info(`[${pluginId}] Found package.json. Installing ${depCount} dependencies in sandbox...`);
-
-            await this.runNpmInstall(pluginDir, pluginId);
-            log.info(`[${pluginId}] Dependencies successfully sandboxed.`);
-
-        } catch (error: unknown) {
-            const err = error as NodeJS.ErrnoException;
-
-            if (err.code === 'ENOENT') {
-                log.debug(`[${pluginId}] No package.json found. Skipping npm install.`);
-            } else if (err instanceof SyntaxError) {
-                log.error(`[${pluginId}] package.json is malformed or invalid JSON.`);
-                throw err;
-            } else {
-                log.error(`[${pluginId}] Failed to process package.json: ${err.message}`);
-                throw err;
-            }
+        if (names.length === 0) {
+            log.debug(`[${pluginId}] No external npm dependencies to install.`);
+            return;
         }
+
+        log.info(`[${pluginId}] Installing ${names.length} npm dependencies in sandbox...`);
+        await this.runNpmInstall(pluginDir, pluginId, merged);
+        log.info(`[${pluginId}] Dependencies successfully sandboxed.`);
     }
 
-    private static runNpmInstall(targetDir: string, pluginId: string): Promise<void> {
+    private static async buildMergedDependencies(
+        pluginDir: string,
+        pluginId: string,
+        nodeDependencies?: Record<string, string>,
+    ): Promise<Record<string, string>> {
+        const merged: Record<string, string> = {};
+
+        const pkgPath = path.join(pluginDir, 'package.json');
+        try {
+            const rawPkg = await fs.readFile(pkgPath, 'utf-8');
+            const pkg: unknown = JSON.parse(rawPkg);
+            if (
+                typeof pkg === 'object' &&
+                pkg !== null &&
+                !Array.isArray(pkg) &&
+                'dependencies' in pkg
+            ) {
+                const deps = (pkg as { dependencies?: unknown }).dependencies;
+                if (typeof deps === 'object' && deps !== null && !Array.isArray(deps)) {
+                    for (const [name, range] of Object.entries(deps as Record<string, unknown>)) {
+                        if (typeof name === 'string' && name.trim() && typeof range === 'string' && range.trim()) {
+                            merged[name.trim()] = range.trim();
+                        }
+                    }
+                }
+            }
+        } catch (error: unknown) {
+            const err = error as NodeJS.ErrnoException;
+            if (err.code === 'ENOENT') {
+                log.debug(`[${pluginId}] No package.json found.`);
+            } else if (error instanceof SyntaxError) {
+                log.error(`[${pluginId}] package.json is malformed or invalid JSON.`);
+                throw error;
+            } else {
+                log.error(`[${pluginId}] Failed to read package.json: ${err.message}`);
+                throw error;
+            }
+        }
+
+        if (nodeDependencies) {
+            for (const [name, range] of Object.entries(nodeDependencies)) {
+                if (typeof name === 'string' && name.trim() && typeof range === 'string' && range.trim()) {
+                    merged[name.trim()] = range.trim();
+                }
+            }
+        }
+
+        return merged;
+    }
+
+    private static runNpmInstall(
+        targetDir: string,
+        pluginId: string,
+        deps: Record<string, string>,
+    ): Promise<void> {
+        const specs = Object.entries(deps).map(([name, range]) => `${name}@${range}`);
+        const args = [
+            'install',
+            ...specs,
+            '--no-save',
+            '--no-audit',
+            '--no-fund',
+            '--prefer-offline',
+        ];
+
         return new Promise((resolve, reject) => {
-            const child = spawn('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--prefer-offline'], {
+            const child = spawn('npm', args, {
                 cwd: targetDir,
                 stdio: 'ignore',
                 shell: process.platform === 'win32',
-                detached: process.platform !== 'win32'
+                detached: process.platform !== 'win32',
             });
 
             const killTree = () => {

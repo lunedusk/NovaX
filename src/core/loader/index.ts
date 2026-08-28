@@ -194,10 +194,41 @@ export class PluginManager extends EventEmitter {
                             throw new Error('Missing manifest.json fallback. Cannot load bypassed plugin.');
                         });
                         
-                        manifest = JSON.parse(jsonRaw);
-                        if (manifest?.id) this.integrityById.set(manifest.id, 'bypassed');
+                        const parsed: unknown = JSON.parse(jsonRaw);
+                        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                            throw new Error('Invalid manifest.json: Expected a JSON object.');
+                        }
+                        const raw = parsed as Record<string, unknown>;
+                        const nodeDepsRaw = raw.node_dependencies ?? raw.nodeDependencies;
+                        let nodeDependencies: Record<string, string> | undefined;
+                        if (typeof nodeDepsRaw === 'object' && nodeDepsRaw !== null && !Array.isArray(nodeDepsRaw)) {
+                            const map: Record<string, string> = {};
+                            for (const [k, v] of Object.entries(nodeDepsRaw as Record<string, unknown>)) {
+                                if (typeof k === 'string' && k.trim() && typeof v === 'string' && v.trim()) {
+                                    map[k.trim()] = v.trim();
+                                }
+                            }
+                            if (Object.keys(map).length > 0) nodeDependencies = map;
+                        }
+                        manifest = {
+                            id: typeof raw.id === 'string' ? raw.id : '',
+                            name: typeof raw.name === 'string' ? raw.name : '',
+                            version: typeof raw.version === 'string' ? raw.version : '',
+                            description: typeof raw.description === 'string' ? raw.description : undefined,
+                            author: typeof raw.author === 'string' ? raw.author : undefined,
+                            dependencies: Array.isArray(raw.dependencies)
+                                ? raw.dependencies.filter((d): d is string => typeof d === 'string')
+                                : undefined,
+                            novax_version: (typeof raw.novax_version === 'string' || Array.isArray(raw.novax_version))
+                                ? (raw.novax_version as string | string[])
+                                : undefined,
+                            node_version: typeof raw.node_version === 'string' ? raw.node_version : undefined,
+                            priority: typeof raw.priority === 'number' ? raw.priority : undefined,
+                            nodeDependencies,
+                        };
+                        if (manifest.id) this.integrityById.set(manifest.id, 'bypassed');
 
-                        if (!manifest || !manifest.id || !manifest.name || !manifest.version) {
+                        if (!manifest.id || !manifest.name || !manifest.version) {
                             throw new Error('Invalid manifest.json: Missing required fields (id, name, version).');
                         }
                     }
@@ -256,7 +287,7 @@ export class PluginManager extends EventEmitter {
             const id = plugin.manifest.id;
             
             try {
-                await DependencyLoader.installFromPackageJson(plugin.dir, id);
+                await DependencyLoader.installFromPackageJson(plugin.dir, id, plugin.manifest.nodeDependencies);
                 await configLoader.syncPlugin(plugin.dir, id);
                 await langLoader.syncPlugin(plugin.dir, id);
 
@@ -479,7 +510,7 @@ export class PluginManager extends EventEmitter {
                 
                 if (!plugin) throw new Error(`Plugin [${pluginId}] not found on disk or failed integrity checks.`);
 
-                await DependencyLoader.installFromPackageJson(plugin.dir, pluginId);
+                await DependencyLoader.installFromPackageJson(plugin.dir, pluginId, plugin.manifest.nodeDependencies);
                 
                 await configLoader.syncPlugin(plugin.dir, pluginId);
                 await langLoader.syncPlugin(plugin.dir, pluginId);

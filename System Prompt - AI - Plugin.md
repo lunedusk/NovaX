@@ -218,6 +218,9 @@ Used as the unsigned fallback when no `manifest.nvx` is present. Must contain at
     "description": "Short description of what this plugin does.",
     "author": "AuthorName",
     "dependencies": [],
+    "node_dependencies": {
+        "axios": "^1.6.0"
+    },
     "novax_version": ">=0.4.0",
     "node_version": ">=20",
     "priority": 0
@@ -231,6 +234,8 @@ Used as the unsigned fallback when no `manifest.nvx` is present. Must contain at
 > updater use for compatibility. A `plugin-<id>-v*` tag is applied only when the
 > range satisfies the running/target core version. The client updater uses **tags
 > only** — it does not fall back to branch tips.
+>
+> `node_dependencies` is an optional map of npm package name → version range. When the plugin is packed into a signed `manifest.nvx`, this map is embedded in the FlatBuffer payload and is therefore covered by the Ed25519 signature. Prefer declaring npm deps here (or in addition to `package.json`) so certified packages carry a signed dependency list.
 
 ---
 
@@ -1615,9 +1620,28 @@ Alternatively, provide `data/emoji.json`:
 
 ---
 
-## 📦 EXTERNAL DEPENDENCIES — `package.json`
+## 📦 EXTERNAL DEPENDENCIES — `package.json` and `node_dependencies`
+
+Plugins can declare npm packages in either or both of:
+
+1. **`package.json` → `dependencies`** (optional file at the plugin root)
+2. **`manifest.json` → `node_dependencies`** (map of package name → version range)
 
 ```json
+// manifest.json (preferred for certified plugins — signed into manifest.nvx)
+{
+    "id": "my-plugin",
+    "name": "My Plugin",
+    "version": "1.0.0",
+    "node_dependencies": {
+        "axios": "^1.6.0",
+        "zod": "^3.22.0"
+    }
+}
+```
+
+```json
+// package.json (still supported)
 {
     "name": "my-plugin",
     "version": "1.0.0",
@@ -1629,7 +1653,15 @@ Alternatively, provide `data/emoji.json`:
 }
 ```
 
-> Only `dependencies` is read. `devDependencies` and `peerDependencies` are ignored. The `DependencyLoader` runs `npm install --no-save` in a sandboxed directory on boot. Keep the dependency count minimal — each dep increases boot time for every reload.
+**Merge rules (DependencyLoader):**
+
+- The install set is the **union** of both sources.
+- On a **name conflict**, the version from **`node_dependencies` (manifest) wins**.
+- Packages are installed via explicit `name@version` CLI arguments (`npm install … --no-save --no-audit --no-fund --prefer-offline`) so the on-disk `package.json` is never rewritten (it remains integrity-hashed when present).
+- Only `dependencies` is read from `package.json`. `devDependencies` and `peerDependencies` are ignored.
+- Keep the dependency count minimal — each dep increases boot time for every reload.
+
+When packing a certified plugin, `node_dependencies` is written into the signed FlatBuffer; altering it without the private signing key invalidates `manifest.nvx`.
 
 ---
 

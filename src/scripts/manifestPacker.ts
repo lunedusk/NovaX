@@ -30,6 +30,17 @@ function toPem(privKey: string): string {
     return `-----BEGIN PRIVATE KEY-----\n${formattedKey}\n-----END PRIVATE KEY-----`;
 }
 
+function normalizeNodeDependencies(raw: unknown): Record<string, string> | undefined {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof key === 'string' && key.trim() && typeof value === 'string' && value.trim()) {
+            out[key.trim()] = value.trim();
+        }
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+}
+
 class BinaryManifestPacker {
     private readonly log;
     private readonly privateKeyPem: string;
@@ -82,11 +93,39 @@ class BinaryManifestPacker {
         try {
             this.log.info(`Reading source metadata for plugin: [${pluginId}] @ ${pluginDir}`);
             const rawData = await fs.readFile(sourceManifestPath, 'utf-8');
-            const metadata: PluginManifest = JSON.parse(rawData);
+            const rawJson: unknown = JSON.parse(rawData);
+            if (typeof rawJson !== 'object' || rawJson === null || Array.isArray(rawJson)) {
+                throw new Error(`Invalid manifest.json. Expected a JSON object.`);
+            }
+            const raw = rawJson as Record<string, unknown>;
 
-            if (!metadata.id || !metadata.name || !metadata.version) {
+            const id = typeof raw.id === 'string' ? raw.id : '';
+            const name = typeof raw.name === 'string' ? raw.name : '';
+            const version = typeof raw.version === 'string' ? raw.version : '';
+            if (!id || !name || !version) {
                 throw new Error(`Invalid manifest.json. Missing required fields (id, name, version).`);
             }
+
+            const nodeDependencies = normalizeNodeDependencies(
+                raw.node_dependencies ?? raw.nodeDependencies
+            );
+
+            const metadata: PluginManifest = {
+                id,
+                name,
+                version,
+                description: typeof raw.description === 'string' ? raw.description : undefined,
+                author: typeof raw.author === 'string' ? raw.author : undefined,
+                dependencies: Array.isArray(raw.dependencies)
+                    ? raw.dependencies.filter((d): d is string => typeof d === 'string')
+                    : undefined,
+                novax_version: (typeof raw.novax_version === 'string' || Array.isArray(raw.novax_version))
+                    ? (raw.novax_version as string | string[])
+                    : undefined,
+                node_version: typeof raw.node_version === 'string' ? raw.node_version : undefined,
+                priority: typeof raw.priority === 'number' ? raw.priority : undefined,
+                nodeDependencies,
+            };
 
             this.log.info(`Generating Flatbuffer and calculating file hashes...`);
 
