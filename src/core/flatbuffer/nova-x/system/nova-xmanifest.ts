@@ -5,6 +5,7 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { IntegrityPayload } from '../../nova-x/system/integrity-payload.js';
+import { NodeDependency } from '../../nova-x/system/node-dependency.js';
 
 
 export class NovaXManifest {
@@ -91,8 +92,18 @@ integrity(obj?:IntegrityPayload):IntegrityPayload|null {
   return offset ? (obj || new IntegrityPayload()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+nodeDependencies(index: number, obj?:NodeDependency):NodeDependency|null {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? (obj || new NodeDependency()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+nodeDependenciesLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
 static startNovaXManifest(builder:flatbuffers.Builder) {
-  builder.startObject(9);
+  builder.startObject(10);
 }
 
 static addId(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset) {
@@ -141,6 +152,22 @@ static addNodeVersion(builder:flatbuffers.Builder, nodeVersionOffset:flatbuffers
 
 static addIntegrity(builder:flatbuffers.Builder, integrityOffset:flatbuffers.Offset) {
   builder.addFieldOffset(8, integrityOffset, 0);
+}
+
+static addNodeDependencies(builder:flatbuffers.Builder, nodeDependenciesOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(9, nodeDependenciesOffset, 0);
+}
+
+static createNodeDependenciesVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startNodeDependenciesVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
 }
 
 static endNovaXManifest(builder:flatbuffers.Builder):flatbuffers.Offset {

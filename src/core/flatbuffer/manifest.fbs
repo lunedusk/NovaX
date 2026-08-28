@@ -12,6 +12,11 @@ table IntegrityPayload {
   files: [FileEntry];
 }
 
+table NodeDependency {
+  name: string (key);
+  version: string;
+}
+
 table NovaXManifest {
   id: string;
   name: string;
@@ -21,8 +26,8 @@ table NovaXManifest {
   dependencies: [string];
   novax_version: string;
   node_version: string;
-  priority: int = 0;
   integrity: IntegrityPayload;
+  node_dependencies: [NodeDependency];
 }
 
 root_type NovaXManifest;

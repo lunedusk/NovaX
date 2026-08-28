@@ -7,6 +7,7 @@ import { getLogger } from '#core/utils/logger.js';
 import { NovaXManifest } from '#core/flatbuffer/nova-x/system/nova-xmanifest.js';
 import { IntegrityPayload } from '#core/flatbuffer/nova-x/system/integrity-payload.js';
 import { FileEntry } from '#core/flatbuffer/nova-x/system/file-entry.js';
+import { NodeDependency } from '#core/flatbuffer/nova-x/system/node-dependency.js';
 
 import { IntegrityError, ManifestSignatureError, FileTamperingError, VaultMissingKeyError } from './errors.js';
 import { HASH_ALGORITHM, SIGNATURE_LENGTH } from './constants.js';
@@ -83,6 +84,22 @@ export class PackageManager {
             depsOffset = NovaXManifest.createDependenciesVector(builder, dOffsets);
         }
 
+        let nodeDepsOffset = 0;
+        if (metadata.nodeDependencies && Object.keys(metadata.nodeDependencies).length > 0) {
+            const sortedNames = Object.keys(metadata.nodeDependencies).sort();
+            const entryOffsets: number[] = [];
+            for (const pkgName of sortedNames) {
+                const range = metadata.nodeDependencies[pkgName];
+                if (typeof range !== 'string' || !range.trim()) continue;
+                const nameOff = builder.createString(pkgName);
+                const verOff = builder.createString(range.trim());
+                entryOffsets.push(NodeDependency.createNodeDependency(builder, nameOff, verOff));
+            }
+            if (entryOffsets.length > 0) {
+                nodeDepsOffset = NovaXManifest.createNodeDependenciesVector(builder, entryOffsets);
+            }
+        }
+
         NovaXManifest.startNovaXManifest(builder);
         NovaXManifest.addId(builder, idOffset);
         NovaXManifest.addName(builder, nameOffset);
@@ -94,6 +111,7 @@ export class PackageManager {
         if (depsOffset) NovaXManifest.addDependencies(builder, depsOffset);
         
         NovaXManifest.addIntegrity(builder, integrityOffset);
+        if (nodeDepsOffset) NovaXManifest.addNodeDependencies(builder, nodeDepsOffset);
         builder.finish(NovaXManifest.endNovaXManifest(builder));
 
         const fbPayload = Buffer.from(builder.asUint8Array());
@@ -214,6 +232,17 @@ export class PackageManager {
             dependencies.push(manifest.dependencies(i)!);
         }
 
+        const nodeDependencies: Record<string, string> = {};
+        for (let i = 0; i < manifest.nodeDependenciesLength(); i++) {
+            const entry = manifest.nodeDependencies(i);
+            if (!entry) continue;
+            const pkgName = entry.name();
+            const pkgVersion = entry.version();
+            if (pkgName && pkgVersion) {
+                nodeDependencies[pkgName] = pkgVersion;
+            }
+        }
+
         return {
             id: manifest.id()!,
             name: manifest.name()!,
@@ -223,6 +252,7 @@ export class PackageManager {
             novax_version: manifest.novaxVersion() ?? undefined,
             node_version: manifest.nodeVersion() ?? undefined,
             dependencies: dependencies.length > 0 ? dependencies : undefined,
+            nodeDependencies: Object.keys(nodeDependencies).length > 0 ? nodeDependencies : undefined,
         };
     }
 }
