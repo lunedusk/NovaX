@@ -99,6 +99,10 @@ static createIgnoreHashVector(builder:flatbuffers.Builder, data:flatbuffers.Offs
   return builder.endVector();
 }
 
+static startIgnoreHashVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
 static endManifest(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -112,11 +116,12 @@ static finishSizePrefixedManifestBuffer(builder:flatbuffers.Builder, offset:flat
   builder.finish(offset, undefined, true);
 }
 
-static createManifest(builder:flatbuffers.Builder, timestamp:bigint, algorithmOffset:flatbuffers.Offset, filesOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createManifest(builder:flatbuffers.Builder, timestamp:bigint, algorithmOffset:flatbuffers.Offset, filesOffset:flatbuffers.Offset, ignoreHashOffset:flatbuffers.Offset):flatbuffers.Offset {
   Manifest.startManifest(builder);
   Manifest.addTimestamp(builder, timestamp);
   Manifest.addAlgorithm(builder, algorithmOffset);
   Manifest.addFiles(builder, filesOffset);
+  Manifest.addIgnoreHash(builder, ignoreHashOffset);
   return Manifest.endManifest(builder);
 }
 }
