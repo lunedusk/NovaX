@@ -1,6 +1,6 @@
 # NovaX — Environment Variable Reference
 
-> **Framework Version:** NovaX v0.5.0
+> **Framework Version:** NovaX v0.3.0
 > **Last Updated:** 2026
 > **Node.js Requirement:** ≥ 20
 
@@ -26,6 +26,7 @@ This document is the complete reference for every environment variable recognize
 14. [Authentication & Tokens](#14-authentication--tokens)
 15. [Full `.env` Template](#15-full-env-template)
 16. [Quick-Reference Table](#16-quick-reference-table)
+17. [Cross-Host / Orchestrator](#17-cross-host--orchestrator)
 
 ---
 
@@ -1612,6 +1613,105 @@ All standard env variables above are also valid as top-level keys in `common.jso
 ---
 
 *For plugin development documentation, database API reference, or the full IHeart context API, refer to the corresponding framework documentation files.*
+
+## 17. Cross-Host / Orchestrator
+
+Master switch and multi-machine control plane. When `CROSS_HOST` is true, the process branches before classic standalone / `isSharded` boot. See [CROSS_HOST.md](CROSS_HOST.md).
+
+### Master
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `CROSS_HOST` | Yes (to enable) | `false` | Master switch |
+| `CROSS_HOST_ROLE` | Yes when enabled | — | `orchestrator` \| `worker` |
+| `CROSS_HOST_MACHINE_ID` | Yes on worker | — | Stable identity; register refused if missing |
+| `CROSS_HOST_ORCHESTRATOR_URL` | Yes on worker | — | Base URL for HTTP challenge + register |
+| `CROSS_HOST_CLUSTER_SECRET` | Yes | — | Shared HMAC secret (sensitive) |
+| `CROSS_HOST_HTTP_HOST` | Orchestrator | `0.0.0.0` | Control HTTP bind |
+| `CROSS_HOST_HTTP_PORT` | Orchestrator | `8020` | Dedicated port; not the normal bot API port |
+| `CROSS_HOST_TOTAL_SHARDS` | No | *(from Discord `/gateway/bot`)* | Optional override for cluster shard count |
+
+### Compatibility & auth
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CROSS_HOST_COMPAT_MODE` | `strict` | `strict` \| `range` |
+| `CROSS_HOST_TOKEN_TTL_SEC` | `3600` | Short-lived machine token TTL |
+| `CROSS_HOST_MTLS_ENABLED` | `false` | Optional mTLS |
+| `CROSS_HOST_MTLS_CERT_PATH` | — | Client/server cert when mTLS enabled |
+| `CROSS_HOST_MTLS_KEY_PATH` | — | Private key when mTLS enabled |
+| `CROSS_HOST_MTLS_CA_PATH` | — | CA bundle when mTLS enabled |
+
+### Heartbeat / failure (reserved; intervals used from later milestones)
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CROSS_HOST_HEARTBEAT_MS` | `5000` | |
+| `CROSS_HOST_SUSPECT_AFTER` | `3` | Missed heartbeats |
+| `CROSS_HOST_DEAD_GRACE_MS` | `15000` | Grace after suspect |
+
+### Load / rebalance / updates
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CROSS_HOST_STATS_INTERVAL_MS` | `900000` | Worker stats publish interval |
+| `CROSS_HOST_REBALANCE_COOLDOWN_MS` | `60000` | Min time between rebalance cycles |
+| `CROSS_HOST_LOAD_IMBALANCE_THRESHOLD` | `0.25` | Relative (max-min)/avg |
+| `CROSS_HOST_REBALANCE_MAX_MOVES` | `32` | Cap moves per cycle |
+| `CROSS_HOST_REBALANCE_MIN_IMPROVEMENT` | `0.05` | Min imbalance improvement to accept a move |
+| `CROSS_HOST_ASSIGNMENT_STRATEGY` | `least_loaded` | `least_loaded` / `sticky` / `manual` / `region_aware` |
+| `CROSS_HOST_MANUAL_SHARDS` | `{}` | JSON machineId to number[]; invalid overlay rejected entirely |
+| `CROSS_HOST_REGION_LABEL_KEY` | `region` | Worker label key for region_aware |
+| `CROSS_HOST_MAX_CONCURRENT_UPDATES` | `1` | Drain-first rolling update concurrency |
+| `CROSS_HOST_LOAD_WEIGHT_GUILD` | `1` | |
+| `CROSS_HOST_LOAD_WEIGHT_MEMBER` | `0.001` | Ignored when memberCount omitted |
+| `CROSS_HOST_LOAD_WEIGHT_EVENT` | `10` | |
+| `CROSS_HOST_LOAD_WEIGHT_COMMAND` | `20` | |
+| `CROSS_HOST_LOAD_WEIGHT_SHARD` | `0.5` | Keeps empty workers attractive |
+
+
+
+### API gateway (public edge)
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CROSS_HOST_API_GATEWAY_ENABLED` | `true` | Orchestrator proxies public HTTP to workers |
+| `CROSS_HOST_API_PROXY_TIMEOUT_MS` | `30000` | Upstream proxy timeout |
+| `CROSS_HOST_WORKER_API_HOST` | `0.0.0.0` | Worker HTTP bind address |
+| `CROSS_HOST_WORKER_API_PORT` | `APIPort` or `3000` | Worker HTTP bind port |
+| `CROSS_HOST_WORKER_API_ADVERTISE_HOST` | _(none)_ | Host/IP orchestrator uses to reach worker API (required for routing) |
+
+### Optional index & query
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CROSS_HOST_INDEX_ENABLED` | `false` | Optional secondary metadata index |
+| `CROSS_HOST_INDEX_BACKEND` | `redis` | `redis` or `postgres` |
+| `CROSS_HOST_INDEX_RETENTION_DAYS` | `14` | Index retention |
+| `CROSS_HOST_QUERY_TIMEOUT_MS` | `5000` | Per-worker query RPC timeout |
+| `CROSS_HOST_QUERY_CONCURRENCY` | `16` | Max parallel scatter-gather RPCs |
+
+Postgres index resolve: `Database.crosshost_index` (preferred) else postgres `Database.main`. If neither is available, index is disabled for the process (warning only).
+
+### Redis
+
+Cross-Host requires Redis. Resolution order:
+
+1. `Database.crosshost` when URI is `redis://` / `rediss://` or `engine` is `redis`
+2. Else `Database.main` when that entry is Redis
+3. Else **boot fails**
+
+Example:
+
+```
+Database={"crosshost":{"uri":"redis://127.0.0.1:6379","engine":"redis"},"main":{"uri":"novadb://local","engine":"native-novadb"}}
+```
+
+### Safety
+
+- Do not run two orchestrators against the same cluster secret / Redis instance.
+- Never put the Discord token in Cross-Host register payloads.
+- `CROSS_HOST_CLUSTER_SECRET` is treated as sensitive by the secret manager pattern.
 
 ## Placeholder expansion in environment values
 

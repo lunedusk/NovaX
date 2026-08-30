@@ -10,6 +10,7 @@ table Manifest {
   timestamp: ulong;
   algorithm: string;
   files: [FileEntry];
+  ignore_hash: [string];
 }
 
 root_type Manifest;

@@ -34,6 +34,7 @@
     "cron-parser": "^5.5.0",
     "discord.js": "^14.26.2",
     "express": "^5.2.1",
+    "fast-json-patch": "^3.1.1",
     "fast-redact": "^3.5.0",
     "flatbuffers": "^25.9.23",
     "ioredis": "^5.10.1",

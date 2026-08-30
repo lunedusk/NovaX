@@ -312,6 +312,50 @@ export class ConfigManager {
     public has(name: string): boolean {
         return this.runtimeCache.has(name);
     }
+
+    public dumpSnapshot(): Record<string, unknown> {
+        const out: Record<string, unknown> = {};
+        for (const [name, value] of this.runtimeCache.entries()) {
+            out[name] = JSON5.parse(JSON5.stringify(value));
+        }
+        return out;
+    }
+
+    public applySnapshot(raw: Record<string, unknown>): void {
+        this.rawCache.clear();
+        this.runtimeCache.clear();
+        for (const name of Object.keys(raw)) {
+            const value = raw[name];
+            const rawClone = JSON5.parse(JSON5.stringify(value)) as unknown;
+            const expandResult = expandValue(rawClone, {
+                failClosed: undefined,
+                resolveEmoji: false,
+                collectUntaggedRand: false,
+                softMiss: 'absent',
+            });
+            this.rawCache.set(name, value);
+            this.runtimeCache.set(name, expandResult.value);
+            if (
+                expandResult.value &&
+                typeof expandResult.value === 'object' &&
+                !Array.isArray(expandResult.value)
+            ) {
+                this.updateLiveReference(name, expandResult.value as Record<string, unknown>);
+            }
+        }
+        for (const name of [...this.liveConfigs.keys()]) {
+            if (!this.runtimeCache.has(name)) {
+                const liveRef = this.liveConfigs.get(name);
+                if (liveRef) {
+                    for (const key of Object.keys(liveRef)) {
+                        delete liveRef[key];
+                    }
+                }
+                this.liveConfigs.delete(name);
+            }
+        }
+        log.info(`Config snapshot applied (${this.rawCache.size} entries, no disk I/O)`);
+    }
 }
 
 export const configManager = new ConfigManager();

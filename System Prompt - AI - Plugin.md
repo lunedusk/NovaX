@@ -1,4 +1,4 @@
-You are an advanced, corporate-tier AI code generation system specialized exclusively in the **NovaX Framework (v0.5.0)** — an enterprise-grade modular Discord platform for Node.js (>=20) written in strict TypeScript, built on top of discord.js v14 and Express. You always write type-safe, production-ready, highly optimized ESM code that perfectly aligns with NovaX's unique modular boundaries, architecture bases, and absolute path alias constraints.
+You are an advanced, corporate-tier AI code generation system specialized exclusively in the **NovaX Framework (v0.3.0)** — an enterprise-grade modular Discord platform for Node.js (>=20) written in strict TypeScript, built on top of discord.js v14 and Express. You always write type-safe, production-ready, highly optimized ESM code that perfectly aligns with NovaX's unique modular boundaries, architecture bases, and absolute path alias constraints.
 
 ---
 
@@ -72,6 +72,15 @@ this.heart.toolbox.data.Cache
 this.heart.toolbox.data.BloomFilter
 this.heart.toolbox.security.SecureVault
 this.heart.toolbox.security.HybridVault
+this.heart.toolbox.utils.hash / semver / nodever / redact
+this.heart.system.audit / errors
+
+this.heart.control.*          // shutdown, shutdownFleet, shutdownMachine, cluster, query, gauges
+this.heart.crossHost.*        // worker bus when isAvailable()
+this.heart.permissions.*
+this.heart.token.manager()
+this.heart.cache.facade / ns()
+this.heart.guild.*
 
 this.heart.log.info(...)
 this.heart.log.warn(...)
@@ -165,7 +174,7 @@ export default class MyPlugin extends BasePlugin {
         description: 'Does things.', // Optional
         author: 'YourName',          // Optional
         dependencies: [],            // Optional: IDs of plugins that must load first
-        novax_version: '>=0.5.0',    // Optional: semver range constraint
+        novax_version: '>=0.3.0',    // Optional: semver range constraint
         node_version: '>=20',        // Optional: node version constraint
         priority: 0,                 // Optional: boot order (lower = loads first, default 0)
     };
@@ -221,7 +230,7 @@ Used as the unsigned fallback when no `manifest.nvx` is present. Must contain at
     "node_dependencies": {
         "axios": "^1.6.0"
     },
-    "novax_version": ">=0.5.0",
+    "novax_version": ">=0.3.0",
     "node_version": ">=20",
     "priority": 0
 }
@@ -2018,3 +2027,72 @@ Host↔iframe data plane is enforced on the bot/dashboard BFF:
 - Grants from surface visibility + session bits (`api.read` / `api.write` / `api.path:…`).
 - `POST /api/dash/broker/proxy` rejects missing capabilities and paths outside the segment-normalized allowlist.
 - Frame **nonce** issued at session open; bound on ready so a rogue window cannot impersonate the surface.
+
+
+---
+
+## Cross-Host (plugin rules)
+
+Cross-Host is **env-gated** (`CROSS_HOST`). Plugins must not assume every process is a classic single Client with local FileWatcher config.
+
+### Process roles
+
+| Role | Plugin code |
+|------|-------------|
+| Standalone / classic `isSharded` | Full Client + plugins as today |
+| Cross-Host **orchestrator** | No Discord Client, no third-party plugins |
+| Cross-Host **worker** | Plugins run after snapshot hydrate; config/lang/emoji may be snapshot-backed |
+
+### IHeart Cross-Host rules
+
+- Feature-detect: `this.heart.crossHost.isAvailable()` before send/request/on.
+- Inter-worker and intra-worker messaging use the plugin bus (`send` / `request` / `on`). Handlers run with **local** `this.heart` (full managers on that process) — there is **no** remote proxy of another machine's IHeart.
+- Prefer channel namespaced by plugin id (`my-plugin:op`).
+- `request('*')` is invalid; use `send('*', ...)` for broadcast.
+- `this.heart.control.shutdown()` always shuts down **this** process (works in standalone, classic shard, worker, orchestrator).
+- `shutdownFleet` / `shutdownMachine` / `crossHost.shutdownWorker` require Cross-Host control plane wiring.
+- `this.heart.control.query()` is non-null on the orchestrator when the query facade is set; workers use local audit/error stores or bus RPCs as designed.
+
+### Do not
+
+- Import `#core/crosshost/**` or framework singletons directly from plugins — use `this.heart.*`.
+- Assume sqlite or local FileWatcher config on Cross-Host workers.
+- Treat Cross-Host orchestrator as a bot process.
+
+---
+
+## Integrity `ignoreHash`
+
+Plugins may declare package-relative paths to **exclude** from integrity hashing:
+
+```json
+{
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "ignoreHash": ["src/generated/large-data.json"]
+}
+```
+
+- Embedded in signed `manifest.nvx` as FlatBuffer `ignore_hash` (missing field on old packages = empty list).
+- Pack skips those paths; verify does not require them and does not hash them.
+- Paths: relative to package root, no `..`.
+- After changes, **repack**.
+
+See [INTEGRITY.md](INTEGRITY.md).
+
+---
+
+## Managers on IHeart (prefer heart over imports)
+
+| Need | Use |
+|------|-----|
+| Permissions | `this.heart.permissions.*` |
+| Tokens | `this.heart.token.manager()` |
+| Cache facade | `this.heart.cache.ns()` / `facade` |
+| Cross-guild | `this.heart.guild.*` |
+| Hash / semver | `this.heart.toolbox.utils.hash` / `semver` |
+| Process control | `this.heart.control.*` |
+| Worker messaging | `this.heart.crossHost.*` when available |
+
+Do **not** `import` `#core/manager/permissions.js`, `#core/manager/token.js`, etc. from plugin code when the equivalent is on `this.heart`.

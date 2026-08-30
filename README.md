@@ -1,4 +1,4 @@
-# 🌌 Project NovaX Enterprise Framework (v0.5.0)
+# 🌌 Project NovaX Enterprise Framework (v0.3.0)
 
 NovaX is a corporate-grade, highly optimized, completely modular application platform engineered in TypeScript on a strict ECMAScript Module (ESM) architecture. Built to support high-throughput, fault-tolerant Discord application infrastructures, NovaX features automated plugin workspace dependency sandboxing, cryptographic code-integrity and anti-tamper audits, a performance-tuned polyglot storage abstraction router, and an immutable context-injected dependency broker (`IHeart`) that eliminates global singletons while maintaining performance profiles.
 
@@ -7,6 +7,10 @@ NovaX is a corporate-grade, highly optimized, completely modular application pla
 ## Credits
 
 Built by [VeduStorm](https://github.com/VeduStorm) and the [Lunedusk](https://github.com/lunedusk) organization. Made with <3.
+
+## Cross-Host (optional)
+
+Env-gated multi-machine Discord sharding: thin orchestrator control plane + stripped workers, Redis pub/sub for assignment/identify/snapshot/stats/query, optional secondary audit/error index. Classic standalone and single-host `ShardingManager` paths are unchanged when `CROSS_HOST` is off. See [CROSS_HOST.md](CROSS_HOST.md).
 
 ## Documentation
 
@@ -18,6 +22,7 @@ Built by [VeduStorm](https://github.com/VeduStorm) and the [Lunedusk](https://gi
 | [UPDATER.md](UPDATER.md) | Crash-safe updater (CLI / background) |
 | [AUDIT.md](AUDIT.md) | Audit registry |
 | [ERRORS.md](ERRORS.md) | Error registry + NovaError |
+| [CROSS_HOST.md](CROSS_HOST.md) | Multi-machine shard orchestration (env-gated) |
 | [CACHE.md](CACHE.md) | Cache façade + TTLCache registry |
 | [PLUGINS.md](PLUGINS.md) | Plugin developer guide (license, verification) |
 | [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) | Plugin authoring contract |

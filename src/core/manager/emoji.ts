@@ -108,6 +108,21 @@ export class EmojiManager {
     public getAll(): Readonly<Record<string, string>> {
         return this.liveRecord;
     }
+
+    public dumpSnapshot(): Record<string, string> {
+        return { ...Object.fromEntries(this.cache) };
+    }
+
+    public applySnapshot(map: Record<string, string>): void {
+        const newCache = new Map<string, string>();
+        for (const [key, value] of Object.entries(map)) {
+            if (typeof value === 'string') {
+                newCache.set(key, value);
+            }
+        }
+        this.applyAtomicSwap(newCache);
+        log.info(`Emoji snapshot applied (${this.cache.size} entries, no disk I/O)`);
+    }
 }
 
 export const emojis = new EmojiManager();
