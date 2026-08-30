@@ -64,3 +64,20 @@ Any plugin or dependency can read `process.env.DiscordToken` (and other keys) di
 ## Admin hot reload
 
 Under `/admin` (owner-gated): `reload-config`, `reload-lang`, `reload-env` (`.env` / `.env.local` only), `reload-emoji`, `cache-list` / `cache-pop`, audit/error list/get, gate commands. Env reload uses a sealed allow-set from keys present in the env file; `#tag` rand stays process-stable across reload. See [PLACEHOLDERS.md](PLACEHOLDERS.md) and [LOADER.md](LOADER.md).
+
+## Cross-Host multi-machine (optional)
+
+1. Provision **Redis** reachable by all hosts (`Database.crosshost` preferred, else `Database.main` with redis URI).
+2. Set shared `CROSS_HOST_CLUSTER_SECRET` on every machine.
+3. **Orchestrator** (one active claim):
+   - `CROSS_HOST=true`, `CROSS_HOST_ROLE=orchestrator`
+   - `DiscordToken`, config/lang/emoji on disk (source of truth)
+   - Start process; verify `GET /health` on `CROSS_HOST_HTTP_PORT` (default 8020)
+4. **Workers** (N machines):
+   - `CROSS_HOST=true`, `CROSS_HOST_ROLE=worker`
+   - `CROSS_HOST_MACHINE_ID` unique per machine
+   - `CROSS_HOST_ORCHESTRATOR_URL` pointing at orchestrator HTTP
+   - Same cluster secret and Redis map; **no sqlite** aliases in `Database`
+5. Optional: `CROSS_HOST_INDEX_ENABLED=true` with backend `redis` (default) or `postgres` (`Database.crosshost_index` or postgres `main`).
+
+Do not enable Cross-Host with sqlite/file engines — boot will fail the storage gate. Full runbook: [CROSS_HOST.md](CROSS_HOST.md).

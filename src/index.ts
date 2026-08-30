@@ -203,6 +203,8 @@ async function runBotMode(): Promise<void> {
                 const permCache = createPermissionCache(permMgr);
                 await permCache.init();
                 permMgr.setCache(permCache);
+                const { setHeartPermissions } = await import('#core/heart/index.js');
+                setHeartPermissions(permMgr, permCache);
 
                 this.log.info('Initializing Interaction Handler...');
                 interactionHandler.init();
@@ -337,6 +339,21 @@ async function runBotMode(): Promise<void> {
 
         if (!isSpawnedWorker) {
             materializeBootSharedRandEnv(process.cwd());
+        }
+
+        const crossHostEnabled = secrets.getBoolean('CROSS_HOST', false);
+        if (crossHostEnabled) {
+            const role = secrets.getOptional('CROSS_HOST_ROLE');
+            if (role !== 'orchestrator' && role !== 'worker') {
+                logger.error(
+                    'CROSS_HOST is enabled but CROSS_HOST_ROLE must be set to "orchestrator" or "worker"',
+                );
+                await flushLogs();
+                process.exit(1);
+            }
+            const { runCrossHost } = await import('#core/crosshost/bootstrap.js');
+            await runCrossHost(role);
+            return;
         }
 
         const isSharded = secrets.getBoolean('isSharded', false);

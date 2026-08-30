@@ -82,14 +82,20 @@ export class HttpServer {
         return Array.from(this.mounts.keys()).sort();
     }
 
-    public async start(port: number = parseInt(secrets.getOptional('APIPort') || '3000')): Promise<void> {
+    public async start(
+        port: number = parseInt(secrets.getOptional('APIPort') || '3000'),
+        host: string = secrets.getOptional('APIHost') || '0.0.0.0',
+    ): Promise<void> {
         if (this.isRunning) return;
+        if (!this.app) {
+            throw new Error('HttpServer not initialized.');
+        }
 
         return new Promise((resolve, reject) => {
             try {
-                this.server = this.app!.listen(port, () => {
+                this.server = this.app!.listen(port, host, () => {
                     this.isRunning = true;
-                    log.info(`REST API active on http://localhost:${port}`);
+                    log.info(`REST API active on http://${host}:${port}`);
                     resolve();
                 });
             } catch (error) {

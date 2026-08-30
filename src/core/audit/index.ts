@@ -33,6 +33,19 @@ export async function record(input: AuditRecordInput): Promise<AuditRecord | nul
                 const e = err instanceof Error ? err : new Error(String(err));
                 log.error(`audit.recorded emit failed: ${e.message}`);
             });
+        void import('#core/crosshost/indexStore/writer.js')
+            .then(({ isCrossHostWorkerIndexActive, publishIndexMetadata }) => {
+                if (!isCrossHostWorkerIndexActive()) return;
+                return publishIndexMetadata({
+                    kind: 'audit',
+                    id: entry.id,
+                    ts: typeof entry.createdAt === 'number' ? entry.createdAt : Date.now(),
+                    summary: `${entry.action} ${entry.outcome}`.slice(0, 256),
+                    surface: entry.surface ?? undefined,
+                    action: entry.action,
+                });
+            })
+            .catch(() => {});
         return entry;
     } catch (err: unknown) {
         const e = err instanceof Error ? err : new Error(String(err));

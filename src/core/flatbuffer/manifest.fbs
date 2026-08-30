@@ -10,6 +10,7 @@ table IntegrityPayload {
   timestamp: ulong;
   algorithm: string;
   files: [FileEntry];
+  ignore_hash: [string];
 }
 
 table NodeDependency {

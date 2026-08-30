@@ -27,6 +27,18 @@ export async function record(input: ErrorOccurrenceInput): Promise<ErrorOccurren
             const e = err instanceof Error ? err : new Error(String(err));
             log.error(`error.recorded emit failed: ${e.message}`);
         });
+    void import('#core/crosshost/indexStore/writer.js')
+        .then(({ isCrossHostWorkerIndexActive, publishIndexMetadata }) => {
+            if (!isCrossHostWorkerIndexActive()) return;
+            return publishIndexMetadata({
+                kind: 'error',
+                id: entry.id,
+                ts: typeof entry.lastSeen === 'number' ? entry.lastSeen : Date.now(),
+                summary: `${entry.code} ${entry.message}`.slice(0, 256),
+                severity: entry.severity,
+            });
+        })
+        .catch(() => {});
     return entry;
 }
 

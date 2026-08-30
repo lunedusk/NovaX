@@ -31,8 +31,12 @@ export class PackageManager {
     ): Promise<void> {
         const files: Record<string, FileMetadata> = {};
         const tasks: (() => Promise<void>)[] = [];
+        const ignoreList = (metadata.ignoreHash ?? [])
+            .map((p) => p.replace(/\\/g, '/').replace(/^\.\//, ''))
+            .filter((p) => p.length > 0 && !p.includes('..'));
+        const ignoreSet = new Set(ignoreList);
 
-        for await (const { fullPath, relPath } of IntegrityScanner.discoverFiles(rootDir)) {
+        for await (const { fullPath, relPath } of IntegrityScanner.discoverFiles(rootDir, rootDir, ignoreSet)) {
             if (relPath === outputFile || relPath === `${outputFile}.tmp`) continue;
 
             tasks.push(async () => {
@@ -61,10 +65,19 @@ export class PackageManager {
         const filesVecOffset = IntegrityPayload.createFilesVector(builder, fileOffsets);
         const algoOffset = builder.createString(HASH_ALGORITHM);
 
+        let ignoreHashOffset = 0;
+        if (ignoreList.length > 0) {
+            const ignoreOffsets = ignoreList.map((p) => builder.createString(p));
+            ignoreHashOffset = IntegrityPayload.createIgnoreHashVector(builder, ignoreOffsets);
+        }
+
         IntegrityPayload.startIntegrityPayload(builder);
         IntegrityPayload.addTimestamp(builder, BigInt(Date.now()));
         IntegrityPayload.addAlgorithm(builder, algoOffset);
         IntegrityPayload.addFiles(builder, filesVecOffset);
+        if (ignoreHashOffset) {
+            IntegrityPayload.addIgnoreHash(builder, ignoreHashOffset);
+        }
         const integrityOffset = IntegrityPayload.endIntegrityPayload(builder);
 
         const idOffset = builder.createString(metadata.id);
@@ -182,6 +195,12 @@ export class PackageManager {
         const scannedFiles = new Set<string>();
         const mismatches: string[] = [];
         const tasks: (() => Promise<void>)[] = [];
+        const ignoredPaths = new Set<string>();
+        for (let i = 0; i < integrity.ignoreHashLength(); i++) {
+            const p = integrity.ignoreHash(i);
+            if (p) ignoredPaths.add(p.replace(/\\/g, '/'));
+        }
+
         const expectedFiles = new Map<string, { hash: Buffer; size: number }>();
 
         for (let i = 0; i < filesLength; i++) {
@@ -195,7 +214,7 @@ export class PackageManager {
             }
         }
 
-        for await (const { fullPath, relPath } of IntegrityScanner.discoverFiles(rootDir)) {
+        for await (const { fullPath, relPath } of IntegrityScanner.discoverFiles(rootDir, rootDir, ignoredPaths)) {
             if (relPath === manifestFile || relPath === `${manifestFile}.tmp`) continue;
 
             scannedFiles.add(relPath);

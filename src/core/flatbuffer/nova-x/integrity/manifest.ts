@@ -47,8 +47,20 @@ filesLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
+ignoreHash(index: number):string
+ignoreHash(index: number,optionalEncoding:flatbuffers.Encoding):string|Uint8Array
+ignoreHash(index: number,optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.__string(this.bb!.__vector(this.bb_pos + offset) + index * 4, optionalEncoding) : null;
+}
+
+ignoreHashLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
 static startManifest(builder:flatbuffers.Builder) {
-  builder.startObject(3);
+  builder.startObject(4);
 }
 
 static addTimestamp(builder:flatbuffers.Builder, timestamp:bigint) {
@@ -75,6 +87,22 @@ static startFilesVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
+static addIgnoreHash(builder:flatbuffers.Builder, ignoreHashOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(3, ignoreHashOffset, 0);
+}
+
+static createIgnoreHashVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startIgnoreHashVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
 static endManifest(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -88,11 +116,12 @@ static finishSizePrefixedManifestBuffer(builder:flatbuffers.Builder, offset:flat
   builder.finish(offset, undefined, true);
 }
 
-static createManifest(builder:flatbuffers.Builder, timestamp:bigint, algorithmOffset:flatbuffers.Offset, filesOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createManifest(builder:flatbuffers.Builder, timestamp:bigint, algorithmOffset:flatbuffers.Offset, filesOffset:flatbuffers.Offset, ignoreHashOffset:flatbuffers.Offset):flatbuffers.Offset {
   Manifest.startManifest(builder);
   Manifest.addTimestamp(builder, timestamp);
   Manifest.addAlgorithm(builder, algorithmOffset);
   Manifest.addFiles(builder, filesOffset);
+  Manifest.addIgnoreHash(builder, ignoreHashOffset);
   return Manifest.endManifest(builder);
 }
 }
