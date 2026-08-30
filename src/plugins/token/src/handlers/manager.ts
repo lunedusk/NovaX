@@ -14,6 +14,7 @@ import {
     type Bit,
 } from '#core/manager/token.js';
 import { permissionsManager } from '#core/manager/permissions.js';
+import { setHeartTokenManager } from '#core/heart/index.js';
 
 export default class TokenHandler extends BaseHandler {
 
@@ -39,6 +40,7 @@ export default class TokenHandler extends BaseHandler {
             audience: secrets.getOptional('TokenAudience', 'dashboard') ?? 'dashboard',
             onAudit: (event) => { this.log.debug(`Token audit: ${event.type} userId=${event.userId ?? '-'}`); },
         });
+        setHeartTokenManager(this.tokenManager);
 
         this.log.info('Token handler ready.');
     }

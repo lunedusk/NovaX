@@ -45,7 +45,11 @@ export class IntegrityScanner {
         return this.#DATA_CODE_SUBDIRS.has(sub);
     }
 
-    public static async *discoverFiles(dir: string, root = dir): AsyncGenerator<{ fullPath: string; relPath: string }> {
+    public static async *discoverFiles(
+        dir: string,
+        root = dir,
+        ignoreHash: ReadonlySet<string> = new Set(),
+    ): AsyncGenerator<{ fullPath: string; relPath: string }> {
         const entries = await fs.readdir(dir, { withFileTypes: true });
 
         for (const entry of entries) {
@@ -61,10 +65,11 @@ export class IntegrityScanner {
             if (entry.isDirectory()) {
                 if (this.#EXCLUDE_DIRS.has(entry.name)) continue;
                 if (!this.#dataCodeAllowed(relPath, true)) continue;
-                yield* this.discoverFiles(res, root);
+                yield* this.discoverFiles(res, root, ignoreHash);
             } else {
                 if (this.#EXCLUDE_EXTENSIONS.has(path.extname(entry.name)) || entry.name.startsWith('manifest')) continue;
                 if (!this.#dataCodeAllowed(relPath, false)) continue;
+                if (ignoreHash.has(relPath)) continue;
                 yield { fullPath: res, relPath };
             }
         }

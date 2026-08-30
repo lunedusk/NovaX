@@ -18,12 +18,17 @@ export class IntegrityManager {
     public static async generate(
         rootDir: string, 
         signingPrivKeyPem: string, 
-        manifestFile = 'manifest.bin'
+        manifestFile = 'manifest.bin',
+        ignoreHash: readonly string[] = [],
     ): Promise<void> {
         const files: Record<string, FileMetadata> = {};
         const tasks: (() => Promise<void>)[] = [];
+        const ignoreList = ignoreHash
+            .map((p) => p.replace(/\\/g, '/').replace(/^\.\//, ''))
+            .filter((p) => p.length > 0 && !p.includes('..'));
+        const ignoreSet = new Set(ignoreList);
 
-        for await (const { fullPath, relPath } of IntegrityScanner.discoverFiles(rootDir)) {
+        for await (const { fullPath, relPath } of IntegrityScanner.discoverFiles(rootDir, rootDir, ignoreSet)) {
             tasks.push(async () => {
                 files[relPath] = await IntegrityScanner.calculateFileStats(fullPath);
             });
@@ -51,10 +56,19 @@ export class IntegrityManager {
         const filesVecOffset = Manifest.createFilesVector(builder, fileOffsets);
         const algoOffset = builder.createString(HASH_ALGORITHM);
 
+        let ignoreHashOffset = 0;
+        if (ignoreList.length > 0) {
+            const offs = ignoreList.map((p) => builder.createString(p));
+            ignoreHashOffset = Manifest.createIgnoreHashVector(builder, offs);
+        }
+
         Manifest.startManifest(builder);
         Manifest.addTimestamp(builder, BigInt(Date.now()));
         Manifest.addAlgorithm(builder, algoOffset);
         Manifest.addFiles(builder, filesVecOffset);
+        if (ignoreHashOffset) {
+            Manifest.addIgnoreHash(builder, ignoreHashOffset);
+        }
         builder.finish(Manifest.endManifest(builder));
 
         const fbPayload = Buffer.from(builder.asUint8Array());
@@ -104,6 +118,12 @@ export class IntegrityManager {
         const mismatches: string[] = [];
         const tasks: (() => Promise<void>)[] = [];
 
+        const ignoredPaths = new Set<string>();
+        for (let i = 0; i < manifest.ignoreHashLength(); i++) {
+            const p = manifest.ignoreHash(i);
+            if (p) ignoredPaths.add(p.replace(/\\/g, '/'));
+        }
+
         const expectedFiles = new Map<string, { hash: Buffer; size: number }>();
         for (let i = 0; i < filesLength; i++) {
             const fileNode = manifest.files(i)!;
@@ -116,7 +136,7 @@ export class IntegrityManager {
             }
         }
 
-        for await (const { fullPath, relPath } of IntegrityScanner.discoverFiles(rootDir)) {
+        for await (const { fullPath, relPath } of IntegrityScanner.discoverFiles(rootDir, rootDir, ignoredPaths)) {
             scannedFiles.add(relPath);
             const expected = expectedFiles.get(relPath);
 

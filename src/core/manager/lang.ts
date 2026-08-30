@@ -398,6 +398,83 @@ export class LanguageManager {
         return Array.from(namespaces);
     }
 
+    public dumpSnapshot(): Array<{ locale: string; namespace: string; raw: unknown }> {
+        const entries: Array<{ locale: string; namespace: string; raw: unknown }> = [];
+        for (const [locale, nsMap] of this.runtimeStore.entries()) {
+            for (const [namespace, runtime] of nsMap.entries()) {
+                entries.push({
+                    locale,
+                    namespace,
+                    raw: JSON5.parse(JSON5.stringify(runtime)),
+                });
+            }
+        }
+        return entries;
+    }
+
+    public applySnapshot(
+        entries: ReadonlyArray<{ locale: string; namespace: string; raw: unknown }>,
+    ): void {
+        this.dictionary.clear();
+        this.rawStore.clear();
+        this.runtimeStore.clear();
+        for (const [, liveLocaleMap] of this.liveNamespaces) {
+            for (const [, liveRef] of liveLocaleMap) {
+                for (const key of Object.keys(liveRef)) {
+                    delete liveRef[key];
+                }
+            }
+        }
+        this.liveNamespaces.clear();
+
+        for (const entry of entries) {
+            const data = entry.raw;
+            const expanded = expandValue(JSON5.parse(JSON5.stringify(data)), {
+                failClosed: undefined,
+                resolveEmoji: false,
+                collectUntaggedRand: false,
+                softMiss: 'absent',
+            }).value;
+            const runtimeTree =
+                expanded && typeof expanded === 'object' && !Array.isArray(expanded)
+                    ? (expanded as Record<string, unknown>)
+                    : {};
+
+            if (!this.rawStore.has(entry.locale)) {
+                this.rawStore.set(entry.locale, new Map());
+            }
+            this.rawStore.get(entry.locale)!.set(entry.namespace, data);
+
+            if (!this.runtimeStore.has(entry.locale)) {
+                this.runtimeStore.set(entry.locale, new Map());
+            }
+            this.runtimeStore.get(entry.locale)!.set(entry.namespace, runtimeTree);
+
+            const flatMap = new Map<string, CompiledTranslation>();
+            this.flattenAndCompile(runtimeTree, '', flatMap);
+
+            if (!this.dictionary.has(entry.locale)) {
+                this.dictionary.set(entry.locale, new Map());
+            }
+            this.dictionary.get(entry.locale)!.set(entry.namespace, flatMap);
+
+            if (!this.liveNamespaces.has(entry.locale)) {
+                this.liveNamespaces.set(entry.locale, new Map());
+            }
+            const localeMap = this.liveNamespaces.get(entry.locale)!;
+            if (!localeMap.has(entry.namespace)) {
+                localeMap.set(entry.namespace, {});
+            }
+            const liveRef = localeMap.get(entry.namespace)!;
+            for (const key of Object.keys(liveRef)) {
+                delete liveRef[key];
+            }
+            Object.assign(liveRef, Object.fromEntries(flatMap));
+        }
+
+        log.info(`Language snapshot applied (${entries.length} entries, no disk I/O)`);
+    }
+
     private flattenAndCompile(obj: Record<string, unknown>, prefix = '', res: Map<string, CompiledTranslation>): void {
         for (const [key, value] of Object.entries(obj)) {
             if (key === '__proto__' || key === 'constructor') continue;

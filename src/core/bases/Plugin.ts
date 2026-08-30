@@ -20,6 +20,7 @@ export interface PluginManifest {
     readonly node_version?: string;
     readonly priority?: number;
     readonly nodeDependencies?: Record<string, string>;
+    readonly ignoreHash?: readonly string[];
 }
 
 export abstract class BasePlugin {
