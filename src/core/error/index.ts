@@ -1,3 +1,4 @@
+import { loadGrantFromRedis } from '#core/crosshost/orchestrator/identifyQueue.js';
 import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('GlobalCatcher');
@@ -69,7 +70,7 @@ export class GlobalErrorCatcher {
         log.warn('Initiating emergency teardown sequence...');
 
         const timeout = setTimeout(() => {
-            console.error('Emergency teardown timed out. Force exiting.');
+            log.error('Emergency teardown timed out. Force exiting.');
             process.exit(1);
         }, 5000).unref();
 
@@ -79,7 +80,7 @@ export class GlobalErrorCatcher {
                     try {
                         await hook();
                     } catch (err) {
-                        console.error(`Teardown hook failed: ${(err as Error).message}`);
+                        log.error(`Teardown hook failed: ${(err as Error).message}`);
                     }
                 })
             );

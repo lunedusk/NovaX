@@ -88,6 +88,20 @@ export class MembershipRegistry {
         this.workers.set(machineId, { ...w, shards: [...shards] });
     }
 
+    public removeWorker(machineId: string): boolean {
+        const had = this.workers.delete(machineId);
+        if (had) {
+            log.info('Worker removed from membership', { machineId });
+        }
+        return had;
+    }
+
+    public isLive(machineId: string, maxAgeMs: number): boolean {
+        const w = this.workers.get(machineId);
+        if (!w) return false;
+        return Date.now() - w.lastSeenAt <= maxAgeMs;
+    }
+
     public setWorkerSnapshotAck(machineId: string, version: number): void {
         const w = this.workers.get(machineId);
         if (!w) return;
@@ -181,12 +195,12 @@ export class MembershipRegistry {
             };
         }
 
-        const manifestHash = buildManifestHash(body.novaxVersion, body.plugins);
+        const manifestHash = buildManifestHash(body.zeneVersion, body.plugins);
         const expectedHmac = computeRegisterHmac(this.config.clusterSecret, {
             nonce: challenge.nonce,
             machineId: body.machineId,
             manifestHash,
-            novaxVersion: body.novaxVersion,
+            zeneVersion: body.zeneVersion,
             bootGeneration: body.bootGeneration,
         });
         if (!verifyHmacEqual(expectedHmac, body.hmac)) {
@@ -199,7 +213,7 @@ export class MembershipRegistry {
         }
 
         const check = runDeepCheck(this.config.compatMode, this.desiredState, {
-            novaxVersion: body.novaxVersion,
+            zeneVersion: body.zeneVersion,
             plugins: body.plugins,
         });
         if (!check.ok) {
@@ -226,7 +240,7 @@ export class MembershipRegistry {
 
         const view: WorkerView = {
             machineId: body.machineId,
-            novaxVersion: body.novaxVersion,
+            zeneVersion: body.zeneVersion,
             plugins: body.plugins.map((p) => ({ id: p.id, version: p.version })),
             nodeVersion: body.nodeVersion,
             platform: body.platform,
@@ -312,7 +326,7 @@ export async function discoverLocalDesiredState(coreVersion: string): Promise<De
     }
 
     plugins.sort((a, b) => a.id.localeCompare(b.id));
-    return { novaxVersion: coreVersion, plugins };
+    return { zeneVersion: coreVersion, plugins };
 }
 
 export async function resolveCoreVersion(): Promise<string> {

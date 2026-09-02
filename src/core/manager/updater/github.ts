@@ -18,7 +18,7 @@ export class GitHubClient {
         const h: Record<string, string> = {
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
-            'User-Agent': 'NovaX-Updater'
+            'User-Agent': 'Zene-Updater'
         };
         if (this.token) h.Authorization = `Bearer ${this.token}`;
         return h;
@@ -138,7 +138,7 @@ export class GitHubClient {
                     const suffix = t.name.replace(new RegExp(`^plugin-${pluginName}-v`, 'i'), '');
                     semver = SemVer.parse(suffix.startsWith('v') ? suffix : `v${suffix}`);
                 } catch {
-                    /* ignore */
+
                 }
                 return { ...t, semver };
             })

@@ -36,7 +36,7 @@ export default class TokenHandler extends BaseHandler {
         this.tokenManager = new TokenManager(masterSecret, store, {
             ttlSeconds: parseInt(secrets.getOptional('TokenTTL', '900') ?? '900'),
             maxTtlSeconds: parseInt(secrets.getOptional('TokenMaxTTL', '86400') ?? '86400'),
-            issuer: secrets.getOptional('TokenIssuer', 'novax') ?? 'novax',
+            issuer: secrets.getOptional('TokenIssuer', 'zene') ?? 'zene',
             audience: secrets.getOptional('TokenAudience', 'dashboard') ?? 'dashboard',
             onAudit: (event) => { this.log.debug(`Token audit: ${event.type} userId=${event.userId ?? '-'}`); },
         });

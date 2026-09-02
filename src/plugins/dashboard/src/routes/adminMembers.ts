@@ -29,7 +29,6 @@ export default class AdminMembersRoute extends BaseRoute {
         this.router.post('/:userId/kick', ...kickBit, this.asyncHandler(guarded(this.heart, this.kick.bind(this))));
         this.router.post('/:userId/ban', ...banBit, this.asyncHandler(guarded(this.heart, this.ban.bind(this))));
         this.router.post('/:userId/ban-global', ...banGlobalBit, this.asyncHandler(guarded(this.heart, this.banGlobalHandler.bind(this))));
-        // unban/unmute are the inverse of ban/mute — gated behind the same bit as the forward action (no dedicated "undo" bit in BUILT_IN_BITS).
         this.router.post('/:userId/unban', ...banBit, this.asyncHandler(guarded(this.heart, this.unban.bind(this))));
         this.router.post('/:userId/mute', ...muteBit, this.asyncHandler(guarded(this.heart, this.mute.bind(this))));
         this.router.post('/:userId/unmute', ...muteBit, this.asyncHandler(guarded(this.heart, this.unmute.bind(this))));

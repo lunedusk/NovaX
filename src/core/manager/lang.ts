@@ -20,197 +20,197 @@ import {
 
 const log = getLogger('LanguageManager');
 const SUPPORTED_LOCALES = new Set([
-  'ab',  // Abkhazian
-  'aa',  // Afar
-  'af',  // Afrikaans
-  'ak',  // Akan
-  'sq',  // Albanian
-  'am',  // Amharic
-  'ar',  // Arabic
-  'an',  // Aragonese
-  'hy',  // Armenian
-  'as',  // Assamese
-  'av',  // Avaric
-  'ay',  // Aymara
-  'az',  // Azerbaijani
-  'bm',  // Bambara
-  'ba',  // Bashkir
-  'eu',  // Basque
-  'be',  // Belarusian
-  'bn',  // Bengali
-  'bi',  // Bislama
-  'bs',  // Bosnian
-  'br',  // Breton
-  'bg',  // Bulgarian
-  'my',  // Burmese
-  'ca',  // Catalan
-  'ch',  // Chamorro
-  'ce',  // Chechen
-  'ny',  // Chichewa
-  'zh',  // Chinese
-  'cv',  // Chuvash
-  'kw',  // Cornish
-  'co',  // Corsican
-  'cr',  // Cree
-  'hr',  // Croatian
-  'cs',  // Czech
-  'da',  // Danish
-  'dv',  // Divehi
-  'nl',  // Dutch
-  'dz',  // Dzongkha
-  'en',  // English
-  'et',  // Estonian
-  'ee',  // Ewe
-  'fo',  // Faroese
-  'fj',  // Fijian
-  'fi',  // Finnish
-  'fr',  // French
-  'fy',  // Western Frisian
-  'ff',  // Fulah
-  'gd',  // Gaelic (Scottish)
-  'gl',  // Galician
-  'lg',  // Ganda
-  'ka',  // Georgian
-  'de',  // German
-  'el',  // Greek (modern)
-  'kl',  // Kalaallisut (Greenlandic)
-  'gn',  // Guarani
-  'gu',  // Gujarati
-  'ht',  // Haitian
-  'ha',  // Hausa
-  'he',  // Hebrew
-  'hz',  // Herero
-  'hi',  // Hindi
-  'ho',  // Hiri Motu
-  'hu',  // Hungarian
-  'is',  // Icelandic
-  'ig',  // Igbo
-  'id',  // Indonesian
-  'iu',  // Inuktitut
-  'ik',  // Inupiaq
-  'ga',  // Irish
-  'it',  // Italian
-  'ja',  // Japanese
-  'jv',  // Javanese
-  'kn',  // Kannada
-  'kr',  // Kanuri
-  'ks',  // Kashmiri
-  'kk',  // Kazakh
-  'km',  // Central Khmer
-  'ki',  // Kikuyu
-  'rw',  // Kinyarwanda
-  'ky',  // Kyrgyz
-  'kv',  // Komi
-  'kg',  // Kongo
-  'ko',  // Korean
-  'kj',  // Kuanyama
-  'ku',  // Kurdish
-  'lo',  // Lao
-  'lv',  // Latvian
-  'li',  // Limburgan
-  'ln',  // Lingala
-  'lt',  // Lithuanian
-  'lu',  // Luba-Katanga
-  'lb',  // Luxembourgish
-  'mk',  // Macedonian
-  'mg',  // Malagasy
-  'ms',  // Malay
-  'ml',  // Malayalam
-  'mt',  // Maltese
-  'gv',  // Manx
-  'mi',  // Maori
-  'mr',  // Marathi
-  'mh',  // Marshallese
-  'mn',  // Mongolian
-  'na',  // Nauru
-  'nv',  // Navajo
-  'nd',  // North Ndebele
-  'nr',  // South Ndebele
-  'ng',  // Ndonga
-  'ne',  // Nepali
-  'no',  // Norwegian
-  'nb',  // Norwegian Bokmål
-  'nn',  // Norwegian Nynorsk
-  'oc',  // Occitan
-  'oj',  // Ojibwa
-  'or',  // Oriya
-  'om',  // Oromo
-  'os',  // Ossetian
-  'ps',  // Pashto
-  'fa',  // Persian
-  'pl',  // Polish
-  'pt',  // Portuguese
-  'pa',  // Punjabi
-  'qu',  // Quechua
-  'ro',  // Romanian
-  'rm',  // Romansh
-  'rn',  // Rundi
-  'ru',  // Russian
-  'se',  // Northern Sami
-  'sm',  // Samoan
-  'sg',  // Sango
-  'sc',  // Sardinian
-  'sr',  // Serbian
-  'sn',  // Shona
-  'sd',  // Sindhi
-  'si',  // Sinhala
-  'sk',  // Slovak
-  'sl',  // Slovenian
-  'so',  // Somali
-  'st',  // Southern Sotho
-  'es',  // Spanish
-  'su',  // Sundanese
-  'sw',  // Swahili
-  'ss',  // Swati
-  'sv',  // Swedish
-  'tl',  // Tagalog
-  'ty',  // Tahitian
-  'tg',  // Tajik
-  'ta',  // Tamil
-  'tt',  // Tatar
-  'te',  // Telugu
-  'th',  // Thai
-  'bo',  // Tibetan
-  'ti',  // Tigrinya
-  'to',  // Tonga
-  'ts',  // Tsonga
-  'tn',  // Tswana
-  'tr',  // Turkish
-  'tk',  // Turkmen
-  'tw',  // Twi
-  'ug',  // Uighur
-  'uk',  // Ukrainian
-  'ur',  // Urdu
-  'uz',  // Uzbek
-  've',  // Venda
-  'vi',  // Vietnamese
-  'wa',  // Walloon
-  'cy',  // Welsh
-  'wo',  // Wolof
-  'xh',  // Xhosa
-  'ii',  // Sichuan Yi
-  'yi',  // Yiddish
-  'yo',  // Yoruba
-  'za',  // Zhuang
-  'zu',  // Zulu
+  'ab',
+  'aa',
+  'af',
+  'ak',
+  'sq',
+  'am',
+  'ar',
+  'an',
+  'hy',
+  'as',
+  'av',
+  'ay',
+  'az',
+  'bm',
+  'ba',
+  'eu',
+  'be',
+  'bn',
+  'bi',
+  'bs',
+  'br',
+  'bg',
+  'my',
+  'ca',
+  'ch',
+  'ce',
+  'ny',
+  'zh',
+  'cv',
+  'kw',
+  'co',
+  'cr',
+  'hr',
+  'cs',
+  'da',
+  'dv',
+  'nl',
+  'dz',
+  'en',
+  'et',
+  'ee',
+  'fo',
+  'fj',
+  'fi',
+  'fr',
+  'fy',
+  'ff',
+  'gd',
+  'gl',
+  'lg',
+  'ka',
+  'de',
+  'el',
+  'kl',
+  'gn',
+  'gu',
+  'ht',
+  'ha',
+  'he',
+  'hz',
+  'hi',
+  'ho',
+  'hu',
+  'is',
+  'ig',
+  'id',
+  'iu',
+  'ik',
+  'ga',
+  'it',
+  'ja',
+  'jv',
+  'kn',
+  'kr',
+  'ks',
+  'kk',
+  'km',
+  'ki',
+  'rw',
+  'ky',
+  'kv',
+  'kg',
+  'ko',
+  'kj',
+  'ku',
+  'lo',
+  'lv',
+  'li',
+  'ln',
+  'lt',
+  'lu',
+  'lb',
+  'mk',
+  'mg',
+  'ms',
+  'ml',
+  'mt',
+  'gv',
+  'mi',
+  'mr',
+  'mh',
+  'mn',
+  'na',
+  'nv',
+  'nd',
+  'nr',
+  'ng',
+  'ne',
+  'no',
+  'nb',
+  'nn',
+  'oc',
+  'oj',
+  'or',
+  'om',
+  'os',
+  'ps',
+  'fa',
+  'pl',
+  'pt',
+  'pa',
+  'qu',
+  'ro',
+  'rm',
+  'rn',
+  'ru',
+  'se',
+  'sm',
+  'sg',
+  'sc',
+  'sr',
+  'sn',
+  'sd',
+  'si',
+  'sk',
+  'sl',
+  'so',
+  'st',
+  'es',
+  'su',
+  'sw',
+  'ss',
+  'sv',
+  'tl',
+  'ty',
+  'tg',
+  'ta',
+  'tt',
+  'te',
+  'th',
+  'bo',
+  'ti',
+  'to',
+  'ts',
+  'tn',
+  'tr',
+  'tk',
+  'tw',
+  'ug',
+  'uk',
+  'ur',
+  'uz',
+  've',
+  'vi',
+  'wa',
+  'cy',
+  'wo',
+  'xh',
+  'ii',
+  'yi',
+  'yo',
+  'za',
+  'zu',
 
-  'en-US', // English (United States)
-  'en-GB', // English (United Kingdom)
-  'en-AU', // English (Australia)
-  'en-CA', // English (Canada)
-  'es-ES', // Spanish (Spain)
-  'es-MX', // Spanish (Mexico)
-  'es-AR', // Spanish (Argentina)
-  'pt-BR', // Portuguese (Brazil)
-  'pt-PT', // Portuguese (Portugal)
-  'fr-FR', // French (France)
-  'fr-CA', // French (Canada)
-  'de-DE', // German (Germany)
-  'de-AT', // German (Austria)
-  'de-CH', // German (Switzerland)
-  'zh-CN', // Chinese (Simplified, China)
-  'zh-TW', // Chinese (Traditional, Taiwan)
-  'zh-HK', // Chinese (Hong Kong)
+  'en-US',
+  'en-GB',
+  'en-AU',
+  'en-CA',
+  'es-ES',
+  'es-MX',
+  'es-AR',
+  'pt-BR',
+  'pt-PT',
+  'fr-FR',
+  'fr-CA',
+  'de-DE',
+  'de-AT',
+  'de-CH',
+  'zh-CN',
+  'zh-TW',
+  'zh-HK',
 ]);
 
 
@@ -246,6 +246,10 @@ export class LanguageManager {
             .map(file => this.loadFile(path.join(this.targetDir, file)).then(ok => { if (ok) loadedCount++; }));
         await Promise.all(loadPromises);
         log.info(`Language Manager initialized with ${loadedCount} namespaces.`);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('lang.loaded', { namespaces: loadedCount }))
+            .catch(() => undefined);
+
 
         if (hotReload) {
             this.watcher = new FileWatcher(this.targetDir, { includePatterns: ['**/*.json5'] });
@@ -473,6 +477,10 @@ export class LanguageManager {
         }
 
         log.info(`Language snapshot applied (${entries.length} entries, no disk I/O)`);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('lang.snapshot.applied', { entries: entries.length }))
+            .catch(() => undefined);
+
     }
 
     private flattenAndCompile(obj: Record<string, unknown>, prefix = '', res: Map<string, CompiledTranslation>): void {

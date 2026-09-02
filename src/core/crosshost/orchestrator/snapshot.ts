@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { compare, applyPatch, type Operation } from 'fast-json-patch';
+import { compare, applyPatch, type Operation } from '../jsonPatch.js';
 import type { Redis } from 'ioredis';
 import { getLogger } from '#core/utils/logger.js';
 import { configManager } from '#core/manager/config.js';

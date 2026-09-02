@@ -1,4 +1,4 @@
-namespace NovaX.Integrity;
+namespace Zene.Integrity;
 
 table FileEntry {
   path: string (key);

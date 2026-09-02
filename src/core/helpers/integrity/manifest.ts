@@ -4,7 +4,7 @@ import { sign, verify, createPrivateKey, createPublicKey, timingSafeEqual } from
 import * as flatbuffers from 'flatbuffers';
 import { getLogger } from '#core/utils/logger.js';
 
-import { NovaXManifest } from '#core/flatbuffer/nova-x/system/nova-xmanifest.js';
+import { ZeneManifest } from '#core/flatbuffer/nova-x/system/nova-xmanifest.js';
 import { IntegrityPayload } from '#core/flatbuffer/nova-x/system/integrity-payload.js';
 import { FileEntry } from '#core/flatbuffer/nova-x/system/file-entry.js';
 import { NodeDependency } from '#core/flatbuffer/nova-x/system/node-dependency.js';
@@ -85,16 +85,16 @@ export class PackageManager {
         const versionOffset = builder.createString(metadata.version);
         const descOffset = metadata.description ? builder.createString(metadata.description) : 0;
         const authorOffset = metadata.author ? builder.createString(metadata.author) : 0;
-        const novaxVersionStr = Array.isArray(metadata.novax_version)
-            ? metadata.novax_version.map(String).filter(Boolean).join(' ')
-            : metadata.novax_version;
-        const nvxVersionOffset = novaxVersionStr ? builder.createString(novaxVersionStr) : 0;
+        const zeneVersionStr = Array.isArray(metadata.zene_version)
+            ? metadata.zene_version.map(String).filter(Boolean).join(' ')
+            : metadata.zene_version;
+        const nvxVersionOffset = zeneVersionStr ? builder.createString(zeneVersionStr) : 0;
         const nodeVersionOffset = metadata.node_version ? builder.createString(metadata.node_version) : 0;
 
         let depsOffset = 0;
         if (metadata.dependencies && metadata.dependencies.length > 0) {
             const dOffsets = metadata.dependencies.map(d => builder.createString(d));
-            depsOffset = NovaXManifest.createDependenciesVector(builder, dOffsets);
+            depsOffset = ZeneManifest.createDependenciesVector(builder, dOffsets);
         }
 
         let nodeDepsOffset = 0;
@@ -109,23 +109,23 @@ export class PackageManager {
                 entryOffsets.push(NodeDependency.createNodeDependency(builder, nameOff, verOff));
             }
             if (entryOffsets.length > 0) {
-                nodeDepsOffset = NovaXManifest.createNodeDependenciesVector(builder, entryOffsets);
+                nodeDepsOffset = ZeneManifest.createNodeDependenciesVector(builder, entryOffsets);
             }
         }
 
-        NovaXManifest.startNovaXManifest(builder);
-        NovaXManifest.addId(builder, idOffset);
-        NovaXManifest.addName(builder, nameOffset);
-        NovaXManifest.addVersion(builder, versionOffset);
-        if (descOffset) NovaXManifest.addDescription(builder, descOffset);
-        if (authorOffset) NovaXManifest.addAuthor(builder, authorOffset);
-        if (nvxVersionOffset) NovaXManifest.addNovaxVersion(builder, nvxVersionOffset);
-        if (nodeVersionOffset) NovaXManifest.addNodeVersion(builder, nodeVersionOffset);
-        if (depsOffset) NovaXManifest.addDependencies(builder, depsOffset);
+        ZeneManifest.startZeneManifest(builder);
+        ZeneManifest.addId(builder, idOffset);
+        ZeneManifest.addName(builder, nameOffset);
+        ZeneManifest.addVersion(builder, versionOffset);
+        if (descOffset) ZeneManifest.addDescription(builder, descOffset);
+        if (authorOffset) ZeneManifest.addAuthor(builder, authorOffset);
+        if (nvxVersionOffset) ZeneManifest.addzeneVersion(builder, nvxVersionOffset);
+        if (nodeVersionOffset) ZeneManifest.addNodeVersion(builder, nodeVersionOffset);
+        if (depsOffset) ZeneManifest.addDependencies(builder, depsOffset);
         
-        NovaXManifest.addIntegrity(builder, integrityOffset);
-        if (nodeDepsOffset) NovaXManifest.addNodeDependencies(builder, nodeDepsOffset);
-        builder.finish(NovaXManifest.endNovaXManifest(builder));
+        ZeneManifest.addIntegrity(builder, integrityOffset);
+        if (nodeDepsOffset) ZeneManifest.addNodeDependencies(builder, nodeDepsOffset);
+        builder.finish(ZeneManifest.endZeneManifest(builder));
 
         const fbPayload = Buffer.from(builder.asUint8Array());
 
@@ -159,7 +159,7 @@ export class PackageManager {
         });
 
         if (fileBytes.length < PAYLOAD_OFFSET) {
-            throw new IntegrityError('File is too small to be a valid NovaX package.');
+            throw new IntegrityError('File is too small to be a valid Zene package.');
         }
 
         const magic = fileBytes.subarray(0, HEADER_OFFSET);
@@ -167,7 +167,7 @@ export class PackageManager {
         const fbPayload = fileBytes.subarray(PAYLOAD_OFFSET);
 
         if (!magic.equals(MAGIC_HEADER)) {
-            throw new IntegrityError('Invalid magic header. This is not a NovaX package.');
+            throw new IntegrityError('Invalid magic header. This is not a Zene package.');
         }
 
         let publicKey;
@@ -184,7 +184,7 @@ export class PackageManager {
         }
 
         const buf = new flatbuffers.ByteBuffer(fbPayload);
-        const manifest = NovaXManifest.getRootAsNovaXManifest(buf);
+        const manifest = ZeneManifest.getRootAsZeneManifest(buf);
         const integrity = manifest.integrity();
 
         if (!integrity) {
@@ -268,7 +268,7 @@ export class PackageManager {
             version: manifest.version()!,
             description: manifest.description() ?? undefined,
             author: manifest.author() ?? undefined,
-            novax_version: manifest.novaxVersion() ?? undefined,
+            zene_version: manifest.zeneVersion() ?? undefined,
             node_version: manifest.nodeVersion() ?? undefined,
             dependencies: dependencies.length > 0 ? dependencies : undefined,
             nodeDependencies: Object.keys(nodeDependencies).length > 0 ? nodeDependencies : undefined,

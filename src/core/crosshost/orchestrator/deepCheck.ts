@@ -39,16 +39,16 @@ export function runDeepCheck(
     mode: CompatMode,
     desired: DesiredState,
     incoming: {
-        novaxVersion: string;
+        zeneVersion: string;
         plugins: readonly PluginIdVersion[];
     },
 ): DeepCheckResult {
     if (mode === 'strict') {
-        if (incoming.novaxVersion !== desired.novaxVersion) {
+        if (incoming.zeneVersion !== desired.zeneVersion) {
             return {
                 ok: false,
                 reason: 'VERSION_MISMATCH_STRICT',
-                message: `NovaX version mismatch (strict): worker=${incoming.novaxVersion} desired=${desired.novaxVersion}`,
+                message: `Zene version mismatch (strict): worker=${incoming.zeneVersion} desired=${desired.zeneVersion}`,
             };
         }
         const want = sortedPluginKeys(desired.plugins);
@@ -63,11 +63,11 @@ export function runDeepCheck(
         return { ok: true, reason: 'OK', message: 'strict compatibility ok' };
     }
 
-    if (!SemVer.satisfies(incoming.novaxVersion, desired.novaxVersion)) {
+    if (!SemVer.satisfies(incoming.zeneVersion, desired.zeneVersion)) {
         return {
             ok: false,
             reason: 'VERSION_OUT_OF_RANGE',
-            message: `NovaX version out of range: worker=${incoming.novaxVersion} desired=${desired.novaxVersion}`,
+            message: `Zene version out of range: worker=${incoming.zeneVersion} desired=${desired.zeneVersion}`,
         };
     }
 

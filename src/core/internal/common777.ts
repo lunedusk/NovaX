@@ -38,7 +38,7 @@ class Common777 {
         }
 
         if (this.authorizedCallerPath !== entryPointPath) {
-            console.error(
+            log.error(
                 '\x1b[31m%s\x1b[0m',
                 `[SECURITY] Entry point changed during runtime from ${this.authorizedCallerPath} to ${entryPointPath}.`
             );

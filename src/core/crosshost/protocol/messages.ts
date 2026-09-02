@@ -7,7 +7,7 @@ export const pluginIdVersionSchema = z.object({
 
 export const registerRequestSchema = z.object({
     machineId: z.string().min(1).max(128),
-    novaxVersion: z.string().min(1).max(64),
+    zeneVersion: z.string().min(1).max(64),
     plugins: z.array(pluginIdVersionSchema).max(512),
     nodeVersion: z.string().min(1).max(64),
     platform: z.string().min(1).max(64),
@@ -75,7 +75,7 @@ export const updateInstructSchema = z.object({
     machineId: z.string().min(1),
     generation: z.number().int().positive(),
     desiredState: z.object({
-        novaxVersion: z.string().min(1),
+        zeneVersion: z.string().min(1),
         plugins: z.array(pluginIdVersionSchema),
     }),
     instructId: z.string().min(1),

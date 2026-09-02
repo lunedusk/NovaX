@@ -242,6 +242,10 @@ export class ConfigManager {
             for (const [k, v] of newRuntime) this.runtimeCache.set(k, v);
 
             log.info(`Successfully loaded ${loadedCount} configuration files.`);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('config.loaded', { count: loadedCount }))
+            .catch(() => undefined);
+
             return true;
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
@@ -355,6 +359,10 @@ export class ConfigManager {
             }
         }
         log.info(`Config snapshot applied (${this.rawCache.size} entries, no disk I/O)`);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('config.snapshot.applied', { entries: this.rawCache.size }))
+            .catch(() => undefined);
+
     }
 }
 

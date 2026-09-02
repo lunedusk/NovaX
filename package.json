@@ -1,6 +1,6 @@
 {
-  "name": "@lunedusk/novax",
-  "version": "0.5.1",
+  "name": "@lunedusk/zene",
+  "version": "0.5.2",
   "description": "The most versatile modular discord framework for Node.js (discord.js) in TypeScript",
   "main": "./index.js",
   "type": "module",
@@ -14,10 +14,11 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "clean": "rm -rf core plugins scripts index.js index.d.ts",
+    "clean": "rm -rf core plugins scripts database index.js index.d.ts",
+    "install-packages": "cd packages/gateway-multiplex && npm install && npm run build && cd ../..",
     "compile": "tsc",
     "copy-assets": "copyfiles -u 1 \"src/**/*.{json5,json,nvx,png,webp,jpg,jpeg,svg}\" \"src/**/data/**/*\" ./",
-    "build": "npm run clean && npm run compile && npm run copy-assets",
+    "build": "npm run clean && npm run install-packages && npm run compile && npm run copy-assets",
     "start": "node --import ./core/dependency/index.mjs ./index.js",
     "pack": "node --import ./core/dependency/index.mjs ./scripts/manifestPacker.js",
     "dev": "tsx --import ./src/core/dependency/index.mts ./src/index.ts",

@@ -11,6 +11,7 @@ export default class DashboardPlugin extends BasePlugin {
         version: '1.0.0',
         description: 'REST API surface consumed by the web dashboard.',
         dependencies: ['dash-data', 'api', 'permissions', 'token'],
+        zene_version: '>=0.5.2',
         priority: 10,
     };
 

@@ -3,9 +3,9 @@
     "name": "Token Manager",
     "version": "1.0.1",
     "description": "HMAC-SHA256 bearer token management with REST API for authentication, issuance, and revocation.",
-    "author": "NovaX Core",
+    "author": "Lunedusk",
     "dependencies": ["api"],
-    "novax_version": ">=0.1.9",
+    "zene_version": ">=0.5.2",
     "node_version": ">=20",
     "priority": -5
 }

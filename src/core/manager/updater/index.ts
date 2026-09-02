@@ -65,7 +65,7 @@ function loadConfig(): UpdaterConfig {
         autoUpdater:    secrets.getBoolean('AutoUpdater', true),
         repositoryUrl:  secrets.getOptional('RepositoryUrl') || null,
         githubPat:      secrets.getOptional('GithubPat') || secrets.getOptional('GH_TOKEN') || null,
-        defaultRepo:    secrets.getOptional('UpdaterDefaultRepo') || 'lunedusk/NovaX',
+        defaultRepo:    secrets.getOptional('UpdaterDefaultRepo') || 'lunedusk/Zene',
         branch:         secrets.getOptional('UpdaterBranch') || 'main',
         devBuilds:      secrets.getBoolean('DevBuilds', false),
         safeUpdate:     secrets.getBoolean('SafeUpdate', true),
@@ -104,7 +104,7 @@ function writePendingHealth(p: PendingHealth): void {
 function clearPendingHealth(): void {
     try {
         if (fs.existsSync(PENDING_HEALTH)) fs.unlinkSync(PENDING_HEALTH);
-    } catch { /* ignore */ }
+    } catch { }
 }
 
 function readApplyState(): ApplyState | null {
@@ -124,7 +124,7 @@ function writeApplyState(state: ApplyState): void {
 function clearApplyState(): void {
     try {
         if (fs.existsSync(APPLY_STATE)) fs.unlinkSync(APPLY_STATE);
-    } catch { /* ignore */ }
+    } catch { }
 }
 
 export function markUpdaterHealthy(): void {
@@ -355,8 +355,8 @@ function readLocalManifestId(pluginRel: string, manifestName: string): string | 
 
 function manifestCompatible(manifestJson: string, coreVersion: SemVer): { ok: boolean; req: string } {
     try {
-        const manifest = JSON.parse(manifestJson) as { novax_version?: string | string[] };
-        const req: string | string[] = manifest.novax_version ?? '*';
+        const manifest = JSON.parse(manifestJson) as { zene_version?: string | string[] };
+        const req: string | string[] = manifest.zene_version ?? '*';
         let ok = false;
         try {
             ok = SemVerRange.satisfies(coreVersion.toString(), req);
@@ -488,7 +488,7 @@ export class Updater {
         const baseline = readBaseline();
         let currentSemVer: SemVer | null = null;
         if (baseline) {
-            try { currentSemVer = SemVer.parse(baseline.tag); } catch { /* ignore */ }
+            try { currentSemVer = SemVer.parse(baseline.tag); } catch { }
         }
         if (!currentSemVer) currentSemVer = readPackageVersion();
 
@@ -522,7 +522,7 @@ export class Updater {
                             e => e.tag === baseline.tag && e.active !== false && e.recommend
                         );
                         recommend = ent?.recommend ?? null;
-                    } catch { /* ignore */ }
+                    } catch { }
                 }
                 const want = recommend || baseline?.previousTag || null;
                 if (!want) {
@@ -706,7 +706,7 @@ export class Updater {
                             category: 'core'
                         });
                     }
-                } catch { /* ignore */ }
+                } catch { }
             }
         }
 
@@ -983,7 +983,7 @@ export class Updater {
         try {
             const body = await this.gh.getFileText(owner, repo, this.config.branch, 'takebacks.json');
             if (body) return JSON.parse(body) as TakebacksFile;
-        } catch { /* optional */ }
+        } catch { }
         return null;
     }
 
@@ -1144,7 +1144,7 @@ export class Updater {
                     if (ok) {
                         selected = tag;
                         selectedReq = req;
-                        log.info(`[plugin] ${pluginName}: selected ${tag.name} (novax_version ${req})`);
+                        log.info(`[plugin] ${pluginName}: selected ${tag.name} (zene_version ${req})`);
                         break;
                     }
                     log.info(`[plugin] ${pluginName}: ${tag.name} incompatible (requires ${req})`);
@@ -1209,7 +1209,7 @@ export class Updater {
                 try {
                     const j = JSON.parse(remoteMan);
                     remoteId = j.id || j.name;
-                    if (!selectedReq && j.novax_version) {
+                    if (!selectedReq && j.zene_version) {
                         const { ok, req } = manifestCompatible(remoteMan, ctx.coreForCompat);
                         selectedReq = req;
                         if (!ok && !line.pinnedTag) {
@@ -1217,7 +1217,7 @@ export class Updater {
                         }
                     }
                     break;
-                } catch { /* ignore */ }
+                } catch { }
             }
             if (!compatOk) {
                 decisions.push({
@@ -1226,7 +1226,7 @@ export class Updater {
                     runtimePath: rtPath,
                     remotePath: null,
                     action: 'skip',
-                    reason: 'Incompatible novax_version after manifest read',
+                    reason: 'Incompatible zene_version after manifest read',
                     source: line
                 });
                 continue;
@@ -1312,7 +1312,7 @@ export class Updater {
             try {
                 const cur = await hashFile(full);
                 if (cur.hash !== entry.hash) return true;
-            } catch { /* ignore */ }
+            } catch { }
         }
         return false;
     }
@@ -1500,7 +1500,7 @@ export class Updater {
                 } else {
                     mismatched.push(rel);
                 }
-            } catch { /* ignore */ }
+            } catch { }
         }
 
         const plan: UpdatePlan = {
@@ -1595,7 +1595,7 @@ export class Updater {
                 }
             }
         } finally {
-            try { fs.unlinkSync(archivePath); } catch { /* ignore */ }
+            try { fs.unlinkSync(archivePath); } catch { }
         }
         return dest;
     }
@@ -1764,7 +1764,7 @@ export class Updater {
             if (fs.existsSync(metaPath)) {
                 meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { tag?: string; commit?: string | null };
             }
-        } catch { /* ignore */ }
+        } catch { }
 
         const rehashFiles = walkLocal().filter(f => !shouldHardExclude(f));
         const freshHashes = await computeLocalHashes(rehashFiles);
@@ -1853,7 +1853,7 @@ export class Updater {
                 if (fs.existsSync(coreOld)) fs.rmSync(coreOld, { recursive: true, force: true });
                 if (fs.existsSync(coreLive)) fs.renameSync(coreLive, coreOld);
                 fs.renameSync(coreNew, coreLive);
-                try { fs.rmSync(coreOld, { recursive: true, force: true }); } catch { /* ignore */ }
+                try { fs.rmSync(coreOld, { recursive: true, force: true }); } catch { }
             }
         }
 
@@ -1904,7 +1904,7 @@ export class Updater {
         await this.reinstallDependencies();
         try {
             await execFileAsync('npm', ['run', 'clean'], { cwd: process.cwd(), timeout: 60_000 });
-        } catch { /* ignore */ }
+        } catch { }
         await execFileAsync('npm', ['run', 'build'], {
             cwd: process.cwd(),
             timeout: this.config.timeoutMs
@@ -1924,7 +1924,7 @@ export class Updater {
             for (const e of entries.slice(this.config.maxBackups)) {
                 fs.rmSync(e.full, { recursive: true, force: true });
             }
-        } catch { /* ignore */ }
+        } catch { }
     }
 }
 

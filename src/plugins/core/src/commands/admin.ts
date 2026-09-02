@@ -1087,7 +1087,7 @@ export default class AdminCommand extends BaseCommand {
                 }
             }
         } catch {
-            /* ignore */
+
         }
 
         await interaction.respond(

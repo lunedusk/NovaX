@@ -10,7 +10,7 @@ export default class ApiGatewayPlugin extends BasePlugin {
         version:       '0.1.0',
         description:   'API Gateway — CORS, bearer auth, security headers, and OpenAPI spec.',
         author:        'Lunedusk',
-        novax_version: '>=0.2.0',
+        zene_version: '>=0.5.2',
         node_version:  '>=20',
     };
 

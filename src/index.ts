@@ -41,6 +41,14 @@ function readArgValue(names: string[]): string | null {
 
 async function runUpdaterMode(): Promise<void> {
     const logger = getLogger('Bootstrap');
+    void import('#core/manager/event.js')
+        .then(({ eventBus }) =>
+            eventBus.emitConcurrent('system.boot.start', {
+                mode: process.env.SHARD_LIST ? 'sharded-worker' : 'standalone',
+                at: Date.now(),
+            }),
+        )
+        .catch(() => undefined);
     try {
         minimalBootstrap();
         const { runUpdater } = await import('#core/manager/updater/index.js');
@@ -126,7 +134,7 @@ async function runBotMode(): Promise<void> {
     const { createPermissionsManager } = await import('#core/manager/permissions.js');
     const { createPermissionCache } = await import('#core/manager/permissionCache.js');
 
-    class NovaX {
+    class Zene {
         private readonly log = getLogger('Bootstrap');
         private readonly client: InstanceType<typeof Client<true>>;
         private isShuttingDown = false;
@@ -165,7 +173,7 @@ async function runBotMode(): Promise<void> {
 
         public async bootstrap(): Promise<void> {
             const start = performance.now();
-            this.log.info(`Booting NovaX ${this.shardIdentifier} [${process.env.NODE_ENV}]...`);
+            this.log.info(`Booting Zene ${this.shardIdentifier} [${process.env.NODE_ENV}]...`);
 
             try {
                 const hotReloadEnabled = secrets.getBoolean('hotReloadEnabled', false);
@@ -195,7 +203,16 @@ async function runBotMode(): Promise<void> {
                 const pluginMigrationSources = pluginManager.getPreloadedPluginDirs
                     ? pluginManager.getPreloadedPluginDirs()
                     : [];
-                await runAllMigrations({ plugins: pluginMigrationSources });
+                const migrationResult = await runAllMigrations({ plugins: pluginMigrationSources });
+                for (const pluginId of migrationResult.failedPlugins) {
+                    this.log.error(`Disabling plugin after migration failure: ${pluginId}`);
+                    pluginManager.excludePreloadedPlugin(pluginId, 'migration_failed');
+                    try {
+                        await pluginManager.disable(pluginId);
+                    } catch (err) {
+                        this.log.warn(`Could not disable plugin ${pluginId}`, err);
+                    }
+                }
 
                 this.log.info('Initializing Permission System...');
                 const permMgr = createPermissionsManager();
@@ -229,7 +246,7 @@ async function runBotMode(): Promise<void> {
                 await interactionHandler.syncCommands(this.client, secrets.getOptional('GuildID'));
 
                 const duration = ((performance.now() - start) / 1000).toFixed(2);
-                this.log.info(`NovaX fully initialized in ${duration}s.`);
+                this.log.info(`Zene fully initialized in ${duration}s.`);
 
                 if (this.isPrimaryShard) {
                     this.log.info('Panel Status Override: Bot Online, Running, Active, Bot Ready, Logged in, Server up and running');
@@ -237,7 +254,6 @@ async function runBotMode(): Promise<void> {
                         const { markUpdaterHealthy, startBackgroundUpdater, getUpdaterConfig } =
                             await import('#core/manager/updater/index.js');
                         markUpdaterHealthy();
-                        // Interval ticks only in background mode; pre-boot already did the one-shot
                         if (getUpdaterConfig().mode === 'background') {
                             this.stopBackgroundUpdater = startBackgroundUpdater({ skipInitial: true });
                         }
@@ -277,6 +293,15 @@ async function runBotMode(): Promise<void> {
             this.isShuttingDown = true;
 
             this.log.info(`Tearing down resources for ${this.shardIdentifier}...`);
+            void import('#core/manager/event.js')
+                .then(({ eventBus }) =>
+                    eventBus.emitConcurrent('system.shutdown.start', {
+                        signal: 'cleanup',
+                        role: this.shardIdentifier,
+                        at: Date.now(),
+                    }),
+                )
+                .catch(() => undefined);
 
             try {
                 this.stopBackgroundUpdater?.();
@@ -308,6 +333,14 @@ async function runBotMode(): Promise<void> {
     }
 
     const logger = getLogger('Bootstrap');
+    void import('#core/manager/event.js')
+        .then(({ eventBus }) =>
+            eventBus.emitConcurrent('system.boot.start', {
+                mode: process.env.SHARD_LIST ? 'sharded-worker' : 'standalone',
+                at: Date.now(),
+            }),
+        )
+        .catch(() => undefined);
     const isSpawnedWorker = process.env.SHARD_LIST !== undefined || typeof process.send === 'function';
 
     try {
@@ -386,7 +419,7 @@ async function runBotMode(): Promise<void> {
 
             await manager.spawn();
         } else {
-            const app = new NovaX();
+            const app = new Zene();
             await app.bootstrap();
         }
     } catch (error) {
@@ -395,7 +428,7 @@ async function runBotMode(): Promise<void> {
     }
 }
 
-const BOOT_LOCK = Symbol.for('NOVAX_BOOT_LOCK');
+const BOOT_LOCK = Symbol.for('ZENE_BOOT_LOCK');
 
 if (!(globalThis as any)[BOOT_LOCK]) {
     (globalThis as any)[BOOT_LOCK] = true;

@@ -11,7 +11,7 @@ import {
 
 function tryGetCorePlaceholdersSync(): PlaceholderMap {
     try {
-        const hook = (globalThis as { __novaxConfigPlaceholders?: () => unknown }).__novaxConfigPlaceholders;
+        const hook = (globalThis as { __zeneConfigPlaceholders?: () => unknown }).__zeneConfigPlaceholders;
         if (typeof hook === 'function') {
             return flattenPlaceholders(hook());
         }
@@ -23,7 +23,7 @@ function tryGetCorePlaceholdersSync(): PlaceholderMap {
 
 function tryGetEmojisSync(): Record<string, string> {
     try {
-        const hook = (globalThis as { __novaxEmojisGetAll?: () => Record<string, string> }).__novaxEmojisGetAll;
+        const hook = (globalThis as { __zeneEmojisGetAll?: () => Record<string, string> }).__zeneEmojisGetAll;
         if (typeof hook === 'function') return hook();
     } catch {
         
@@ -100,11 +100,11 @@ export function buildPercentPlaceholderMap(resolveEmoji: boolean): PlaceholderMa
 }
 
 export function registerConfigPlaceholderSource(getPlaceholders: () => unknown): void {
-    (globalThis as { __novaxConfigPlaceholders?: () => unknown }).__novaxConfigPlaceholders = getPlaceholders;
+    (globalThis as { __zeneConfigPlaceholders?: () => unknown }).__zeneConfigPlaceholders = getPlaceholders;
 }
 
 export function registerEmojiSource(getAll: () => Record<string, string>): void {
-    (globalThis as { __novaxEmojisGetAll?: () => Record<string, string> }).__novaxEmojisGetAll = getAll;
+    (globalThis as { __zeneEmojisGetAll?: () => Record<string, string> }).__zeneEmojisGetAll = getAll;
 }
 
 function generateRand(encoding: string, byteLength: number): string {

@@ -30,6 +30,7 @@ export async function startOrchestratorServer(
     snapshot: SnapshotService | null = null,
     identifyQueue: IdentifyQueue | null = null,
     shardMap: ShardMap | null = null,
+    onWorkerJoined: ((machineId: string) => void | Promise<void>) | null = null,
 ): Promise<OrchestratorServerHandle> {
     const app = express();
     app.use(express.json({ limit: '1mb' }));
@@ -81,7 +82,7 @@ export async function startOrchestratorServer(
         });
     });
 
-    app.post('/cross-host/v1/register', (req: Request, res: Response) => {
+    app.post('/cross-host/v1/register', async (req: Request, res: Response) => {
         const parsed = registerRequestSchema.safeParse(req.body);
         if (!parsed.success) {
             log.warn('Register rejected: invalid payload', {
@@ -113,10 +114,23 @@ export async function startOrchestratorServer(
             return;
         }
 
+        if (onWorkerJoined) {
+            try {
+                await onWorkerJoined(parsed.data.machineId);
+            } catch (err: unknown) {
+                log.warn('onWorkerJoined hook failed', err);
+            }
+        }
+
+        const assignedShards = shardMap
+            ? shardMap.shardsFor(parsed.data.machineId)
+            : result.assignedShards;
+        const generation = shardMap ? shardMap.getGeneration() : result.generation;
+
         res.status(200).json({
             ok: true,
-            generation: result.generation,
-            assignedShards: result.assignedShards,
+            generation,
+            assignedShards,
             totalShards: result.totalShards,
             redis: {
                 alias: result.redisAlias,
@@ -129,13 +143,6 @@ export async function startOrchestratorServer(
             compatMode: result.compatMode,
         });
 
-        if (identifyQueue && result.assignedShards.length > 0) {
-            void identifyQueue
-                .grantMany(parsed.data.machineId, result.assignedShards, true)
-                .catch((err: unknown) => {
-                    log.error('Failed to issue identify grants after register', err);
-                });
-        }
     });
 
     app.get('/cross-host/v1/snapshot', (req: Request, res: Response) => {
@@ -230,9 +237,16 @@ export async function startOrchestratorServer(
         port,
         async stop() {
             await new Promise<void>((resolve, reject) => {
+                if (!server.listening) {
+                    resolve();
+                    return;
+                }
                 server.close((err) => {
-                    if (err) reject(err);
-                    else resolve();
+                    if (err && (err as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING') {
+                        reject(err);
+                        return;
+                    }
+                    resolve();
                 });
             });
             await claim.stop();
