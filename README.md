@@ -1,4 +1,4 @@
-# 🌌 Project Zene Enterprise Framework (v0.5.1)
+# 🌌 Project Zene Enterprise Framework (v0.5.2)
 
 Zene is a corporate-grade, highly optimized, completely modular application platform engineered in TypeScript on a strict ECMAScript Module (ESM) architecture. Built to support high-throughput, fault-tolerant Discord application infrastructures, Zene features automated plugin workspace dependency sandboxing, cryptographic code-integrity and anti-tamper audits, a performance-tuned polyglot storage abstraction router, and an immutable context-injected dependency broker (`IHeart`) that eliminates global singletons while maintaining performance profiles.
 
