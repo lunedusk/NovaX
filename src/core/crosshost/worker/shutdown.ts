@@ -8,27 +8,12 @@ export function isWorkerShuttingDown(): boolean {
     return shuttingDown;
 }
 
-function safeLog(level: 'info' | 'warn' | 'error', message: string, meta?: unknown): void {
-    if (isLogsClosed()) {
-        const line = meta !== undefined ? `${message} ${JSON.stringify(meta)}` : message;
-        if (level === 'error') log.error(`[CrossHost:WorkerShutdown] ${line}`);
-        else log.error(`[CrossHost:WorkerShutdown] ${line}`);
-        return;
-    }
-    try {
-        if (level === 'info') log.info(message, meta as never);
-        else if (level === 'warn') log.warn(message, meta as never);
-        else log.error(message, meta as never);
-    } catch {
-        log.error(`[CrossHost:WorkerShutdown] ${message}`);
-    }
-}
 
 export async function performWorkerShutdown(signal: string): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
 
-    safeLog('warn', `Worker received ${signal}; beginning full teardown`);
+    log.warn(`Worker received ${signal}; beginning full teardown`);
 
     try {
         const { eventBus } = await import('#core/manager/event.js');
@@ -95,11 +80,11 @@ export async function performWorkerShutdown(signal: string): Promise<void> {
 
     for (const step of steps) {
         try {
-            safeLog('info', `Teardown step: ${step.name}`);
+            log.info(`Teardown step: ${step.name}`);
             await step.run();
-            safeLog('info', `Teardown step complete: ${step.name}`);
+            log.info(`Teardown step complete: ${step.name}`);
         } catch (err) {
-            safeLog('warn', `Teardown step failed: ${step.name}`, err);
+            log.warn(`Teardown step failed: ${step.name}`, err);
         }
     }
 
@@ -113,8 +98,7 @@ export async function performWorkerShutdown(signal: string): Promise<void> {
     } catch {
 
     }
-
-    safeLog('warn', 'Worker teardown complete; flushing logs and exiting');
+    log.warn('Worker teardown complete; flushing logs and exiting');
     try {
         await flushLogs();
     } catch {
