@@ -169,26 +169,62 @@ const globalLogger = winston.createLogger({
     transports: [...sharedTransports, new ErrorInterceptTransport()],
 });
 
+let logsClosed = false;
+
 export async function flushLogs(): Promise<void> {
+    if (logsClosed) return;
+    logsClosed = true;
     return new Promise((resolve) => {
-        globalLogger.end();
+        const transports = [...globalLogger.transports];
+        if (transports.length === 0) {
+            try {
+                globalLogger.end();
+            } catch {
+
+            }
+            resolve();
+            return;
+        }
+
         let finished = 0;
-        const transports = globalLogger.transports;
-        const timer = setTimeout(() => resolve(), 1000);
+        const done = () => {
+            finished++;
+            if (finished >= transports.length) {
+                clearTimeout(timer);
+                try {
+                    globalLogger.end();
+                } catch {
 
-        transports.forEach((t) => {
-            t.once('finish', () => {
-                finished++;
-                if (finished >= transports.length) {
-                    clearTimeout(timer);
-                    resolve();
                 }
-            });
-            if (typeof (t as any).end === 'function') (t as any).end();
-        });
+                resolve();
+            }
+        };
+        const timer = setTimeout(() => {
+            try {
+                globalLogger.end();
+            } catch {
 
-        if (transports.length === 0) resolve();
+            }
+            resolve();
+        }, 1000);
+
+        for (const t of transports) {
+            t.once('finish', done);
+            try {
+                if (typeof (t as { end?: () => void }).end === 'function') {
+                    (t as { end: () => void }).end();
+                } else {
+                    done();
+                }
+            } catch {
+                done();
+            }
+        }
     });
+}
+
+export function isLogsClosed(): boolean {
+    return logsClosed;
 }
 
 export function getLogger(name: string = 'app', level: string = getDefaultLevel()): Logger {

@@ -1,4 +1,4 @@
-# 🌌 Project NovaX Enterprise Framework (v0.3.0)
+# 🌌 Project NovaX Enterprise Framework (v0.5.1)
 
 NovaX is a corporate-grade, highly optimized, completely modular application platform engineered in TypeScript on a strict ECMAScript Module (ESM) architecture. Built to support high-throughput, fault-tolerant Discord application infrastructures, NovaX features automated plugin workspace dependency sandboxing, cryptographic code-integrity and anti-tamper audits, a performance-tuned polyglot storage abstraction router, and an immutable context-injected dependency broker (`IHeart`) that eliminates global singletons while maintaining performance profiles.
 
@@ -10,7 +10,7 @@ Built by [VeduStorm](https://github.com/VeduStorm) and the [Lunedusk](https://gi
 
 ## Cross-Host (optional)
 
-Env-gated multi-machine Discord sharding: thin orchestrator control plane + stripped workers, Redis pub/sub for assignment/identify/snapshot/stats/query, optional secondary audit/error index. Classic standalone and single-host `ShardingManager` paths are unchanged when `CROSS_HOST` is off. See [CROSS_HOST.md](CROSS_HOST.md).
+Env-gated multi-machine Discord sharding: thin orchestrator control plane + stripped workers, Redis pub/sub for assignment/identify/snapshot/stats/query, optional secondary audit/error index. Classic standalone and single-host `ShardingManager` paths are unchanged when `CROSS_HOST` is off. See [CROSS_HOST.md] / [EVENTS.md](EVENTS.md)(CROSS_HOST.md).
 
 ## Documentation
 
@@ -129,6 +129,7 @@ NovaX/
 │   │   ├── bases/
 │   │   ├── bootstrap/
 │   │   ├── builders/
+│   │   ├── crosshost/              # Multi-host shard control plane (orchestrator + worker)
 │   │   ├── database/
 │   │   │   └── migrations/core/
 │   │   ├── decorators/
@@ -139,6 +140,7 @@ NovaX/
 │   │   ├── internal/
 │   │   ├── loader/
 │   │   ├── manager/
+│   │   │   ├── events/             # EventBus + EventArgsMap
 │   │   │   └── updater/
 │   │   ├── placeholder/
 │   │   ├── scheduler/
@@ -146,6 +148,8 @@ NovaX/
 │   │   ├── utils/
 │   │   ├── validation/
 │   │   └── watcher/
+├── packages/
+│   └── gateway-multiplex/          # Optional @lunedusk/gateway-multiplex (Cross-Host WS experiments)
 │   └── plugins/                    # First-party plugin source
 │       ├── api/
 │       ├── core/

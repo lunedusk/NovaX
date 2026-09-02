@@ -110,7 +110,6 @@ export async function loadPluginConfigSchema(
             path.join(base, `${stem}.schema.js`),
             path.join(base, `${stem}.schema.mjs`),
             path.join(base, `${stem}.schema.ts`),
-            // primary aliases
             ...(stem === 'config'
                 ? [
                     path.join(base, 'default.schema.js'),

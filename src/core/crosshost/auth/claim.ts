@@ -33,6 +33,10 @@ export async function acquireOrchestratorClaim(redis: Redis): Promise<ClaimHandl
     }
 
     log.info('Orchestrator claim acquired', { fingerprint: fingerprint.slice(0, 12) });
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('crosshost.claim.acquired', { fingerprint: fingerprint.slice(0, 12) }))
+            .catch(() => undefined);
+
 
     let stopped = false;
     const renew = async (): Promise<void> => {

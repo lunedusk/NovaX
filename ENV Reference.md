@@ -1,6 +1,6 @@
 # NovaX — Environment Variable Reference
 
-> **Framework Version:** NovaX v0.3.0
+> **Framework Version:** NovaX v0.5.1
 > **Last Updated:** 2026
 > **Node.js Requirement:** ≥ 20
 
@@ -1616,7 +1616,7 @@ All standard env variables above are also valid as top-level keys in `common.jso
 
 ## 17. Cross-Host / Orchestrator
 
-Master switch and multi-machine control plane. When `CROSS_HOST` is true, the process branches before classic standalone / `isSharded` boot. See [CROSS_HOST.md](CROSS_HOST.md).
+Master switch and multi-machine control plane. When `CROSS_HOST` is true, the process branches before classic standalone / `isSharded` boot. See [CROSS_HOST.md](CROSS_HOST.md). Lifecycle events: [EVENTS.md](EVENTS.md).
 
 ### Master
 

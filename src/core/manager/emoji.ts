@@ -122,6 +122,10 @@ export class EmojiManager {
         }
         this.applyAtomicSwap(newCache);
         log.info(`Emoji snapshot applied (${this.cache.size} entries, no disk I/O)`);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('emoji.snapshot.applied', { entries: this.cache.size }))
+            .catch(() => undefined);
+
     }
 }
 

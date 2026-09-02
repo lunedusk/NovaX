@@ -1,4 +1,5 @@
 import { getLogger } from '#core/utils/logger.js';
+import { secrets } from '#core/helpers/secretManager.js';
 import { redisDB } from './redis.js';
 import { ormDB } from './typeorm.js';
 import { mongoDB } from './mongo.js';
@@ -50,6 +51,11 @@ export class DatabaseManager {
             const isNativeSqlite = config.engine === 'native-sqlite' || 
                 (protocol === 'sqlite' && !hasEntities && config.engine !== 'typeorm');
             if (isNativeSqlite) {
+                if (secrets.getBoolean('CROSS_HOST', false)) {
+                    throw new Error(
+                        `CROSS_HOST forbids sqlite/local-file engines. Database[${config.alias}] engine=native-sqlite/sqlite.`,
+                    );
+                }
                 sqliteDB.connect(config.alias, config.uri);
                 return;
             }
@@ -74,6 +80,11 @@ export class DatabaseManager {
                 case 'mysql':
                 case 'mariadb':
                 case 'sqlite':
+                    if (secrets.getBoolean('CROSS_HOST', false)) {
+                        throw new Error(
+                            `CROSS_HOST forbids sqlite/local-file engines. Database[${config.alias}] protocol=sqlite.`,
+                        );
+                    }
                     await ormDB.connect(config.alias, config.uri, config.entities || [], poolSize);
                     break;
                 default:
@@ -112,6 +123,12 @@ export class DatabaseManager {
                 novaDB.disconnectAll()
             ]);
             log.info('All databases closed safely.');
+            void import('#core/manager/event.js')
+                .then(({ eventBus }) =>
+                    eventBus.emitConcurrent('system.database.closed', { at: Date.now() }),
+                )
+                .catch(() => undefined);
+
         } catch (error) {
             const err = error as Error;
             log.error(`Error during database shutdown: ${err.message}`, { stack: err.stack });

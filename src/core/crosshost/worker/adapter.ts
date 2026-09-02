@@ -33,7 +33,7 @@ import {
     identifyGrantSchema,
     updateInstructSchema,
 } from '../protocol/messages.js';
-import type { Operation } from 'fast-json-patch';
+import type { Operation } from '../jsonPatch.js';
 import {
     applyAssignment,
     createWorkerRuntimeState,
@@ -63,6 +63,12 @@ import { list as auditList, getById as auditGetById } from '#core/audit/index.js
 import { list as errorList, getById as errorGetById } from '#core/errors/index.js';
 
 const log = getLogger('CrossHost:Worker');
+
+let activeWorkerRuntime: WorkerRuntimeState | null = null;
+
+export function getActiveWorkerRuntime(): WorkerRuntimeState | null {
+    return activeWorkerRuntime;
+}
 
 
 function resolveWorkerApiBaseUrl(env: CrossHostEnv): string | null {
@@ -242,6 +248,15 @@ export async function registerWithOrchestrator(env: CrossHostEnv): Promise<Worke
         );
     }
 
+    void import('#core/manager/event.js')
+        .then(({ eventBus }) =>
+            eventBus.emitConcurrent('crosshost.worker.registered', {
+                machineId,
+                assignedShards: registerJson.assignedShards,
+                totalShards: registerJson.totalShards,
+            }),
+        )
+        .catch(() => undefined);
     log.info('Registration accepted', {
         machineId,
         generation: registerJson.generation,
@@ -304,8 +319,46 @@ export async function runWorkerControlPlane(
         reg.assignedShards,
         reg.generation,
     );
+    activeWorkerRuntime = state;
+    state.grantWaiter.configureRedis(redis.main, prefix, machineId);
     markCrossHostWorkerActive(machineId);
     setCrossHostWorkerShards(state.shards);
+
+    let advertisedApiBase: string | null = null;
+
+    const heartbeat = async (): Promise<void> => {
+        const msg: HeartbeatMessage = {
+            machineId: state.machineId,
+            generation: state.generation,
+            shards: state.shards,
+            snapshotVersionAck: state.snapshotCache.getVersion(),
+            at: Date.now(),
+            apiBaseUrl: advertisedApiBase,
+        };
+        await redis.pub.publish(
+            channelHeartbeat(prefix),
+            encodeMessage(msg).toString('base64'),
+        );
+    };
+
+    await heartbeat();
+    const heartbeatTimer = setInterval(() => {
+        void heartbeat().catch((err) => log.warn('Heartbeat publish failed', err));
+    }, env.heartbeatMs);
+    heartbeatTimer.unref();
+    log.info('Worker early heartbeat started', {
+        machineId,
+        intervalMs: env.heartbeatMs,
+        shards: state.shards,
+    });
+    void import('#core/manager/event.js')
+        .then(({ eventBus }) =>
+            eventBus.emitConcurrent('crosshost.heartbeat.started', {
+                machineId,
+                intervalMs: env.heartbeatMs,
+            }),
+        )
+        .catch(() => undefined);
 
     const indexResolved = await resolveIndexBackend(env, redis.main, prefix);
     configureIndexWriter({
@@ -333,27 +386,11 @@ export async function runWorkerControlPlane(
         }
     });
 
-    const envelope = await pullSnapshot(env, reg.machineToken, reg.snapshotVersion);
-    state.snapshotCache.applyFull(envelope);
-    await ensurePluginsPreloaded(state);
-
     const requestGrants = async (shardIds: readonly number[]): Promise<void> => {
         for (const shardId of shardIds) {
             await state.grantWaiter.waitFor(shardId, 60_000);
         }
     };
-
-    initWorkerHttp();
-    await startClientIfNeeded(state, requestGrants);
-
-    let advertisedApiBase: string | null = null;
-    try {
-        if (state.pluginsBooted) {
-            advertisedApiBase = await startWorkerHttp(env);
-        }
-    } catch (err) {
-        log.error('Worker HTTP API failed to start', err);
-    }
 
     const statsCollector = new StatsCollector({
         machineId,
@@ -362,41 +399,23 @@ export async function runWorkerControlPlane(
         intervalMs: env.statsIntervalMs,
         getShardCount: () => state.shards.length,
     });
-    statsCollector.bindClient(state.client);
-    statsCollector.start();
-
-    const bus = await startWorkerPluginBus({
-        machineId,
-        prefix,
-        pub: redis.pub,
-        sub: redis.sub,
-        main: redis.main,
-    });
-    setCrossHostBus(bus);
-    registerGaugeHandlers(
-        (name, value) => statsCollector.setGauge(name, value),
-        (name, by) => statsCollector.incGauge(name, by),
-    );
-    registerFleetShutdownPublisher(async (reason) => {
-        await publishControlShutdown(redis.pub, prefix, {
-            scope: 'fleet',
-            reason,
-            fromMachineId: machineId,
-        });
-    });
-    registerMachineShutdownPublisher(async (targetId, reason) => {
-        await bus.shutdownWorker(targetId, reason);
-    });
 
     const handleUpdateInstruct = async (instruct: UpdateInstructMessage): Promise<void> => {
         if (instruct.machineId !== machineId) return;
-        log.info('UpdateInstruct received', { instructId: instruct.instructId });
-        await workerHooks.runBeforeUpdate(instruct.desiredState);
+        log.info('Update instruct received', {
+            instructId: instruct.instructId,
+            novaxVersion: instruct.desiredState.novaxVersion,
+            pluginCount: instruct.desiredState.plugins.length,
+        });
+        await workerHooks.runBeforeUpdate({
+            novaxVersion: instruct.desiredState.novaxVersion,
+            plugins: instruct.desiredState.plugins,
+        });
         let ok = false;
         let message = '';
         try {
-            const { runUpdater } = await import('#core/manager/updater/index.js');
-            await runUpdater({ force: false, dryRun: false });
+            const { runWorkerUpdate } = await import('./updateClient.js');
+            await runWorkerUpdate(instruct);
             ok = true;
             message = 'updater finished; exiting for restart';
         } catch (err) {
@@ -434,11 +453,16 @@ export async function runWorkerControlPlane(
             if (channel === channelAssignmentUpdate(prefix)) {
                 const parsed = assignmentUpdateSchema.safeParse(raw);
                 if (!parsed.success) return;
-                void applyAssignment(
-                    state,
-                    parsed.data as AssignmentUpdateMessage,
-                    requestGrants,
-                ).then(async () => {
+                const update = parsed.data as AssignmentUpdateMessage;
+                if (update.machineId !== machineId) {
+                    log.debug('Ignoring assignment for other machine', {
+                        for: update.machineId,
+                        self: machineId,
+                        generation: update.generation,
+                    });
+                    return;
+                }
+                void applyAssignment(state, update, requestGrants).then(async () => {
                     setCrossHostWorkerShards(state.shards);
                     statsCollector.bindClient(state.client);
                     if (state.pluginsBooted && !advertisedApiBase) {
@@ -454,7 +478,16 @@ export async function runWorkerControlPlane(
             if (channel === channelIdentifyGrant(prefix)) {
                 const parsed = identifyGrantSchema.safeParse(raw);
                 if (!parsed.success) return;
-                onIdentifyGrant(state, parsed.data as IdentifyGrantMessage);
+                const grant = parsed.data as IdentifyGrantMessage;
+                if (grant.machineId !== machineId) {
+                    log.debug('Ignoring identify grant for other machine', {
+                        for: grant.machineId,
+                        self: machineId,
+                        shardId: grant.shardId,
+                    });
+                    return;
+                }
+                onIdentifyGrant(state, grant);
                 return;
             }
             if (channel === channelUpdateInstruct(prefix)) {
@@ -474,27 +507,48 @@ export async function runWorkerControlPlane(
         channelIdentifyGrant(prefix),
         channelUpdateInstruct(prefix),
     );
+    log.info('Worker subscribed to control-plane channels');
 
-    const heartbeat = async (): Promise<void> => {
-        const msg: HeartbeatMessage = {
-            machineId: state.machineId,
-            generation: state.generation,
-            shards: state.shards,
-            snapshotVersionAck: state.snapshotCache.getVersion(),
-            at: Date.now(),
-            apiBaseUrl: advertisedApiBase,
-        };
-        await redis.pub.publish(
-            channelHeartbeat(prefix),
-            encodeMessage(msg).toString('base64'),
-        );
-    };
+    const envelope = await pullSnapshot(env, reg.machineToken, reg.snapshotVersion);
+    state.snapshotCache.applyFull(envelope);
+    await ensurePluginsPreloaded(state);
 
-    await heartbeat();
-    const timer = setInterval(() => {
-        void heartbeat().catch((err) => log.warn('Heartbeat publish failed', err));
-    }, env.heartbeatMs);
-    timer.unref();
+    initWorkerHttp();
+    await startClientIfNeeded(state, requestGrants);
+
+    try {
+        if (state.pluginsBooted) {
+            advertisedApiBase = await startWorkerHttp(env);
+        }
+    } catch (err) {
+        log.error('Worker HTTP API failed to start', err);
+    }
+
+    statsCollector.bindClient(state.client);
+    statsCollector.start();
+
+    const bus = await startWorkerPluginBus({
+        machineId,
+        prefix,
+        pub: redis.pub,
+        sub: redis.sub,
+        main: redis.main,
+    });
+    setCrossHostBus(bus);
+    registerGaugeHandlers(
+        (name, value) => statsCollector.setGauge(name, value),
+        (name, by) => statsCollector.incGauge(name, by),
+    );
+    registerFleetShutdownPublisher(async (reason) => {
+        await publishControlShutdown(redis.pub, prefix, {
+            scope: 'fleet',
+            reason,
+            fromMachineId: machineId,
+        });
+    });
+    registerMachineShutdownPublisher(async (targetId, reason) => {
+        await bus.shutdownWorker(targetId, reason);
+    });
 
     log.info('Worker control plane active', {
         machineId: state.machineId,
@@ -503,6 +557,7 @@ export async function runWorkerControlPlane(
         snapshotVersion: state.snapshotCache.getVersion(),
     });
 }
+
 
 async function handleSnapshotNotify(
     env: CrossHostEnv,

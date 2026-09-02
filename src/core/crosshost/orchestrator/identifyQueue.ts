@@ -3,21 +3,32 @@ import type { Redis } from 'ioredis';
 import { getLogger } from '#core/utils/logger.js';
 import type { IdentifyGrantMessage } from '../types.js';
 import { channelIdentifyGrant } from '../protocol/channels.js';
-import { encodeMessage } from '../protocol/codec.js';
+import { encodeMessage, decodeMessage } from '../protocol/codec.js';
 
 const log = getLogger('CrossHost:IdentifyQueue');
 
-const GRANT_TTL_MS = 30_000;
+const GRANT_TTL_MS = 60_000;
+
+export function grantRedisKey(prefix: string, machineId: string, shardId: number): string {
+    return `${prefix}:identify-grant:${machineId}:${shardId}`;
+}
 
 export class IdentifyQueue {
     private maxConcurrency: number;
     private readonly pub: Redis;
+    private readonly main: Redis | null;
     private readonly channelPrefix: string;
     private readonly bucketNextAt: number[];
 
-    constructor(maxConcurrency: number, pub: Redis, channelPrefix: string) {
+    constructor(
+        maxConcurrency: number,
+        pub: Redis,
+        channelPrefix: string,
+        main: Redis | null = null,
+    ) {
         this.maxConcurrency = Math.max(1, maxConcurrency);
         this.pub = pub;
+        this.main = main;
         this.channelPrefix = channelPrefix;
         this.bucketNextAt = Array.from({ length: this.maxConcurrency }, () => 0);
     }
@@ -58,6 +69,16 @@ export class IdentifyQueue {
             allowResume,
         };
 
+        if (this.main) {
+            const key = grantRedisKey(this.channelPrefix, machineId, shardId);
+            await this.main.set(
+                key,
+                encodeMessage(message).toString('base64'),
+                'PX',
+                GRANT_TTL_MS,
+            );
+        }
+
         await this.pub.publish(
             channelIdentifyGrant(this.channelPrefix),
             encodeMessage(message).toString('base64'),
@@ -71,6 +92,16 @@ export class IdentifyQueue {
             allowResume,
             expiresAt: message.expiresAt,
         });
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) =>
+                eventBus.emitConcurrent('crosshost.identify.granted', {
+                    machineId,
+                    shardId,
+                    allowResume,
+                }),
+            )
+            .catch(() => undefined);
+
 
         return message;
     }
@@ -85,5 +116,24 @@ export class IdentifyQueue {
             out.push(await this.grant(machineId, shardId, allowResume));
         }
         return out;
+    }
+}
+
+export async function loadGrantFromRedis(
+    main: Redis,
+    prefix: string,
+    machineId: string,
+    shardId: number,
+): Promise<IdentifyGrantMessage | null> {
+    const key = grantRedisKey(prefix, machineId, shardId);
+    const raw = await main.get(key);
+    if (!raw) return null;
+    try {
+        const msg = decodeMessage(Buffer.from(raw, 'base64')) as IdentifyGrantMessage;
+        if (msg.expiresAt < Date.now()) return null;
+        if (msg.machineId !== machineId || msg.shardId !== shardId) return null;
+        return msg;
+    } catch {
+        return null;
     }
 }

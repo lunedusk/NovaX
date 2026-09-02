@@ -189,3 +189,33 @@ When `CROSS_HOST_API_GATEWAY_ENABLED=true` (default), the **orchestrator HTTP se
 Discord gateway events (slash ban, etc.) are **already** shard-correct and do not use this proxy. HTTP plugin routes that need guild-local state must include `guildId`.
 
 Token and other global routes use **any** worker (plugins run on workers only; orchestrator does not load plugins).
+
+## EventBus (Cross-Host)
+
+Workers and the orchestrator emit typed events on the shared `eventBus`. Full catalog: [EVENTS.md](EVENTS.md).
+
+Notable Cross-Host events:
+
+| Event | Role |
+|-------|------|
+| `crosshost.storage.gate.passed` | Both |
+| `crosshost.claim.acquired` | Orchestrator |
+| `crosshost.orchestrator.ready` | Orchestrator |
+| `crosshost.worker.registered` | Worker |
+| `crosshost.heartbeat.started` | Worker |
+| `crosshost.snapshot.applied` | Worker |
+| `crosshost.assignment.applied` | Worker |
+| `crosshost.identify.granted` | Orchestrator |
+| `crosshost.rebalance` | Orchestrator |
+| `crosshost.worker.dead` | Orchestrator |
+| `crosshost.plugin_bus.started` | Worker |
+
+Also: `shard.ready` / `shard.disconnect` / `shard.set.changed` on workers that own Discord shard Clients; `system.shutdown.*` on both roles during graceful teardown.
+
+Plugins on workers may subscribe in `onEnable`:
+
+```ts
+this.heart.system.eventBus.on('crosshost.assignment.applied', (p) => { /* ... */ });
+```
+
+(Access path may be `eventBus` import from `#core/manager/event.js` when not exposed on heart — prefer the public EventBus import.)

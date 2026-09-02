@@ -7,7 +7,7 @@ export default class DashboardAnalyticsHandler extends BaseHandler {
     public readonly description = 'Records command execution counters for dashboard analytics.';
 
     public async recordCommand(pluginId: string, commandName: string): Promise<void> {
-        const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const date = new Date().toISOString().slice(0, 10);
         const col = await cmdCounterCollection(this.heart);
         const id = `cmd_${date}_${pluginId}_${commandName}`;
         const existing = await col.get(id).catch(() => null);

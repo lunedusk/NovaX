@@ -37,24 +37,26 @@ export class RebalanceEngine {
         this.stats.set(stats.machineId, stats);
     }
 
+    public async onWorkerJoined(machineId: string): Promise<void> {
+        log.info('Worker joined; filling unowned shards only', { machineId });
+        await this.fillUnownedShards('join');
+    }
+
     public async maybeRebalance(force = false): Promise<void> {
         const now = Date.now();
         if (!force && now - this.lastRunAt < this.env.rebalanceCooldownMs) {
             return;
         }
 
+        const filled = await this.fillUnownedShards(force ? 'join' : 'rebalance');
+
         const workers = this.membership
             .listWorkers()
             .filter((w) => !this.updating.has(w.machineId));
         if (workers.length === 0) {
             log.debug('Rebalance skipped: no eligible workers');
+            this.lastRunAt = Date.now();
             return;
-        }
-
-        const owner = new Map<number, string>();
-        for (let s = 0; s < this.shardMap.getTotalShards(); s++) {
-            const o = this.shardMap.ownerOf(s);
-            if (o) owner.set(s, o);
         }
 
         const scores = workers.map((w) =>
@@ -65,19 +67,28 @@ export class RebalanceEngine {
             ),
         );
         const imbalance = computeImbalance(scores);
-        const hasUnassigned = owner.size < this.shardMap.getTotalShards();
-        const hasEmptyWorker = workers.some(
-            (w) => this.shardMap.shardsFor(w.machineId).length === 0,
-        );
 
-        if (
-            !force &&
-            imbalance <= this.env.loadImbalanceThreshold &&
-            !hasUnassigned &&
-            !hasEmptyWorker
-        ) {
-            log.debug('Rebalance skipped: balanced', { imbalance });
+        if (!force && imbalance <= this.env.loadImbalanceThreshold) {
+            if (filled) {
+                log.debug('Rebalance stopped after fill-unowned; load within threshold', {
+                    imbalance,
+                });
+            } else {
+                log.debug('Rebalance skipped: balanced', { imbalance });
+            }
+            this.lastRunAt = Date.now();
             return;
+        }
+
+        if (workers.length < 2) {
+            this.lastRunAt = Date.now();
+            return;
+        }
+
+        const owner = new Map<number, string>();
+        for (let s = 0; s < this.shardMap.getTotalShards(); s++) {
+            const o = this.shardMap.ownerOf(s);
+            if (o) owner.set(s, o);
         }
 
         const strategy = getStrategy(this.env.assignmentStrategy);
@@ -101,9 +112,23 @@ export class RebalanceEngine {
             moves: diff.moves.length,
             imbalanceBefore: imbalance,
         });
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) =>
+                eventBus.emitConcurrent('crosshost.rebalance', {
+                    strategy: strategy.id,
+                    moves: diff.moves.length,
+                    reason: diff.reason,
+                }),
+            )
+            .catch(() => undefined);
 
-        for (const [machineId, shards] of diff.assignments.entries()) {
-            const current = this.shardMap.shardsFor(machineId);
+        if (diff.moves.length === 0) {
+            this.lastRunAt = Date.now();
+            return;
+        }
+
+        for (const [mid, shards] of diff.assignments.entries()) {
+            const current = this.shardMap.shardsFor(mid);
             const next = [...shards].sort((a, b) => a - b);
             if (
                 current.length === next.length &&
@@ -111,16 +136,78 @@ export class RebalanceEngine {
             ) {
                 continue;
             }
-            await this.shardMap.assign(
-                machineId,
-                next,
-                force ? 'join' : 'rebalance',
-                this.identifyQueue,
-            );
-            this.membership.setWorkerShards(machineId, next);
+            await this.shardMap.assign(mid, next, 'rebalance', this.identifyQueue);
+            this.membership.setWorkerShards(mid, next);
             this.membership.bumpGeneration(this.shardMap.getGeneration());
         }
 
         this.lastRunAt = Date.now();
+    }
+
+    private async fillUnownedShards(reason: 'join' | 'rebalance'): Promise<boolean> {
+        const workers = this.membership
+            .listWorkers()
+            .filter((w) => !this.updating.has(w.machineId));
+        if (workers.length === 0) return false;
+
+        const total = this.shardMap.getTotalShards();
+        const unowned: number[] = [];
+        for (let s = 0; s < total; s++) {
+            if (!this.shardMap.ownerOf(s)) unowned.push(s);
+        }
+        if (unowned.length === 0) {
+            log.debug('No unowned shards to fill');
+            return false;
+        }
+
+        const counts = new Map<string, number>();
+        for (const w of workers) {
+            counts.set(w.machineId, this.shardMap.shardsFor(w.machineId).length);
+        }
+
+        const target = new Map<string, number[]>();
+        for (const w of workers) {
+            target.set(w.machineId, this.shardMap.shardsFor(w.machineId));
+        }
+
+        for (const shardId of unowned) {
+            let bestId = workers[0].machineId;
+            let bestCount = counts.get(bestId) ?? 0;
+            for (const w of workers) {
+                const c = counts.get(w.machineId) ?? 0;
+                if (c < bestCount) {
+                    bestCount = c;
+                    bestId = w.machineId;
+                }
+            }
+            const list = target.get(bestId);
+            if (list) list.push(shardId);
+            else target.set(bestId, [shardId]);
+            counts.set(bestId, bestCount + 1);
+        }
+
+        let changed = false;
+        for (const [mid, shards] of target.entries()) {
+            const current = this.shardMap.shardsFor(mid);
+            const next = [...new Set(shards)].sort((a, b) => a - b);
+            if (
+                current.length === next.length &&
+                current.every((v, i) => v === next[i])
+            ) {
+                continue;
+            }
+            changed = true;
+            await this.shardMap.assign(mid, next, reason, this.identifyQueue);
+            this.membership.setWorkerShards(mid, next);
+            this.membership.bumpGeneration(this.shardMap.getGeneration());
+            log.info('Fill-unowned assignment published', {
+                machineId: mid,
+                previous: current,
+                next,
+                reason,
+            });
+        }
+
+        return changed;
     }
 }

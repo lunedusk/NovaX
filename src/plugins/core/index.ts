@@ -57,13 +57,23 @@ export default class Core extends BasePlugin {
         const rawConfig = this.heart.assets.config.get<PresenceConfig>('core');
 
         if (!rawConfig) {
-            this.log.warn('No core config found. Presence engine disabled; attempting default guildGate sqlite.');
+            const crossHost = (await import('#core/helpers/secretManager.js')).secrets.getBoolean(
+                'CROSS_HOST',
+                false,
+            );
+            this.log.warn(
+                crossHost
+                    ? 'No core config found. Presence engine disabled; default guildGate postgres/main under Cross-Host.'
+                    : 'No core config found. Presence engine disabled; attempting default guildGate sqlite.',
+            );
             this.config = {
                 enabled: false,
                 updateIntervalSeconds: 0,
                 status: 'online',
                 activities: [],
-                guildGate: { engine: 'sqlite', alias: 'main' }
+                guildGate: crossHost
+                    ? { engine: 'postgres', alias: 'main' }
+                    : { engine: 'sqlite', alias: 'main' },
             };
         } else {
             this.config = rawConfig;
@@ -84,18 +94,55 @@ export default class Core extends BasePlugin {
             await guildGate.init({ engine: gg.engine, alias: gg.alias });
             this.gatesOk = true;
         } catch (e1) {
-            this.log.warn(
-                `GuildGate init failed (${gg.engine}/${gg.alias}): ${(e1 as Error).message}. Falling back to sqlite/main.`
+            const crossHost = (await import('#core/helpers/secretManager.js')).secrets.getBoolean(
+                'CROSS_HOST',
+                false,
             );
-            try {
-                await guildGate.init({ engine: 'sqlite', alias: 'main' });
-                this.gatesOk = true;
-            } catch (e2) {
-                this.log.error(
-                    `GuildGate fallback sqlite/main failed: ${(e2 as Error).message}. Core plugin will disable.`
+            if (crossHost) {
+                this.log.warn(
+                    `GuildGate init failed (${gg.engine}/${gg.alias}): ${(e1 as Error).message}. Cross-Host: trying postgres/main then mongo/main (sqlite forbidden).`,
                 );
-                this.gatesOk = false;
-                throw new Error('Core disabled: no usable database for guild gates (sqlite/postgres/mongo).');
+                const attempts: Array<{ engine: string; alias: string }> = [
+                    { engine: 'postgres', alias: 'main' },
+                    { engine: 'mongo', alias: 'main' },
+                ];
+                let ok = false;
+                for (const attempt of attempts) {
+                    if (attempt.engine === gg.engine && attempt.alias === gg.alias) continue;
+                    try {
+                        await guildGate.init({ engine: attempt.engine, alias: attempt.alias });
+                        this.gatesOk = true;
+                        ok = true;
+                        this.log.info(`GuildGate recovered on ${attempt.engine}/${attempt.alias}`);
+                        break;
+                    } catch (e2) {
+                        this.log.warn(
+                            `GuildGate ${attempt.engine}/${attempt.alias} failed: ${(e2 as Error).message}`,
+                        );
+                    }
+                }
+                if (!ok) {
+                    this.gatesOk = false;
+                    throw new Error(
+                        'Core disabled: no usable networked database for guild gates under Cross-Host (postgres/mongo required; sqlite forbidden).',
+                    );
+                }
+            } else {
+                this.log.warn(
+                    `GuildGate init failed (${gg.engine}/${gg.alias}): ${(e1 as Error).message}. Falling back to sqlite/main.`,
+                );
+                try {
+                    await guildGate.init({ engine: 'sqlite', alias: 'main' });
+                    this.gatesOk = true;
+                } catch (e2) {
+                    this.log.error(
+                        `GuildGate fallback sqlite/main failed: ${(e2 as Error).message}. Core plugin will disable.`,
+                    );
+                    this.gatesOk = false;
+                    throw new Error(
+                        'Core disabled: no usable database for guild gates (sqlite/postgres/mongo).',
+                    );
+                }
             }
         }
     }

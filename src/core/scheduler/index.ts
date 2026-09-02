@@ -172,7 +172,7 @@ export class TaskScheduler {
             const tempPath = `${this.persistencePath}.tmp`;
             
             await fs.writeFile(tempPath, JSON.stringify(payload, null, 2), 'utf-8');
-            await fs.rename(tempPath, this.persistencePath); // Atomic swap
+            await fs.rename(tempPath, this.persistencePath);
         } catch (err) {
             log.error(`Failed to save schedule state: ${(err as Error).message}`);
         } finally {

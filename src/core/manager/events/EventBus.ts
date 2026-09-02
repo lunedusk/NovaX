@@ -1,21 +1,149 @@
-import type { Client, Interaction } from 'discord.js';
+import type { Client, ClientEvents, Interaction } from 'discord.js';
+import { Events } from 'discord.js';
 import type { AuditRecord } from '#core/audit/types.js';
 import type { ErrorOccurrence } from '#core/errors/types.js';
 import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('EventBus');
 
-export type EventArgsMap = {
-    'discord.clientReady': [client: Client<true>];
-    'discord.error': [error: Error];
-    'discord.interactionCreate': [interaction: Interaction];
-    'discord.guildCreate': unknown[];
-    'discord.guildDelete': unknown[];
+
+type DiscordEventName = (typeof Events)[keyof typeof Events];
+
+type DiscordBridgedEvents = {
+    [E in DiscordEventName as `discord.${E & string}`]: E extends keyof ClientEvents
+        ? ClientEvents[E]
+        : unknown[];
+};
+
+type FrameworkEventArgsMap = {
+    'system.boot.start': [payload: { mode: string; at: number }];
     'system.ready': [client: Client<true>];
+    'system.shutdown.start': [payload: { signal: string; role: string; at: number }];
+    'system.shutdown.complete': [payload: { signal: string; role: string; at: number }];
+    'system.http.ready': [payload: { host: string; port: number }];
+    'system.http.stopped': [payload: { at: number }];
+    'system.plugins.booted': [payload: { count: number; durationMs: number }];
+    'system.plugins.shutdown': [payload: { at: number }];
+    'system.log.error': [payload: {
+        level?: string;
+        message: string;
+        name?: string;
+        stack?: string;
+        meta?: unknown;
+        at?: number;
+    }];
+    'system.error.unhandled': [payload: {
+        message: string;
+        stack?: string;
+        origin?: string;
+        at?: number;
+    }];
+    'system.migration.complete': [payload: {
+        scope: string;
+        applied: number;
+        failed: number;
+        failedPlugins: readonly string[];
+    }];
+    'system.migration.plugin_failed': [payload: {
+        pluginId: string;
+        error: string;
+    }];
+    'system.secrets.locked': [payload: { keyCount: number }];
+    'system.database.ready': [payload: { alias: string; engine?: string }];
+    'system.database.closed': [payload: { at: number }];
+
+    'config.loaded': [payload: { count: number }];
+    'config.reloaded': [payload: { name?: string; count?: number }];
+    'config.snapshot.applied': [payload: { entries: number }];
+    'lang.loaded': [payload: { namespaces: number }];
+    'lang.reloaded': [payload: { namespaces?: number }];
+    'lang.snapshot.applied': [payload: { entries: number }];
+    'emoji.loaded': [payload: { count: number }];
+    'emoji.synced': [payload: { count?: number }];
+    'emoji.snapshot.applied': [payload: { entries: number }];
+
+    'permissions.ready': [payload: { engine: string; alias: string }];
+    'guildgate.ready': [payload: { engine: string; alias: string }];
+    'plugin.enabled': [payload: { pluginId: string; version?: string; durationMs?: number }];
+    'plugin.disabled': [payload: { pluginId: string }];
+    'plugin.preload.complete': [payload: { count: number }];
+    'interaction.commands.synced': [payload: {
+        count: number;
+        guildId?: string | null;
+        global: boolean;
+    }];
+    'interaction.handled': [payload: {
+        category: string;
+        commandName?: string;
+        pluginId?: string;
+        guildId?: string | null;
+        success: boolean;
+        durationMs?: number;
+    }];
+
+    'shard.ready': [payload: {
+        shardId: number;
+        totalShards: number;
+        userTag: string | null;
+    }];
+    'shard.disconnect': [payload: { shardId: number; reason?: string }];
+    'shard.set.changed': [payload: {
+        previous: readonly number[];
+        next: readonly number[];
+        totalShards: number;
+        reason?: string;
+    }];
+
+    'crosshost.worker.registered': [payload: {
+        machineId: string;
+        assignedShards: readonly number[];
+        totalShards: number;
+    }];
+    'crosshost.assignment.applied': [payload: {
+        machineId: string;
+        previous: readonly number[];
+        next: readonly number[];
+        reason: string;
+        generation: number;
+    }];
+    'crosshost.heartbeat.started': [payload: { machineId: string; intervalMs: number }];
+    'crosshost.worker.dead': [payload: { machineId: string; ageMs: number }];
+    'crosshost.rebalance': [payload: {
+        strategy: string;
+        moves: number;
+        reason: string;
+    }];
+    'crosshost.orchestrator.ready': [payload: {
+        totalShards: number;
+        strategy: string;
+        snapshotVersion: number;
+    }];
+    'crosshost.claim.acquired': [payload: { fingerprint: string }];
+    'crosshost.snapshot.applied': [payload: {
+        version: number;
+        mode: 'full' | 'diff';
+        hash?: string;
+    }];
+    'crosshost.identify.granted': [payload: {
+        machineId: string;
+        shardId: number;
+        allowResume: boolean;
+    }];
+    'crosshost.storage.gate.passed': [payload: { at: number }];
+    'crosshost.plugin_bus.started': [payload: { machineId: string }];
+
     'command:executed': [payload: { pluginId: string; commandName: string }];
     'audit.recorded': [entry: AuditRecord];
     'error.recorded': [entry: ErrorOccurrence];
 };
+
+export type EventArgsMap = FrameworkEventArgsMap & DiscordBridgedEvents;
+
+export const DISCORD_BRIDGED_EVENT_NAMES: readonly DiscordEventName[] = Object.freeze(
+    Object.values(Events) as DiscordEventName[],
+);
+
+
 
 export type ArgsFor<E extends string> = string extends E
     ? unknown[]

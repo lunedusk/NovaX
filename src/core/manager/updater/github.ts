@@ -138,7 +138,7 @@ export class GitHubClient {
                     const suffix = t.name.replace(new RegExp(`^plugin-${pluginName}-v`, 'i'), '');
                     semver = SemVer.parse(suffix.startsWith('v') ? suffix : `v${suffix}`);
                 } catch {
-                    /* ignore */
+
                 }
                 return { ...t, semver };
             })

@@ -120,6 +120,10 @@ export class GuildGateManager {
         await this.warmCache();
         this.ready = true;
         log.info(`GuildGate ready (engine=${this.engine}, alias=${this.alias}).`);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('guildgate.ready', { engine: this.engine, alias: this.alias }))
+            .catch(() => undefined);
+
     }
 
     private async initSqlite(alias: string): Promise<void> {

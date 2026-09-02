@@ -48,7 +48,6 @@ interface GatewayAuthContext {
     bits: string[];
 }
 
-// ─── GatewayConfigManager ───────────────────────────────────────────────────
 
 export class GatewayConfigManager {
     private static _instance: GatewayConfigManager;

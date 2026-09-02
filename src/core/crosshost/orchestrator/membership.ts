@@ -88,6 +88,20 @@ export class MembershipRegistry {
         this.workers.set(machineId, { ...w, shards: [...shards] });
     }
 
+    public removeWorker(machineId: string): boolean {
+        const had = this.workers.delete(machineId);
+        if (had) {
+            log.info('Worker removed from membership', { machineId });
+        }
+        return had;
+    }
+
+    public isLive(machineId: string, maxAgeMs: number): boolean {
+        const w = this.workers.get(machineId);
+        if (!w) return false;
+        return Date.now() - w.lastSeenAt <= maxAgeMs;
+    }
+
     public setWorkerSnapshotAck(machineId: string, version: number): void {
         const w = this.workers.get(machineId);
         if (!w) return;

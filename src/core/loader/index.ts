@@ -26,6 +26,7 @@ import { langLoader } from './lang.js';
 import { RouteLoader } from './routes.js';
 import { HandlerLoader } from './handler.js';
 import { handlerRegistry } from '#core/manager/handler/registry.js';
+import { int, number } from 'zod';
 
 const log = getLogger('PluginManager');
 
@@ -323,6 +324,15 @@ export class PluginManager extends EventEmitter {
         }));
     }
 
+    public excludePreloadedPlugin(pluginId: string, reason: string): void {
+        const before = this.preloadedPlugins.length;
+        this.preloadedPlugins = this.preloadedPlugins.filter((p) => p.manifest.id !== pluginId);
+        this.bootStatuses.set(pluginId, PluginBootStatus.Failed);
+        if (this.preloadedPlugins.length < before) {
+            log.warn(`[${pluginId}] Removed from preload set (${reason}); will not boot.`);
+        }
+    }
+
     public async bootAll(baseClient: Client<true>): Promise<void> {
         const totalStart = performance.now();
         log.info('Initiating Plugin Boot Sequence...');
@@ -384,6 +394,15 @@ export class PluginManager extends EventEmitter {
                 
                 const timeMs = (performance.now() - start).toFixed(2);
                 log.info(`[${id}] Successfully enabled in ${timeMs}ms.`);
+                void import('#core/manager/event.js')
+                    .then(({ eventBus }) =>
+                        eventBus.emitConcurrent('plugin.enabled', {
+                            pluginId: id,
+                            durationMs: timeMs,
+                        }),
+                    )
+                    .catch(() => undefined);
+
                 this.emit('pluginLoaded', manifest);
 
             } catch (error: unknown) {
@@ -398,8 +417,18 @@ export class PluginManager extends EventEmitter {
 
         const activeCount = this.registry.size;
         const totalTime = ((performance.now() - totalStart) / 1000).toFixed(2);
-        
+        const totalTimeMs = Math.round((performance.now() - totalStart));
+
         log.info(`Ecosystem Boot Complete in ${totalTime}s. [Loaded: ${activeCount}]`);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) =>
+                eventBus.emitConcurrent('system.plugins.booted', {
+                    count: activeCount,
+                    durationMs: Math.round(totalTimeMs * 1000),
+                }),
+            )
+            .catch(() => undefined);
+
         this.emit('ecosystemReady', { loaded: activeCount, timeSec: totalTime });
     }
 
@@ -490,6 +519,11 @@ export class PluginManager extends EventEmitter {
         this.integrityById.clear();
         this.pluginDirs.clear();
         this.emit('ecosystemOffline');
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) =>
+                eventBus.emitConcurrent('system.plugins.shutdown', { at: Date.now() }),
+            )
+            .catch(() => undefined);
     }
 
     public async reload(pluginString: string, baseClient: Client<true>): Promise<{ success: string[], failed: string[] }> {

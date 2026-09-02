@@ -1,0 +1,49 @@
+{
+  "name": "@lunedusk/gateway-multiplex",
+  "version": "1.0.0",
+  "description": "Dynamic per-shard Discord Gateway multiplex for multi-host bots. Add/remove shards without reconnecting unaffected sockets. Designed for discord.js v14.27-compatible gateway v10.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "discord",
+    "gateway",
+    "sharding",
+    "multiplex",
+    "websocket",
+    "novax",
+    "lunedusk"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.3.3"
+  },
+  "peerDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lunedusk/gateway-multiplex"
+  }
+}

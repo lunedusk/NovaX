@@ -11,6 +11,8 @@ const log = getLogger('Migrations');
 
 const CORE_SCOPE = 'core';
 
+let migrationRunLock: Promise<{ failedPlugins: string[] }> | null = null;
+
 async function ensureMigrationsTable(adapter: SqlAdapter): Promise<void> {
     if (adapter.engine === 'mongo') {
         try {
@@ -28,7 +30,8 @@ async function ensureMigrationsTable(adapter: SqlAdapter): Promise<void> {
         }
         return;
     }
-    await adapter.exec(`
+    try {
+        await adapter.exec(`
 CREATE TABLE IF NOT EXISTS schema_migrations (
     scope      TEXT    NOT NULL,
     version    INTEGER NOT NULL,
@@ -37,6 +40,16 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     PRIMARY KEY (scope, version)
 );
 `);
+    } catch (err: unknown) {
+        const code =
+            err && typeof err === 'object' && 'code' in err
+                ? String((err as { code: unknown }).code)
+                : '';
+        if (code === '23505' || code === '42P07') {
+            return;
+        }
+        throw err;
+    }
 }
 
 async function loadAppliedVersions(adapter: SqlAdapter, scope: string): Promise<Set<number>> {
@@ -281,45 +294,102 @@ export async function discoverAndRegisterPluginMigrations(
 
 export async function runAllMigrations(opts?: {
     plugins?: Array<{ dir: string; id: string }>;
-}): Promise<void> {
-    registerMigrationScope(CORE_SCOPE, coreMigrationSteps);
-
-    if (opts?.plugins?.length) {
-        await discoverAndRegisterPluginMigrations(opts.plugins);
+}): Promise<{ failedPlugins: string[] }> {
+    if (migrationRunLock) {
+        return migrationRunLock;
     }
 
-    const choice = resolvePermissionsBackend();
-    let coreAdapter: SqlAdapter;
-    try {
-        coreAdapter = openSqlAdapter(choice);
-    } catch (err) {
-        log.error(`Cannot open core migration backend: ${(err as Error).message}`);
-        throw err;
-    }
+    migrationRunLock = (async () => {
+        const failedPlugins: string[] = [];
+        registerMigrationScope(CORE_SCOPE, coreMigrationSteps);
 
-    const scopes = getRegisteredScopes();
-    const core = scopes.find((s) => s.id === CORE_SCOPE);
-    const plugins = scopes.filter((s) => s.id !== CORE_SCOPE);
+        if (opts?.plugins?.length) {
+            await discoverAndRegisterPluginMigrations(opts.plugins);
+        }
 
-    if (core) {
-        await runScope(core, coreAdapter);
-    }
-
-    for (const scope of plugins) {
+        const choice = resolvePermissionsBackend();
+        let coreAdapter: SqlAdapter;
         try {
-            const adapter = openSqlAdapter(
-                scope.alias
-                    ? { engine: choice.engine, alias: scope.alias }
-                    : choice,
-            );
-            await runScope(scope, adapter);
+            coreAdapter = openSqlAdapter(choice);
         } catch (err) {
-            const msg = (err as Error).message;
-            if (/not connected|not found/i.test(msg)) {
-                log.debug(`Skipping migration scope ${scope.id}: ${msg}`);
-                continue;
-            }
+            log.error(`Cannot open core migration backend: ${(err as Error).message}`);
             throw err;
         }
+
+        if (coreAdapter.engine === 'postgres') {
+            try {
+                await coreAdapter.exec('SELECT pg_advisory_lock(872014001)');
+            } catch (err) {
+                log.warn('Could not acquire migration advisory lock', err);
+            }
+        }
+
+        try {
+            const scopes = getRegisteredScopes();
+            const core = scopes.find((s) => s.id === CORE_SCOPE);
+            const plugins = scopes.filter((s) => s.id !== CORE_SCOPE);
+
+            if (core) {
+                await runScope(core, coreAdapter);
+            }
+
+            for (const scope of plugins) {
+                try {
+                    const adapter = openSqlAdapter(
+                        scope.alias
+                            ? { engine: choice.engine, alias: scope.alias }
+                            : choice,
+                    );
+                    await runScope(scope, adapter);
+                } catch (err) {
+                    const msg = (err as Error).message;
+                    if (/not connected|not found/i.test(msg)) {
+                        log.debug(`Skipping migration scope ${scope.id}: ${msg}`);
+                        continue;
+                    }
+                    const pluginId = scope.id.startsWith('plugin:')
+                        ? scope.id.slice('plugin:'.length)
+                        : scope.id;
+                    log.error(
+                        `Plugin migration failed for ${scope.id}; plugin will be disabled: ${msg}`,
+                    );
+                    failedPlugins.push(pluginId);
+                    void import('#core/manager/event.js')
+                        .then(({ eventBus }) =>
+                            eventBus.emitConcurrent('system.migration.plugin_failed', {
+                                pluginId,
+                                error: msg,
+                            }),
+                        )
+                        .catch(() => undefined);
+                }
+            }
+            void import('#core/manager/event.js')
+                .then(({ eventBus }) =>
+                    eventBus.emitConcurrent('system.migration.complete', {
+                        scope: 'all',
+                        applied: 0,
+                        failed: failedPlugins.length,
+                        failedPlugins,
+                    }),
+                )
+                .catch(() => undefined);
+            return { failedPlugins };
+        } finally {
+            if (coreAdapter.engine === 'postgres') {
+                try {
+                    await coreAdapter.exec('SELECT pg_advisory_unlock(872014001)');
+                } catch {
+
+                }
+            }
+        }
+    })();
+
+    try {
+        return await migrationRunLock;
+    } catch (err) {
+        migrationRunLock = null;
+        throw err;
     }
 }

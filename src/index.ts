@@ -41,6 +41,14 @@ function readArgValue(names: string[]): string | null {
 
 async function runUpdaterMode(): Promise<void> {
     const logger = getLogger('Bootstrap');
+    void import('#core/manager/event.js')
+        .then(({ eventBus }) =>
+            eventBus.emitConcurrent('system.boot.start', {
+                mode: process.env.SHARD_LIST ? 'sharded-worker' : 'standalone',
+                at: Date.now(),
+            }),
+        )
+        .catch(() => undefined);
     try {
         minimalBootstrap();
         const { runUpdater } = await import('#core/manager/updater/index.js');
@@ -195,7 +203,16 @@ async function runBotMode(): Promise<void> {
                 const pluginMigrationSources = pluginManager.getPreloadedPluginDirs
                     ? pluginManager.getPreloadedPluginDirs()
                     : [];
-                await runAllMigrations({ plugins: pluginMigrationSources });
+                const migrationResult = await runAllMigrations({ plugins: pluginMigrationSources });
+                for (const pluginId of migrationResult.failedPlugins) {
+                    this.log.error(`Disabling plugin after migration failure: ${pluginId}`);
+                    pluginManager.excludePreloadedPlugin(pluginId, 'migration_failed');
+                    try {
+                        await pluginManager.disable(pluginId);
+                    } catch (err) {
+                        this.log.warn(`Could not disable plugin ${pluginId}`, err);
+                    }
+                }
 
                 this.log.info('Initializing Permission System...');
                 const permMgr = createPermissionsManager();
@@ -237,7 +254,6 @@ async function runBotMode(): Promise<void> {
                         const { markUpdaterHealthy, startBackgroundUpdater, getUpdaterConfig } =
                             await import('#core/manager/updater/index.js');
                         markUpdaterHealthy();
-                        // Interval ticks only in background mode; pre-boot already did the one-shot
                         if (getUpdaterConfig().mode === 'background') {
                             this.stopBackgroundUpdater = startBackgroundUpdater({ skipInitial: true });
                         }
@@ -277,6 +293,15 @@ async function runBotMode(): Promise<void> {
             this.isShuttingDown = true;
 
             this.log.info(`Tearing down resources for ${this.shardIdentifier}...`);
+            void import('#core/manager/event.js')
+                .then(({ eventBus }) =>
+                    eventBus.emitConcurrent('system.shutdown.start', {
+                        signal: 'cleanup',
+                        role: this.shardIdentifier,
+                        at: Date.now(),
+                    }),
+                )
+                .catch(() => undefined);
 
             try {
                 this.stopBackgroundUpdater?.();
@@ -308,6 +333,14 @@ async function runBotMode(): Promise<void> {
     }
 
     const logger = getLogger('Bootstrap');
+    void import('#core/manager/event.js')
+        .then(({ eventBus }) =>
+            eventBus.emitConcurrent('system.boot.start', {
+                mode: process.env.SHARD_LIST ? 'sharded-worker' : 'standalone',
+                at: Date.now(),
+            }),
+        )
+        .catch(() => undefined);
     const isSpawnedWorker = process.env.SHARD_LIST !== undefined || typeof process.send === 'function';
 
     try {

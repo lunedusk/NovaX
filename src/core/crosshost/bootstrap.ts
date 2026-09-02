@@ -132,6 +132,7 @@ async function runOrchestrator(): Promise<void> {
         gateway.maxConcurrency,
         clients.pub,
         channelPrefix,
+        clients.main,
     );
 
     const workerStats = new Map<string, WorkerStats>();
@@ -156,7 +157,19 @@ async function runOrchestrator(): Promise<void> {
     });
     await updateController.start();
 
-    const server = await startOrchestratorServer(env, membership, claim, snapshot, identifyQueue, shardMap);
+    const server = await startOrchestratorServer(
+        env,
+        membership,
+        claim,
+        snapshot,
+        identifyQueue,
+        shardMap,
+        (machineId) => {
+            void rebalance.onWorkerJoined(machineId).catch((err) =>
+                log.warn('Join fill-unowned failed', err),
+            );
+        },
+    );
 
     const pollSnapshot = setInterval(() => {
         void snapshot.publishFromManagers(false).catch((err) => {
@@ -202,15 +215,32 @@ async function runOrchestrator(): Promise<void> {
     const failureWatch = setInterval(() => {
         const now = Date.now();
         const suspectMs = env.heartbeatMs * env.suspectAfter;
-        for (const worker of membership.listWorkers()) {
+        const deadMs = suspectMs + env.deadGraceMs;
+        for (const worker of [...membership.listWorkers()]) {
             const age = now - worker.lastSeenAt;
-            if (age > suspectMs + env.deadGraceMs) {
-                log.warn('Worker dead; clearing shards', {
+            if (age > deadMs) {
+                log.warn('Worker dead; clearing shards and removing from membership', {
                     machineId: worker.machineId,
                     lastSeenAt: worker.lastSeenAt,
                     ageMs: age,
                 });
-                void shardMap.clearMachine(worker.machineId, 'recovery');
+                void import('#core/manager/event.js')
+                    .then(({ eventBus }) =>
+                        eventBus.emitConcurrent('crosshost.worker.dead', {
+                            machineId: worker.machineId,
+                            ageMs: age,
+                        }),
+                    )
+                    .catch(() => undefined);
+                void (async () => {
+                    try {
+                        await shardMap.clearMachine(worker.machineId, 'recovery');
+                        membership.removeWorker(worker.machineId);
+                        await rebalance.maybeRebalance(true);
+                    } catch (err) {
+                        log.warn('Dead-worker recovery failed', err);
+                    }
+                })();
             } else if (age > suspectMs) {
                 log.warn('Worker suspect (missed heartbeats)', {
                     machineId: worker.machineId,
@@ -280,6 +310,16 @@ async function runOrchestrator(): Promise<void> {
         index: indexBackend?.name ?? 'off',
         queryTimeoutMs: env.queryTimeoutMs,
     });
+    void import('#core/manager/event.js')
+        .then(({ eventBus }) =>
+            eventBus.emitConcurrent('crosshost.orchestrator.ready', {
+                totalShards,
+                strategy: env.assignmentStrategy,
+                snapshotVersion: snapshot.getVersion(),
+            }),
+        )
+        .catch(() => undefined);
+
 
     setCrossHostQueryFacade(
         buildQueryFacade({
@@ -291,20 +331,75 @@ async function runOrchestrator(): Promise<void> {
         }),
     );
 
+    let shuttingDown = false;
     const shutdown = async (signal: string) => {
-        log.warn(`Orchestrator received ${signal}; shutting down`);
+        if (shuttingDown) return;
+        shuttingDown = true;
+        try {
+            log.warn(`Orchestrator received ${signal}; beginning full teardown`);
+        } catch {
+
+        }
         clearInterval(pollSnapshot);
         clearInterval(failureWatch);
         clearInterval(rebalanceTimer);
         clearInterval(updateTimer);
         clearInterval(rosterTimer);
         try {
+            const { eventBus } = await import('#core/manager/event.js');
+            void eventBus.emitConcurrent('system.shutdown.start', {
+                signal,
+                role: 'orchestrator',
+                at: Date.now(),
+            });
+        } catch {
+
+        }
+        try {
             setCrossHostQueryFacade(null);
+        } catch {
+
+        }
+        try {
             await server.stop();
-            await redisDB.disconnectAll();
-            await flushLogs();
+        } catch (err: unknown) {
+            const code =
+                err && typeof err === 'object' && 'code' in err
+                    ? String((err as { code: unknown }).code)
+                    : '';
+            if (code !== 'ERR_SERVER_NOT_RUNNING') {
+                try {
+                    log.error('Orchestrator HTTP stop error', err);
+                } catch {
+                    log.error('[CrossHost] Orchestrator HTTP stop error', err);
+                }
+            }
+        }
+        try {
+            const { DatabaseManager } = await import('#core/database/index.js');
+            await DatabaseManager.closeAll();
         } catch (err) {
-            log.error('Orchestrator shutdown error', err);
+            try {
+                await redisDB.disconnectAll();
+            } catch {
+
+            }
+            log.error('[CrossHost] Orchestrator DB teardown error', err);
+        }
+        try {
+            const { eventBus } = await import('#core/manager/event.js');
+            void eventBus.emitConcurrent('system.shutdown.complete', {
+                signal,
+                role: 'orchestrator',
+                at: Date.now(),
+            });
+        } catch {
+
+        }
+        try {
+            await flushLogs();
+        } catch {
+
         }
         process.exit(0);
     };
@@ -330,6 +425,9 @@ async function runWorker(): Promise<void> {
         throw new Error('CROSS_HOST_CLUSTER_SECRET is required for worker role');
     }
 
+    const { installWorkerSignalHandlers } = await import('./worker/shutdown.js');
+    installWorkerSignalHandlers();
+
     assertCrossHostStorageAllowed();
 
     const redisTarget = resolveCrossHostRedis();
@@ -347,28 +445,19 @@ async function runWorker(): Promise<void> {
 
     await runWorkerControlPlane(env, registration, clients);
 
-    const shutdown = async (signal: string) => {
-        log.warn(`Worker received ${signal}; shutting down`);
-        try {
-            await redisDB.disconnectAll();
-            await flushLogs();
-        } catch (err) {
-            log.error('Worker shutdown error', err);
-        }
-        process.exit(0);
-    };
-    process.on('SIGTERM', () => {
-        void shutdown('SIGTERM');
-    });
-    process.on('SIGINT', () => {
-        void shutdown('SIGINT');
-    });
-
     await new Promise<void>(() => {});
 }
 
 export async function runCrossHost(role: CrossHostRole): Promise<void> {
     log.info(`Cross-Host boot starting as ${role}`);
+    void import('#core/manager/event.js')
+        .then(({ eventBus }) =>
+            eventBus.emitConcurrent('system.boot.start', {
+                mode: `crosshost:${role}`,
+                at: Date.now(),
+            }),
+        )
+        .catch(() => undefined);
     if (role === 'orchestrator') {
         await runOrchestrator();
         return;

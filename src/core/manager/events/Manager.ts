@@ -6,15 +6,17 @@ import { metricsManager } from '#core/manager/metrics/index.js';
 const log = getLogger('EventManager');
 
 export class EventManager {
-    private isBound = false;
+    private readonly boundClients = new Set<Client>();
+    private busHooksAttached = false;
 
     public bindNativeEvents(client: Client): void {
-        if (this.isBound) {
-            log.warn('EventManager.bindNativeEvents called but listeners are already bound. Skipping.');
+        if (this.boundClients.has(client)) {
             return;
         }
 
-        log.info('Establishing EventBus bridge for Discord events...');
+        log.info('Establishing EventBus bridge for Discord events...', {
+            clientCount: this.boundClients.size + 1,
+        });
 
         let boundCount = 0;
 
@@ -36,27 +38,49 @@ export class EventManager {
             boundCount++;
         }
 
-        this.isBound = true;
-        log.info(`Bridged ${boundCount} dynamic Discord events.`);
-
-        eventBus.on('discord.guildCreate', () => {
-            metricsManager.activeGuilds.set(client.guilds.cache.size);
-        });
-        
-        eventBus.on('discord.guildDelete', () => {
-            metricsManager.activeGuilds.set(client.guilds.cache.size);
+        this.boundClients.add(client);
+        log.info(`Bridged ${boundCount} dynamic Discord events.`, {
+            boundClients: this.boundClients.size,
         });
 
-        eventBus.once('discord.clientReady', (c: Client<true>) => {
-            log.info(`Gateway Authenticated: ${c.user.tag}`);
-            metricsManager.activeGuilds.set(c.guilds.cache.size);
-            
-            eventBus.emitConcurrent('system.ready', c).catch(e => this.logError('System Ready Hook', e));
-        });
+        if (!this.busHooksAttached) {
+            this.busHooksAttached = true;
 
-        eventBus.on('discord.error', (err: Error) => {
-            log.error(`Gateway Error: ${err.message}`);
-        });
+            eventBus.on('discord.guildCreate', () => {
+                let total = 0;
+                for (const c of this.boundClients) {
+                    total += c.guilds.cache.size;
+                }
+                metricsManager.activeGuilds.set(total);
+            });
+
+            eventBus.on('discord.guildDelete', () => {
+                let total = 0;
+                for (const c of this.boundClients) {
+                    total += c.guilds.cache.size;
+                }
+                metricsManager.activeGuilds.set(total);
+            });
+
+            eventBus.once('discord.clientReady', (c: Client<true>) => {
+                log.info(`Gateway Authenticated: ${c.user.tag}`);
+                let total = 0;
+                for (const bc of this.boundClients) {
+                    total += bc.guilds.cache.size;
+                }
+                metricsManager.activeGuilds.set(total);
+
+                eventBus.emitConcurrent('system.ready', c).catch(e => this.logError('System Ready Hook', e));
+            });
+
+            eventBus.on('discord.error', (err: Error) => {
+                log.error(`Gateway Error: ${err.message}`);
+            });
+        }
+    }
+
+    public unbindClient(client: Client): void {
+        this.boundClients.delete(client);
     }
 
     private logError(context: string, error: unknown): void {

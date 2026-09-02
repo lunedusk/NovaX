@@ -108,7 +108,7 @@ static endIntegrityPayload(builder:flatbuffers.Builder):flatbuffers.Offset {
   return offset;
 }
 
-static createIntegrityPayload(builder:flatbuffers.Builder, timestamp:bigint, algorithmOffset:flatbuffers.Offset, filesOffset:flatbuffers.Offset, ignoreHashOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createIntegrityPayload(builder:flatbuffers.Builder, timestamp:bigint, algorithmOffset:flatbuffers.Offset, filesOffset:flatbuffers.Offset, ignoreHashOffset:flatbuffers.Offset = 0):flatbuffers.Offset {
   IntegrityPayload.startIntegrityPayload(builder);
   IntegrityPayload.addTimestamp(builder, timestamp);
   IntegrityPayload.addAlgorithm(builder, algorithmOffset);

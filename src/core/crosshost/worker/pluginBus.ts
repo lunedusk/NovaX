@@ -283,6 +283,10 @@ export async function startWorkerPluginBus(opts: {
     };
 
     log.info('Plugin bus started', { machineId: opts.machineId });
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('crosshost.plugin_bus.started', { machineId: opts.machineId }))
+            .catch(() => undefined);
+
     return bus;
 }
 
