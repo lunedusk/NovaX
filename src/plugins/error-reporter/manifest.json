@@ -1,10 +1,10 @@
 {
     "id": "error-reporter",
     "name": "Error Reporter",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "description": "Forwards log.error events and unhandled process errors to a configured Discord channel or webhook with rich ComponentsV2 containers.",
     "author": "NovaX",
     "dependencies": [],
-    "novax_version": ">=0.3.0",
+    "zene_version": ">=0.5.2",
     "node_version": ">=20"
 }
