@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "tag": "v0.0.0-example",
+      "status": "superseded",
+      "recommend": "v0.1.14",
+      "reason": "Example entry only — replace or delete before production use",
+      "severity": "low",
+      "at": "2026-01-01T00:00:00.000Z",
+      "active": false
+    }
+  ]
+}

@@ -1,12 +1,49 @@
-# 🌌 Project NovaX Enterprise Framework (v0.1.9)
+# 🌌 Project Zene Enterprise Framework (v0.5.2)
 
-NovaX is a corporate-grade, highly optimized, completely modular application platform engineered in TypeScript on a strict ECMAScript Module (ESM) architecture. Built to support high-throughput, fault-tolerant Discord application infrastructures, NovaX features automated plugin workspace dependency sandboxing, cryptographic code-integrity and anti-tamper audits, a performance-tuned polyglot storage abstraction router, and an immutable context-injected dependency broker (`IHeart`) that eliminates global singletons while maintaining performance profiles.
+Zene is a corporate-grade, highly optimized, completely modular application platform engineered in TypeScript on a strict ECMAScript Module (ESM) architecture. Built to support high-throughput, fault-tolerant Discord application infrastructures, Zene features automated plugin workspace dependency sandboxing, cryptographic code-integrity and anti-tamper audits, a performance-tuned polyglot storage abstraction router, and an immutable context-injected dependency broker (`IHeart`) that eliminates global singletons while maintaining performance profiles.
+
+---
+
+## Credits
+
+Built by [VeduStorm](https://github.com/VeduStorm) and the [Lunedusk](https://github.com/lunedusk) organization. Made with <3.
+
+## Cross-Host (optional)
+
+Env-gated multi-machine Discord sharding: thin orchestrator control plane + stripped workers, Redis pub/sub for assignment/identify/snapshot/stats/query, optional secondary audit/error index. Classic standalone and single-host `ShardingManager` paths are unchanged when `CROSS_HOST` is off. See [CROSS_HOST.md] / [EVENTS.md](EVENTS.md)(CROSS_HOST.md).
+
+## Documentation
+
+| Doc | Audience |
+|-----|----------|
+| [SETUP.md](SETUP.md) | Install, env, first run |
+| [PLACEHOLDERS.md](PLACEHOLDERS.md) | Placeholder system (full) |
+| [LOADER.md](LOADER.md) | Config/lang merge + surgical JSON5 write |
+| [UPDATER.md](UPDATER.md) | Crash-safe updater (CLI / background) |
+| [AUDIT.md](AUDIT.md) | Audit registry |
+| [ERRORS.md](ERRORS.md) | Error registry + NovaError |
+| [CROSS_HOST.md](CROSS_HOST.md) | Multi-machine shard orchestration (env-gated) |
+| [CACHE.md](CACHE.md) | Cache façade + TTLCache registry |
+| [PLUGINS.md](PLUGINS.md) | Plugin developer guide (license, verification) |
+| [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) | Plugin authoring contract |
+| [ENV Reference.md](ENV%20Reference.md) | Environment variables |
+| [Database.md (includes **dash-data** dashboard persistence)](Database.md) | Database configuration |
+| [NovaDB.md](NovaDB.md) | NovaDB |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributing |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Code of conduct |
+
+---
+
+## License
+Zene is licensed under the **PolyForm Noncommercial License 1.0.0**. This means you are free to use and modify the framework for personal and non-commercial purposes, but you cannot sell it, claim it as your own, or use it for commercial gain without written permission.
+
+**Note on Plugins:** Any independent plugins, commands, or extensions you create using the Zene framework remain your intellectual property. You retain full ownership of your original plugin code.
 
 ---
 
 ## 🏛️ System Architecture & Framework Lifecycle
 
-NovaX operates an multi-stage bootstrap pipeline designed to enforce thread isolation, establish cryptographic code validation checkpoints, provision persistence structures, and map localized state systems:
+Zene operates an multi-stage bootstrap pipeline designed to enforce thread isolation, establish cryptographic code validation checkpoints, provision persistence structures, and map localized state systems:
 
 ```
 [1. Identity Security Lock] ──> [2. Polyglot Storage Broker] ──> [3. Directed Graph Sorting]
@@ -15,47 +52,150 @@ NovaX operates an multi-stage bootstrap pipeline designed to enforce thread isol
 ```
 
 1. **Process Lockdown & Identity Verification (`Common777`)**: The engine locks the immutable process script entry-point path (`process.argv[1]`) immediately upon launch. Any mid-execution attempt to divert pathways results in immediate termination (`process.exit(1)`). It processes `common.json`, asserts that the global development author field evaluates precisely to `"Lunedusk"`, and merges definitions into `process.env` boundaries.
-2. **Polyglot Storage Broker (`DatabaseManager`)**: Parses a single serialized JSON object from `process.env.Database`. It instantiates independent connection pools for Native PostgreSQL clients, write-ahead logged (WAL) SQLite runtimes, sharded ioredis clustering triads (Main, Pub, and Sub clients for native pub/sub streaming out of the box), MongoDB nodes, or global multi-dialect TypeORM connections—managed by automated exponential backoff reconnect layers capped at 10-second intervals.
+2. **Polyglot Storage Broker (`DatabaseManager`)**: Parses a single serialized JSON object from `process.env.Database`. It instantiates independent connection pools for Native PostgreSQL clients, write-ahead logged (WAL) SQLite runtimes, sharded ioredis clustering triads (Main, Pub, and Sub clients for native pub/sub streaming out of the box), MongoDB nodes, or global multi-dialect TypeORM connections—managed by automated exponential backoff reconnect layers capped at 10-second intervals. Framework data planes (permissions, tokens, guild-gate) sit on a **shared backend selector** (preference sqlite → postgres → mongo, overridable per subsystem via config/env). **Schema migrations** run at boot after connect and before plugins. The **API gateway** authorizes `/api/*` with bearer API keys and a typed `httpRoutes` bit policy (`bitsMode` all|any).
 3. **Topological Dependency Graphing**: Scans all subdirectories inside `/plugins/`. It maps plugin dependencies as a strict directed acyclic graph (DAG), running depth-first search (DFS) sorting sweeps to establish proper load sequences and instantly catch circular dependency locks.
-4. **Sandboxed Module Isolation**: Each plugin executes inside an isolated workspace directory container. NovaX fires a separate child thread execution to install local plugin `package.json` requirements with optimization flags (`--no-save`, `--prefer-offline`) to maintain parent environment cleanliness. A tailored Node.js ESM module resolution hook intercepts and routes import calls to the plugin's local `node_modules` sandbox structure before falling back to the parent environment scope.
+4. **Sandboxed Module Isolation**: Each plugin executes inside an isolated workspace directory container. Zene fires a separate child thread execution to install local plugin `package.json` requirements with optimization flags (`--no-save`, `--prefer-offline`) to maintain parent environment cleanliness. A tailored Node.js ESM module resolution hook intercepts and routes import calls to the plugin's local `node_modules` sandbox structure before falling back to the parent environment scope.
 5. **Subsystem Loader Engine**:
-   - **`ConfigLoader` & `LangLoader`**: Synchronizes, maps, and cleans JSON5 structured sheets into centralized application directories. They implement a comprehensive schema analyzer (`deepSync`) that updates missing default fields, catches type syntax shifts, prunes obsolete keys, and safely records output states via atomic file-writes utilizing temporary `.tmp` targets to prevent data corruption.
+   - **`ConfigLoader` & `LangLoader`**: Synchronizes, maps, and cleans JSON5 structured sheets into centralized application directories. They use a shared **merge-preserve** engine (add missing defaults; keep user keys/values; no prune/type-reset) and **surgical JSON5** writes with parse/deep-equal round-trip (wholesale only as fallback).
    - **`CommandLoader` / `EventLoader` / `RouteLoader`**: Automatically registers all code logic extending abstract system bases. It maps application slash syntax, hooks Express endpoint namespaces, and registers element mappings (buttons, modals, drop-downs) directly into a master handler registry.
    - **`EmojiLoader`**: Automatically aggregates local graphical resources (`data/emoji/`) and map collections (`data/emoji.json`), distributing synced instances into a global sheet file (`.data/emojis.json`).
 6. **Command Sync & Gateway Connection**: Validates shard contexts, connects to the Discord gateway, synchronizes command bindings across specified test guilds or international scopes, and sets verified plugins to a live `ENABLED` operational status.
 
 ---
 
+## Client Auto-Updater (summary)
+
+Zene can update a deployed instance without a local git checkout:
+
+- **Core:** GitHub tags `vX.Y.Z` on the configured repository (major/minor always;
+  patch only if `DevBuilds=true`).
+- **First-party plugins:** Names from the **core tag’s** `plugins.txt`; each is
+  resolved via tags `plugin-<name>-v*` only (no branch-tip fallback). Compatibility
+  uses the plugin manifest’s `zene_version`.
+- **SafeUpdate:** Compares local files to a baseline (Blake2b-512). Dirty **core**
+  files block the core update; dirty **plugin** trees skip that plugin only.
+- **Apply:** Core files come from the core tag archive; each updated plugin folder
+  is fully replaced from its plugin tag. Runtime config under `configuration/` and
+  state under `.data/` are not part of the update payload.
+- **CLI (post-build):** `npm run updater`  
+  Flags: `--dry-run`, `--force`, `--baseline-only`, `--install-plugin <id>`.
+
+Full write-up: [UPDATER.md](UPDATER.md). Variable reference: [ENV Reference.md](ENV%20Reference.md) → **Auto Updater**.
+
+---
+
 ## 📂 Project Directory Layout
 
+Zene distinguishes clearly between **source / development**, **build output**, and **runtime state**.  
+The production Docker image and the auto-updater only ship / replace the build artefacts.
+
+### Development / Source tree (what you work in)
 ```
-NovaX/
-├── .data/                       # Central cache space and compiled metadata mappings
-│   └── emojis.json              # Global dictionary mapping programmatic and static emoji assets
-├── configuration/               # Synchronized target directory for active configurations
-│   └── lang/                    # Central translated language tables (e.g., core_en-US.json5)
-├── core/                        # Compiled high-performance framework distribution binaries
-├── logs/                        # Session-isolated, rotation-managed file log sheets
-├── plugins/                     # Root space for custom, decoupled framework plugins
-│   └── <plugin_id>/             # Isolated folder segment containing a single plugin module
-│       ├── data/                # Static local data structures, localizations, and defaults
-│       │   ├── configuration/   # Default options parameters sheet (e.g., config.json5)
-│       │   │   └── lang/        # Standard fallback language definitions (e.g., en-US.json5)
-│       │   ├── emoji/           # Local graphic structures, image sets, or symbol folders
-│       │   └── emoji.json       # Structural lookup table link for remote emoji assets
-│       ├── src/                 # Main plugin development source code space
-│       │   ├── commands/        # Core slash commands extending abstract BaseCommand
-│       │   ├── events/          # Gateway observers and interactive mappings extending BaseEvent
-│       │   └── routes/          # Express network API interfaces extending BaseRoute
-│       │   └── handlers/        # Inter Plugin Handlers
-│       ├── manifest.json        # Manifest sheet indicating identifiers, author metadata, and requirements
-│       └── package.json         # Container configuration mapping sandbox-isolated dependencies
-├── src/                         # Internal framework master development directory
-├── common.json                  # Baseline framework parameter environmental layout config
-├── package.json                 # Global framework orchestration manifest metadata
-├── tsconfig.json                # Explicit compilation parameters and path aliases
-└── typedoc.json                 # Core system document layout generation configuration mapping
+Zene/
+├── .data/                          # Runtime cache & state (generated, never commit)
+├── configuration/                  # Synced runtime configs (generated / user-edited)
+│   └── lang/
+├── core/                           # Compiled framework output (tsc — do not edit)
+├── docs/                           # Generated TypeDoc (npm run docs)
+├── logs/                           # Rotating session logs (runtime)
+├── pterodactyl-eggs/               # Deployment egg
+├── plugins/                        # Runtime plugin workspaces (built/copied here)
+│   └── <plugin_id>/                # kebab-case, must match manifest.id
+│       ├── index.ts                # REQUIRED — extends BasePlugin
+│       ├── manifest.json           # REQUIRED — identity + zene_version
+│       ├── manifest.nvx            # Optional signed manifest
+│       ├── package.json            # Only if the plugin has external deps
+│       ├── src/
+│       │   ├── commands/
+│       │   ├── events/
+│       │   ├── routes/
+│       │   └── handlers/
+│       └── data/
+│           ├── configuration/
+│           │   ├── config.json5
+│           │   └── lang/
+│           ├── schema/             # config + lang Zod schemas
+│           ├── rules/              # config + lang validation rules
+│           ├── emoji/
+│           └── emoji.json
+├── scripts/                        # Utility scripts
+├── src/                            # Framework source (TypeScript) — not shipped in prod images
+│   ├── index.ts
+│   ├── database/                   # NovaDB engine
+│   ├── core/
+│   │   ├── audit/
+│   │   ├── errors/
+│   │   ├── error/
+│   │   ├── bases/
+│   │   ├── bootstrap/
+│   │   ├── builders/
+│   │   ├── crosshost/              # Multi-host shard control plane (orchestrator + worker)
+│   │   ├── database/
+│   │   │   └── migrations/core/
+│   │   ├── decorators/
+│   │   ├── dependency/
+│   │   ├── flatbuffer/
+│   │   ├── heart/
+│   │   ├── helpers/
+│   │   ├── internal/
+│   │   ├── loader/
+│   │   ├── manager/
+│   │   │   ├── events/             # EventBus + EventArgsMap
+│   │   │   └── updater/
+│   │   ├── placeholder/
+│   │   ├── scheduler/
+│   │   ├── types/
+│   │   ├── utils/
+│   │   ├── validation/
+│   │   └── watcher/
+├── packages/
+│   └── gateway-multiplex/          # Optional @lunedusk/gateway-multiplex (Cross-Host WS experiments)
+│   └── plugins/                    # First-party plugin source
+│       ├── api/
+│       ├── core/
+│       ├── permissions/
+│       └── token/
+├── common.json
+├── package.json
+├── plugins.txt                     # First-party plugin list (auto-updater)
+├── tsconfig.json
+├── typedoc.json
+├── Dockerfile
+├── docker-compose.yml
+├── .env / .env.example
+├── sync.sh  sync-core.sh
+├── takebacks.json  takebacks.example.json
+├── README.md  SETUP.md  PLACEHOLDERS.md
+├── LOADER.md  UPDATER.md  AUDIT.md  ERRORS.md  CACHE.md          # [new]
+├── ENV Reference.md  Database.md  NovaDB.md
+├── System Prompt - AI - Plugin.md
+├── CONTRIBUTING.md  CONTRIBUTORS.md  CODE_OF_CONDUCT.md
+└── LICENSE
 ```
+
+### Built / Production tree (what the Docker image and updater actually contain)
+```
+Zene/                              # (or /app inside the container)
+├── .data/                          # Runtime only – volume-mount
+├── configuration/                  # Runtime only – volume-mount
+├── core/                           # Compiled framework (from `npm run build`)
+├── logs/                           # Runtime only – volume-mount
+├── plugins/                        # Runtime plugin folders (volume or baked)
+├── scripts/                        # Present only if the build pipeline copies it
+├── common.json
+├── index.js
+├── index.d.ts                      # optional
+├── package.json
+├── plugins.txt                     # Required by the auto-updater
+└── node_modules/                   # Production dependencies only (`npm ci --omit=dev`)
+```
+
+**Important notes**
+- `src/` is **source-only**. It is never shipped in a production image and may be absent after a clean build / updater run.
+- `core/` is pure compiled output. Do not document or edit its internal structure.
+- `plugins.txt` lives at the root and is the authoritative list of first-party plugins the updater will install/update.
+- Runtime directories (`.data/`, `configuration/`, `logs/`) must be volume-mounted; they are never part of the update payload.
+- Plugin updates **replace the entire plugin directory** (SafeUpdate respects dirty files unless `--force` is used).
 
 ---
 
@@ -105,7 +245,7 @@ Components do not reference open singletons or unverified framework imports. Ins
 
 ## 🛠️ Configuration & Assets Blueprint
 
-To achieve seamless, fault-tolerant plugin execution, asset structures must align precisely with NovaX's configuration synchronization specifications:
+To achieve seamless, fault-tolerant plugin execution, asset structures must align precisely with Zene's configuration synchronization specifications:
 
 ### 1. Default Option Parameters (`data/configuration/config.json5`)
 
@@ -144,17 +284,17 @@ Maps static asset tags or remote links. The framework parses, uploads, and cache
 
 ```json
 {
-  "shield_icon": "https://cdn.novax-framework.internal/assets/shield.png",
-  "checkmark_icon": "https://cdn.novax-framework.internal/assets/check.png"
+  "shield_icon": "https://cdn.lunedusk.com/assets/shield.png",
+  "checkmark_icon": "https://cdn.lunedusk.com/assets/check.png"
 }
 ```
 
 ### 4. Variable Interpolation vs. Global Placeholders
 
-NovaX bifurcates text cleaning operations into two explicit processing vectors:
+Zene bifurcates text cleaning operations into two explicit processing vectors:
 
 - **Variable Interpolation (`{{key}}`)**: Evaluated contextually per call by passing a local data dictionary object into a builder layout. It natively parses nested object structures using standard dot notation (e.g., `{{member.profile.avatar}}`).
-- **Global Placeholders (`%%key%%`)**: Replaces constant elements application-wide. NovaX expands items from the core layout configuration's `placeholders` entry, combined with entries stored inside the global `EmojiManager` prefixed with `emoji_`. This allows any layout asset to reference cached emojis globally via the notation `%%emoji_shield_icon%%`.
+- **Global Placeholders (`%%key%%`)**: Replaces constant elements application-wide. Zene expands items from the core layout configuration's `placeholders` entry, combined with entries stored inside the global `EmojiManager` prefixed with `emoji_`. This allows any layout asset to reference cached emojis globally via the notation `%%emoji_shield_icon%%`.
 
 ---
 
@@ -288,7 +428,7 @@ export class InventoryInteractionManager {
 
 ## 🎨 Layout Generation: Visual UI Engines
 
-NovaX introduces layout rendering modules. They scan string content data, executing placeholder translations and field variables lookups automatically across structural layouts.
+Zene introduces layout rendering modules. They scan string content data, executing placeholder translations and field variables lookups automatically across structural layouts.
 
 ### 1. Generating Rich Context Embeds (`EmbedEngine`)
 
@@ -304,7 +444,7 @@ const embedLayout = {
         color: "#5865F2",
         timestamp: "now",
         author: {
-            iconURL: "https://cdn.novax.internal/logo.png"
+            iconURL: "https://cdn.lunedusk.com/logo.png"
         },
         fields: [
             { name: "Active Allocation", value: "{{stats.allocation}}", inline: true },
@@ -342,3 +482,8 @@ const interactiveSpec = {
 
 const finalComponents = ComponentEngine.build(interactiveSpec);
 ```
+
+
+## Dashboard realtime
+
+`GET /api/dash/events/sse` (session) streams `registry.updated` after plugin lifecycle changes so the dashboard can refresh the surface registry. WebSocket support is deferred (see PLUGINS.md).

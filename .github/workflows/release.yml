@@ -1,0 +1,638 @@
+name: Master Auto Tag & Release
+
+on:
+  push:
+    branches: [main]
+    paths: ['package.json']
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Analyze Version Change
+        id: version_check
+        run: |
+          OLD_VERSION=$(git show HEAD~1:package.json | jq -r .version)
+          NEW_VERSION=$(jq -r .version package.json)
+
+          if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+            echo "Version did not change. Skipping."
+            echo "changed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "changed=true" >> $GITHUB_OUTPUT
+          echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          OLD_MAJOR=$(echo $OLD_VERSION | cut -d. -f1)
+          OLD_MINOR=$(echo $OLD_VERSION | cut -d. -f2)
+          NEW_MAJOR=$(echo $NEW_VERSION | cut -d. -f1)
+          NEW_MINOR=$(echo $NEW_VERSION | cut -d. -f2)
+
+          if [ "$OLD_MAJOR" = "$NEW_MAJOR" ] && [ "$OLD_MINOR" = "$NEW_MINOR" ]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Node.js
+        if: steps.version_check.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prepare .nvx packer library
+        if: steps.version_check.outputs.changed == 'true'
+        id: nvx_lib
+        run: |
+          set -euo pipefail
+          LIB="$RUNNER_TEMP/nvx_pack_lib.sh"
+          cat > "$LIB" <<'PACKLIB'
+          # shellcheck shell=bash
+          pack_all_plugins() {
+            set -euo pipefail
+
+            # Signing key required — same secret + env names as Plugin CI.
+            if [ -z "${PrivateKey:-}" ] && [ -z "${PLUGIN_SIGNING_KEY:-}" ]; then
+              echo "::error::PLUGIN_SIGNING_KEY secret is required to sign manifest.nvx"
+              exit 1
+            fi
+            export PrivateKey="${PrivateKey:-$PLUGIN_SIGNING_KEY}"
+            export PLUGIN_SIGNING_KEY="${PLUGIN_SIGNING_KEY:-$PrivateKey}"
+
+            # Packer artifacts must exist (produced by npm install + npm run build).
+            test -f core/dependency/index.mjs
+            test -f scripts/manifestPacker.js
+
+            if [ ! -d src/plugins ]; then
+              echo "  (no src/plugins directory — nothing to pack)"
+              return 0
+            fi
+
+            local packed=0
+            for dir in src/plugins/*/; do
+              [ -d "$dir" ] || continue
+              [ -f "${dir}manifest.json" ] || continue
+              local PLUGIN
+              PLUGIN="$(basename "$dir")"
+              echo "──────────────────────────────────────"
+              echo "🔏 Packing plugin: $PLUGIN"
+
+              npm run pack -- "$PLUGIN"
+
+              if [ -f "src/plugins/${PLUGIN}/manifest.nvx" ]; then
+                echo "  ✅ Signed: src/plugins/${PLUGIN}/manifest.nvx"
+              elif [ -f "plugins/${PLUGIN}/manifest.nvx" ]; then
+                mkdir -p "src/plugins/${PLUGIN}"
+                cp "plugins/${PLUGIN}/manifest.nvx" "src/plugins/${PLUGIN}/manifest.nvx"
+                echo "  ✅ Copied .nvx into src/plugins/${PLUGIN}/"
+              else
+                echo "::error::manifest.nvx was not produced for ${PLUGIN}"
+                ls -la "src/plugins/${PLUGIN}" 2>/dev/null || true
+                ls -la "plugins/${PLUGIN}" 2>/dev/null || true
+                exit 1
+              fi
+              packed=$((packed + 1))
+            done
+            echo "──────────────────────────────────────"
+            echo "🔏 Packed ${packed} plugin(s)."
+          }
+          PACKLIB
+          echo "lib=$LIB" >> "$GITHUB_OUTPUT"
+          echo "Wrote packer library to $LIB"
+
+      - name: Smart Update Docs & Version References (core)
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          OLD_VER: ${{ steps.version_check.outputs.old_version }}
+          NEW_VER: ${{ steps.version_check.outputs.version }}
+        run: |
+          if grep -q '"docs"' package.json; then
+            npm install
+            npm run docs || true
+          fi
+          node .github/scripts/bump-doc-versions.js
+
+      - name: Build Slim Distributions
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version_check.outputs.version }}
+          NVX_PACK_LIB: ${{ steps.nvx_lib.outputs.lib }}
+          PrivateKey: ${{ secrets.PLUGIN_SIGNING_KEY }}
+          PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+
+          # NOTE (nvx): install → build → pack → copy-assets must happen BEFORE
+          # the Slim-Source zip, so the signed src/plugins/*/manifest.nvx are
+          # captured in Source, and the compiled dirs contain them for Compiled.
+          echo "🔨 Building Slim (official pipeline)..."
+          npm install
+          npm run clean || true
+          npm run build
+
+          echo "🔏 Packing .nvx (Slim: in-repo plugins present)..."
+          source "$NVX_PACK_LIB"
+          pack_all_plugins
+          # Re-run copy-assets so the new .nvx are carried into compiled output.
+          npm run copy-assets
+
+          echo "📦 Packaging Slim Source..."
+          zip -q -r "Zene-v${VERSION}-Slim-Source.zip" . \
+            -x "*.git*" \
+            -x "*node_modules*" \
+            -x "*.zip" \
+            -x "slim_build*" \
+            -x "bundled_build*" \
+            -x "core" -x "plugins" -x "scripts" \
+            -x "index.js" -x "index.d.ts"
+
+          rm -rf slim_build
+          mkdir -p slim_build
+
+          for item in core plugins scripts index.js index.d.ts; do
+            [ -e "$item" ] && mv "$item" slim_build/ || true
+          done
+
+          cp package.json package-lock.json slim_build/
+          [ -f plugins.txt ] && cp plugins.txt slim_build/
+          [ -f takebacks.json ] && cp takebacks.json slim_build/
+          [ -f Dockerfile ] && cp Dockerfile slim_build/
+          [ -f docker-compose.yml ] && cp docker-compose.yml slim_build/
+
+          cp *.md slim_build/ 2>/dev/null || true
+          cp *.sh slim_build/ 2>/dev/null || true
+
+          echo "📦 Packaging Slim Compiled..."
+          (cd slim_build && zip -q -r "../Zene-v${VERSION}-Slim-Compiled.zip" .)
+
+          npm run clean || rm -rf core plugins scripts index.js index.d.ts
+          rm -rf slim_build
+
+      - name: Inject Compatible Plugins (in-repo + lunedusk/* only)
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version_check.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p src/plugins
+
+          # Snapshot first-party plugins present before inject (INTERNAL — never auto-dropped).
+          ls -1 src/plugins 2>/dev/null > bundled-internal-plugins.txt || true
+          : > bundled-external-injected.txt
+
+          echo "Current core version: $VERSION"
+          echo "plugins.txt contents:"
+          cat plugins.txt || true
+          echo "────────────────────────────────────────"
+
+          # Fail loud if the shared semver engine cannot run under strip-types.
+          # A broken engine must never look like "every tag is incompatible".
+          SEMVER_CLI=(node --experimental-strip-types src/core/utils/semver.ts)
+          if [ ! -f src/core/utils/semver.ts ]; then
+            echo "::error::src/core/utils/semver.ts missing — cannot evaluate plugin ranges"
+            exit 1
+          fi
+          set +e
+          YES_OUT=$("${SEMVER_CLI[@]}" satisfies 1.0.0 ">=1.0.0" 2>&1)
+          YES_RC=$?
+          NO_OUT=$("${SEMVER_CLI[@]}" satisfies 1.0.0 "<1.0.0" 2>&1)
+          NO_RC=$?
+          set -e
+          if [ "$YES_RC" -ne 0 ] || [ "$NO_RC" -ne 1 ]; then
+            echo "::error::semver CLI sanity check failed (expected exit 0 for true, 1 for false)"
+            echo "  satisfies 1.0.0 '>=1.0.0' → rc=$YES_RC out=$YES_OUT"
+            echo "  satisfies 1.0.0 '<1.0.0'  → rc=$NO_RC out=$NO_OUT"
+            exit 1
+          fi
+          echo "semver CLI sanity check passed (true→0, false→1)"
+
+          # Returns 0 if this plugins.txt line is allowed in the Bundled pack.
+          # Allowed:
+          #   - in-repo name / plugin-* branch (no colon)  → always first-party
+          #   - external name:owner/repo[@tag] only if owner is lunedusk (case-insensitive)
+          is_bundled_allowed() {
+            local line="$1"
+            if ! echo "$line" | grep -q ':'; then
+              return 0
+            fi
+            # Strip optional name prefix: take side after first colon
+            local spec="${line#*:}"
+            # Drop @pin if present
+            local repo_part="${spec%%@*}"
+            # owner/repo
+            local owner="${repo_part%%/*}"
+            owner=$(echo "$owner" | tr '[:upper:]' '[:lower:]')
+            if [ "$owner" = "lunedusk" ]; then
+              return 0
+            fi
+            return 1
+          }
+
+          inject_from_git_archive() {
+            local REF="$1"
+            local PLUGIN_NAME="$2"
+            local REPO_DIR="${3:-.}"
+
+            rm -rf "src/plugins/$PLUGIN_NAME"
+            if (cd "$REPO_DIR" && git archive "$REF" "src/plugins/${PLUGIN_NAME}" 2>/dev/null) | tar -x 2>/dev/null; then
+              echo "  ✅ Injected (L1 src/plugins path)"
+            elif (cd "$REPO_DIR" && git archive "$REF" "plugins/${PLUGIN_NAME}" 2>/dev/null) | tar -x 2>/dev/null; then
+              mkdir -p "src/plugins"
+              rm -rf "src/plugins/${PLUGIN_NAME}"
+              mv "plugins/${PLUGIN_NAME}" "src/plugins/${PLUGIN_NAME}"
+              echo "  ✅ Injected (L3 plugins path → src/plugins)"
+            else
+              mkdir -p "src/plugins/${PLUGIN_NAME}"
+              (cd "$REPO_DIR" && git archive "$REF") | tar -x -C "src/plugins/${PLUGIN_NAME}"
+              echo "  ✅ Injected (L2 root layout)"
+            fi
+          }
+
+          pick_compatible_tag() {
+            # Args: PLUGIN_NAME VERSION REPO_DIR
+            # Prints selected tag ref or empty
+            local PLUGIN_NAME="$1"
+            local CORE_VER="$2"
+            local REPO_DIR="$3"
+            local SELECTED_REF=""
+
+            mapfile -t TAGS < <(cd "$REPO_DIR" && git tag -l "plugin-${PLUGIN_NAME}-v*" | sort -V -r)
+
+            if [ ${#TAGS[@]} -eq 0 ]; then
+              # Also try plain v* for L2 single-plugin repos
+              mapfile -t TAGS < <(cd "$REPO_DIR" && git tag -l "v*" | sort -V -r)
+            fi
+
+            if [ ${#TAGS[@]} -eq 0 ]; then
+              echo ""
+              return 0
+            fi
+
+            for TAG in "${TAGS[@]}"; do
+              MANIFEST=""
+              if MANIFEST=$(cd "$REPO_DIR" && git show "$TAG:src/plugins/${PLUGIN_NAME}/manifest.json" 2>/dev/null); then
+                :
+              elif MANIFEST=$(cd "$REPO_DIR" && git show "$TAG:plugins/${PLUGIN_NAME}/manifest.json" 2>/dev/null); then
+                :
+              elif MANIFEST=$(cd "$REPO_DIR" && git show "$TAG:manifest.json" 2>/dev/null); then
+                :
+              else
+                echo "  ↳ $TAG → no manifest.json" >&2
+                continue
+              fi
+
+              REQ=$(node -e 'const m=JSON.parse(process.argv[1]); const r=m.zene_version??"*"; process.stdout.write(Array.isArray(r)?r.join(" "):String(r));' "$MANIFEST")
+              # 0 = compatible, 1 = incompatible, 2+ = parse/engine error (skip tag; engine-down is caught by sanity check above)
+              set +e
+              SEMVER_OUT=$("${SEMVER_CLI[@]}" satisfies "$CORE_VER" "$REQ" --include-prerelease 2>&1)
+              SEMVER_RC=$?
+              set -e
+              if [ "$SEMVER_RC" -eq 0 ]; then
+                echo "  ✅ $TAG compatible (requires $REQ)" >&2
+                SELECTED_REF=$TAG
+                break
+              elif [ "$SEMVER_RC" -eq 1 ]; then
+                echo "  ↳ $TAG incompatible (requires $REQ)" >&2
+              else
+                echo "  ↳ $TAG range error (requires $REQ, rc=$SEMVER_RC): $SEMVER_OUT" >&2
+              fi
+            done
+
+            echo "$SELECTED_REF"
+          }
+
+          while IFS= read -r raw || [ -n "$raw" ]; do
+            line=$(echo "$raw" | sed 's/#.*//' | xargs)
+            [ -z "$line" ] && continue
+
+            echo "────────────────────────────────────────"
+            echo "Line: $line"
+
+            if ! is_bundled_allowed "$line"; then
+              echo "  ⏭️  Skip non-lunedusk external (Bundled packs in-repo + lunedusk/* only)"
+              continue
+            fi
+
+            # ── External: name:owner/repo[@optionalTag]
+            if echo "$line" | grep -q ':'; then
+              PLUGIN_NAME="${line%%:*}"
+              SPEC="${line#*:}"
+              REPO_SPEC="${SPEC%%@*}"
+              PIN_TAG=""
+              if echo "$SPEC" | grep -q '@'; then
+                PIN_TAG="${SPEC#*@}"
+              fi
+              OWNER=$(echo "${REPO_SPEC%%/*}" | tr '[:upper:]' '[:lower:]')
+              if [ "$OWNER" != "lunedusk" ]; then
+                echo "  ⏭️  Skip external owner='$OWNER' (not lunedusk)"
+                continue
+              fi
+
+              echo "  External lunedusk plugin: $PLUGIN_NAME ← $REPO_SPEC"
+              TMP_DIR=$(mktemp -d)
+              cleanup_tmp() { rm -rf "$TMP_DIR"; }
+              trap cleanup_tmp EXIT
+
+              if ! git clone --depth 1 "https://github.com/${REPO_SPEC}.git" "$TMP_DIR/repo" 2>/dev/null; then
+                # deepen for tags
+                git clone "https://github.com/${REPO_SPEC}.git" "$TMP_DIR/repo"
+              fi
+              # fetch tags
+              git -C "$TMP_DIR/repo" fetch --tags --force 2>/dev/null || true
+
+              if [ -n "$PIN_TAG" ]; then
+                SELECTED_REF="$PIN_TAG"
+                echo "  Using pinned tag: $SELECTED_REF"
+              else
+                SELECTED_REF=$(pick_compatible_tag "$PLUGIN_NAME" "$VERSION" "$TMP_DIR/repo")
+              fi
+
+              if [ -z "$SELECTED_REF" ]; then
+                echo "  ❌ No compatible tag for $PLUGIN_NAME in $REPO_SPEC — skip"
+                trap - EXIT
+                cleanup_tmp
+                continue
+              fi
+
+              # Ensure tag is present locally
+              git -C "$TMP_DIR/repo" checkout "$SELECTED_REF" 2>/dev/null || \
+                git -C "$TMP_DIR/repo" fetch origin "refs/tags/${SELECTED_REF}:refs/tags/${SELECTED_REF}" && \
+                git -C "$TMP_DIR/repo" checkout "$SELECTED_REF"
+
+              inject_from_git_archive "$SELECTED_REF" "$PLUGIN_NAME" "$TMP_DIR/repo"
+              echo "$PLUGIN_NAME" >> bundled-external-injected.txt
+              trap - EXIT
+              cleanup_tmp
+              continue
+            fi
+
+            # ── In-repo first-party (branch name or bare id)
+            branch="$line"
+            PLUGIN_NAME=${branch#plugin-}
+            echo "  In-repo: $branch → plugin name = '$PLUGIN_NAME'"
+
+            SELECTED_REF=$(pick_compatible_tag "$PLUGIN_NAME" "$VERSION" ".")
+
+            if [ -z "$SELECTED_REF" ]; then
+              echo "  ❌ No compatible plugin tag – skip (tags only, no branch fallback)"
+              continue
+            fi
+
+            echo "  📥 Injecting tag $SELECTED_REF → src/plugins/$PLUGIN_NAME"
+            inject_from_git_archive "$SELECTED_REF" "$PLUGIN_NAME" "."
+            # Tag-injected content is external for the drop loop even when the
+            # plugins.txt line has no owner/repo colon (same-repo branch/tag).
+            # Only the pre-inject snapshot is INTERNAL (never auto-dropped).
+            if ! grep -qxF "$PLUGIN_NAME" bundled-internal-plugins.txt 2>/dev/null; then
+              echo "$PLUGIN_NAME" >> bundled-external-injected.txt
+              echo "  ↳ recorded as external-injected (not in pre-inject snapshot)"
+            fi
+          done < plugins.txt
+
+          echo "────────────────────────────────────────"
+          echo "Final plugins present (Bundled inject):"
+          ls -1 src/plugins/ || true
+          echo "External-injected (droppable on tsc failure):"
+          cat bundled-external-injected.txt || true
+
+      - name: Smart Update Docs & Version References (injected plugins)
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          OLD_VER: ${{ steps.version_check.outputs.old_version }}
+          NEW_VER: ${{ steps.version_check.outputs.version }}
+        run: |
+          node .github/scripts/bump-doc-versions.js
+
+      - name: Build Bundled Distributions
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version_check.outputs.version }}
+          NVX_PACK_LIB: ${{ steps.nvx_lib.outputs.lib }}
+          PrivateKey: ${{ secrets.PLUGIN_SIGNING_KEY }}
+          PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+
+          # NOTE (nvx): install → build → pack → copy-assets must happen BEFORE
+          # the Bundled-Source zip so the signed src/plugins/*/manifest.nvx
+          # (in-repo + injected lunedusk) are captured in Source, and the
+          # compiled dirs contain them for the Compiled zip.
+          echo "🔨 Building Bundled (official pipeline)..."
+          npm install
+          npm run clean || true
+
+          MAX_DROP_ITERATIONS=10
+          attempt=0
+          : > bundled-dropped-plugins.txt
+          INTERNAL_FILE=bundled-internal-plugins.txt
+          EXTERNAL_FILE=bundled-external-injected.txt
+          [ -f "$INTERNAL_FILE" ] || : > "$INTERNAL_FILE"
+          [ -f "$EXTERNAL_FILE" ] || : > "$EXTERNAL_FILE"
+
+          is_internal_plugin() {
+            local id="$1"
+            if grep -qxF "$id" "$INTERNAL_FILE" 2>/dev/null; then
+              return 0
+            fi
+            return 1
+          }
+
+          is_external_plugin() {
+            local id="$1"
+            if grep -qxF "$id" "$EXTERNAL_FILE" 2>/dev/null; then
+              return 0
+            fi
+            return 1
+          }
+
+          while true; do
+            attempt=$((attempt + 1))
+            echo "── tsc attempt $attempt / $MAX_DROP_ITERATIONS ──"
+            set +e
+            BUILD_LOG=$(mktemp)
+            npm run build >"$BUILD_LOG" 2>&1
+            BUILD_RC=$?
+            set -e
+            if [ "$BUILD_RC" -eq 0 ]; then
+              echo "✅ Build clean"
+              cat "$BUILD_LOG"
+              rm -f "$BUILD_LOG"
+              break
+            fi
+            cat "$BUILD_LOG"
+
+            # Attribute errors to src/plugins/<id>/
+            mapfile -t ERR_PLUGINS < <(
+              grep -oE 'src/plugins/[A-Za-z0-9_-]+/' "$BUILD_LOG"                 | sed 's|src/plugins/||;s|/||'                 | sort -u
+            )
+
+            # Any diagnostic path outside plugins, or unattributed failure → fail closed
+            NON_PLUGIN_HITS=$(grep -E 'error TS|error TS[0-9]+' "$BUILD_LOG" | grep -vE 'src/plugins/[A-Za-z0-9_-]+/' || true)
+            if [ -n "$NON_PLUGIN_HITS" ]; then
+              echo "❌ Core/shared or non-plugin TypeScript errors — failing (will not drop plugins to hide them)"
+              echo "$NON_PLUGIN_HITS"
+              rm -f "$BUILD_LOG"
+              exit 1
+            fi
+
+            if [ ${#ERR_PLUGINS[@]} -eq 0 ]; then
+              echo "❌ Build failed with no attributable plugin path — fail closed"
+              rm -f "$BUILD_LOG"
+              exit 1
+            fi
+
+            DROP_LIST=()
+            for pid in "${ERR_PLUGINS[@]}"; do
+              if is_internal_plugin "$pid"; then
+                echo "❌ Internal/first-party plugin '$pid' failed tsc — failing release"
+                rm -f "$BUILD_LOG"
+                exit 1
+              fi
+              if ! is_external_plugin "$pid"; then
+                echo "❌ Plugin '$pid' failed tsc but is not recorded as external-injected — fail closed"
+                rm -f "$BUILD_LOG"
+                exit 1
+              fi
+              DROP_LIST+=("$pid")
+            done
+
+            if [ ${#DROP_LIST[@]} -eq 0 ]; then
+              echo "❌ Nothing safe to drop"
+              rm -f "$BUILD_LOG"
+              exit 1
+            fi
+
+            for pid in "${DROP_LIST[@]}"; do
+              REASON=$(grep -E "src/plugins/${pid}/" "$BUILD_LOG" | head -n 3 | tr '\n' ' ')
+              echo "🗑️  Dropping external plugin '$pid' due to tsc errors"
+              echo "$pid	$REASON" >> bundled-dropped-plugins.txt
+              rm -rf "src/plugins/$pid"
+              # Remove from external list so a reappear is treated carefully
+              if [ -f "$EXTERNAL_FILE" ]; then
+                grep -vxF "$pid" "$EXTERNAL_FILE" > "${EXTERNAL_FILE}.tmp" || true
+                mv "${EXTERNAL_FILE}.tmp" "$EXTERNAL_FILE"
+              fi
+            done
+
+            rm -f "$BUILD_LOG"
+
+            if [ "$attempt" -ge "$MAX_DROP_ITERATIONS" ]; then
+              echo "❌ Hit MAX_DROP_ITERATIONS=$MAX_DROP_ITERATIONS — failing"
+              exit 1
+            fi
+          done
+
+          if [ -s bundled-dropped-plugins.txt ]; then
+            echo "Dropped external plugins this release:"
+            cat bundled-dropped-plugins.txt
+          else
+            echo "No external plugins dropped"
+          fi
+
+          echo "🔏 Packing .nvx (Bundled: in-repo + remaining injected plugins)..."
+          source "$NVX_PACK_LIB"
+          pack_all_plugins
+          # Re-run copy-assets so the new .nvx are carried into compiled output.
+          npm run copy-assets
+
+          echo "📦 Packaging Bundled Source..."
+          zip -q -r "Zene-v${VERSION}-Bundled-Source.zip" . \
+            -x "*.git*" \
+            -x "*node_modules*" \
+            -x "*.zip" \
+            -x "slim_build*" \
+            -x "bundled_build*" \
+            -x "core" -x "plugins" -x "scripts" \
+            -x "index.js" -x "index.d.ts"
+
+          rm -rf bundled_build
+          mkdir -p bundled_build
+
+          for item in core plugins scripts index.js index.d.ts; do
+            [ -e "$item" ] && mv "$item" bundled_build/ || true
+          done
+
+          cp package.json package-lock.json bundled_build/
+          [ -f plugins.txt ] && cp plugins.txt bundled_build/
+          [ -f bundled-dropped-plugins.txt ] && cp bundled-dropped-plugins.txt bundled_build/
+          [ -f takebacks.json ] && cp takebacks.json bundled_build/
+          [ -f Dockerfile ] && cp Dockerfile bundled_build/
+          [ -f docker-compose.yml ] && cp docker-compose.yml bundled_build/
+
+          cp *.md bundled_build/ 2>/dev/null || true
+          cp *.sh bundled_build/ 2>/dev/null || true
+
+          echo "📦 Packaging Bundled Compiled..."
+          (cd bundled_build && zip -q -r "../Zene-v${VERSION}-Bundled-Compiled.zip" .)
+
+          npm run clean || rm -rf core plugins scripts index.js index.d.ts
+          rm -rf bundled_build
+
+      - name: Import GPG Key
+        if: steps.version_check.outputs.changed == 'true'
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+          git_tag_gpgsign: true
+          git_config_global: true
+
+      - name: Commit, Tag & Publish Release
+        if: steps.version_check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version_check.outputs.version }}
+          IS_PRERELEASE: ${{ steps.version_check.outputs.is_prerelease }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          TAG_NAME="v${VERSION}"
+
+          # Commit signed .nvx for IN-REPO plugins back to main. Injected
+          # lunedusk/* plugins are transient (created in Inject, wiped by
+          # `npm run clean` at the end of Build Bundled), so only in-repo
+          # src/plugins/*/manifest.nvx that survive on disk get staged.
+          git add docs/ *.md plugins.txt takebacks.json || true
+          git add src/plugins/*/manifest.nvx || true
+          if ! git diff --cached --quiet; then
+            git commit -S -m "[CHORE] Update Docs & Version References to ${TAG_NAME}"
+          fi
+
+          git tag -s "${TAG_NAME}" -m "Release ${TAG_NAME}"
+
+          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" main
+          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" "${TAG_NAME}"
+          gh workflow run "sync_template.yml" -f tag="${TAG_NAME}"
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            gh release create "${TAG_NAME}" \
+              "Zene-v${VERSION}-Slim-Source.zip" \
+              "Zene-v${VERSION}-Slim-Compiled.zip" \
+              "Zene-v${VERSION}-Bundled-Source.zip" \
+              "Zene-v${VERSION}-Bundled-Compiled.zip" \
+              --prerelease \
+              --title "${TAG_NAME} Pre-release" \
+              --generate-notes
+          else
+            gh release create "${TAG_NAME}" \
+              "Zene-v${VERSION}-Slim-Source.zip" \
+              "Zene-v${VERSION}-Slim-Compiled.zip" \
+              "Zene-v${VERSION}-Bundled-Source.zip" \
+              "Zene-v${VERSION}-Bundled-Compiled.zip" \
+              --title "${TAG_NAME}" \
+              --generate-notes
+          fi

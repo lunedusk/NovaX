@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "tag": "v0.1.18",
+      "status": "superseded",
+      "recommend": "v0.1.20",
+      "reason": "Docs not updating",
+      "severity": "low",
+      "at": "2026-08-16T10:37:00Z",
+      "active": true
+    },
+    {
+      "tag": "v0.2.0",
+      "status": "superseded",
+      "recommend": "v0.4.0",
+      "reason": "Security Flaw in Integrity of Signed Plugins",
+      "severity": "high",
+      "at": "2026-08-25T13:34:03Z",
+      "active": true
+    },
+    {
+      "tag": "v0.3.0",
+      "status": "superseded",
+      "recommend": "v0.4.0",
+      "reason": "Security Flaw in Integrity of Signed Plugins",
+      "severity": "high",
+      "at": "2026-08-25T13:34:29Z",
+      "active": true
+    },
+    {
+      "tag": "v0.5.1",
+      "status": "withdrawn",
+      "recommend": "v0.5.0",
+      "reason": "Cross Host highly unstable",
+      "severity": "critical",
+      "at": "2026-09-02T08:51:21Z",
+      "active": true
+    }
+  ]
+}

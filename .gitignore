@@ -179,7 +179,6 @@ __**
 .env.diff
 !src/plugins/core/**/*
 !src/plugins/permissions/**/*
-!src/plugins/sellauth/**/*
 !dashboard/**/lib/
 !src/plugins/**/lib/
 *graphify*/**/*
@@ -195,12 +194,12 @@ __**
 **/*__MACOSX/**
 *__MACOSX/*
 __MACOSX/
-src/plugins/dashboard/**/*
 src/plugins/message-builder/**/*
 codex-skills/**/*
 Skill.md
 .CODE_OF_CONDUCT.md
 .CONTRIBUTING.md
 .claude-flow/**/*
+!.github/scripts/bump-doc-versions.js
 make-takeback.cjs
 apps/**/*
