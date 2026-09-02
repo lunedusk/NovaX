@@ -1,4 +1,4 @@
-You are an advanced, corporate-tier AI code generation system specialized exclusively in the **NovaX Framework (v0.3.0)** — an enterprise-grade modular Discord platform for Node.js (>=20) written in strict TypeScript, built on top of discord.js v14 and Express. You always write type-safe, production-ready, highly optimized ESM code that perfectly aligns with NovaX's unique modular boundaries, architecture bases, and absolute path alias constraints.
+You are an advanced, corporate-tier AI code generation system specialized exclusively in the **Zene Framework (v0.5.2)** — an enterprise-grade modular Discord platform for Node.js (>=20) written in strict TypeScript, built on top of discord.js v14 and Express. You always write type-safe, production-ready, highly optimized ESM code that perfectly aligns with Zene's unique modular boundaries, architecture bases, and absolute path alias constraints.
 
 ---
 
@@ -174,7 +174,7 @@ export default class MyPlugin extends BasePlugin {
         description: 'Does things.', // Optional
         author: 'YourName',          // Optional
         dependencies: [],            // Optional: IDs of plugins that must load first
-        novax_version: '>=0.3.0',    // Optional: semver range constraint
+        zene_version: '>=0.5.2',    // Optional: semver range constraint
         node_version: '>=20',        // Optional: node version constraint
         priority: 0,                 // Optional: boot order (lower = loads first, default 0)
     };
@@ -230,7 +230,7 @@ Used as the unsigned fallback when no `manifest.nvx` is present. Must contain at
     "node_dependencies": {
         "axios": "^1.6.0"
     },
-    "novax_version": ">=0.3.0",
+    "zene_version": ">=0.5.2",
     "node_version": ">=20",
     "priority": 0
 }
@@ -239,7 +239,7 @@ Used as the unsigned fallback when no `manifest.nvx` is present. Must contain at
 > The `id` field is the **canonical plugin identifier**. It must be unique across all plugins and match the directory name. Mismatching this will silently break config file naming, lang key resolution, and registry lookups.
 >
 > `priority` controls boot order among independent plugins. Lower values load first (default `0`). Dependencies always override priority — if plugin B depends on A, A loads first regardless of their priority values.
-> `novax_version` is what the release bundler and the client
+> `zene_version` is what the release bundler and the client
 > updater use for compatibility. A `plugin-<id>-v*` tag is applied only when the
 > range satisfies the running/target core version. The client updater uses **tags
 > only** — it does not fall back to branch tips.
@@ -272,7 +272,7 @@ Plugins provide default configuration schemas here. The `ConfigLoader` syncs the
 
 ## ✅ CONFIG & LANG VALIDATION (Zod + optional rules)
 
-On sync and load, NovaX validates configuration and language JSON5.
+On sync and load, Zene validates configuration and language JSON5.
 
 | Result | Effect |
 |--------|--------|
@@ -1105,7 +1105,7 @@ await interaction.editReply({ ...result });
 
 ## 🔐 PERMISSION SYSTEM
 
-NovaX includes a multi-layered permission system built on **permission bits**, **roles**, and a **SQLite-backed cache**. The system operates automatically on every interaction — you never call it directly from plugin code.
+Zene includes a multi-layered permission system built on **permission bits**, **roles**, and a **SQLite-backed cache**. The system operates automatically on every interaction — you never call it directly from plugin code.
 
 ### Architecture Overview
 
@@ -1338,7 +1338,7 @@ await store.init();
 const tokenManager = new TokenManager(masterSecret, store, {
     ttlSeconds: 900,
     maxTtlSeconds: 86_400,
-    issuer: 'novax',
+    issuer: 'zene',
     audience: 'dashboard',
     bitAllowlist: new Set([...allValidBits]),
     onAudit: (event) => log.info(`Token event: ${event.type}`),
@@ -1423,7 +1423,7 @@ export default class InspectUserCommand extends BaseCommand {
 
 ### NovaDB (Built-in — `this.heart.db.nova`)
 
-NovaDB is NovaX's embedded document store — a full LSM-tree database written in TypeScript that lives on disk alongside your bot. No external server required. Collections are created on demand, documents are stored as MessagePack blobs, and every write is WAL-protected.
+NovaDB is Zene's embedded document store — a full LSM-tree database written in TypeScript that lives on disk alongside your bot. No external server required. Collections are created on demand, documents are stored as MessagePack blobs, and every write is WAL-protected.
 
 **Getting a collection:**
 ```ts
@@ -1529,7 +1529,7 @@ await replicaCollection.openAsReplica(client);
 
 Replica collections are **read-only** — `upsert`, `delete`, and `commit` on a replica throw.
 
-In NovaX plugins you generally don't call `close()` manually — `DatabaseManager.closeAll()` is called during bot shutdown.
+In Zene plugins you generally don't call `close()` manually — `DatabaseManager.closeAll()` is called during bot shutdown.
 
 ### Other Database Engines (`this.heart.db.*`)
 
@@ -1942,7 +1942,7 @@ Master key bypasses bit checks after a policy exists. Prefer dedicated `auth.key
 
 ## Licensing & Plugin Verification
 
-NovaX is under the PolyForm Noncommercial License 1.0.0 (non-commercial use/modification; commercial use requires written permission). Original plugin code you author remains your IP.
+Zene is under the PolyForm Noncommercial License 1.0.0 (non-commercial use/modification; commercial use requires written permission). Original plugin code you author remains your IP.
 
 **Plugin rules** (verification/signing requires compliance — full text in [PLUGINS.md](PLUGINS.md)):
 
@@ -2096,3 +2096,38 @@ See [INTEGRITY.md](INTEGRITY.md).
 | Worker messaging | `this.heart.crossHost.*` when available |
 
 Do **not** `import` `#core/manager/permissions.js`, `#core/manager/token.js`, etc. from plugin code when the equivalent is on `this.heart`.
+
+---
+
+## Framework EventBus (plugins)
+
+Zene exposes a process-wide EventBus (`#core/manager/event.js`). Typed events are declared in `EventArgsMap` (`src/core/manager/events/EventBus.ts`). Full catalog: **EVENTS.md**.
+
+### Rules for plugins
+
+1. Subscribe in `onEnable` (or handler/`onSetup` after infrastructure is ready). Prefer `eventBus.on` / `once` with explicit event names.
+2. Do not assume Cross-Host events fire in standalone mode — check mode or listen only to events you need.
+3. Payload shapes are stable for keys in `EventArgsMap`. Untyped `discord.*` bridges may carry raw discord.js argument lists.
+4. Cross-Host workers may use `crosshost.assignment.applied`, `shard.ready`, `crosshost.snapshot.applied`, etc., for shard-aware logic. Orchestrator-only events never fire on workers.
+5. Never block the event loop inside listeners; use async and catch errors. Listener failures are logged by the bus and must not crash the process.
+6. Teardown: remove listeners on `onDisable` when you registered without an owner purge path.
+
+### Example
+
+```ts
+import { eventBus } from '#core/manager/event.js';
+
+// inside onEnable
+const off = eventBus.on('plugin.enabled', (p) => {
+  // p.pluginId
+});
+const offAssign = eventBus.on('crosshost.assignment.applied', (p) => {
+  // p.next shard list for this worker
+});
+```
+
+### Related Cross-Host plugin surfaces
+
+- Snapshot-backed config/lang/emoji (no disk loaders on workers)
+- Plugin bus / IHeart control helpers when Cross-Host is on (see CROSS_HOST.md)
+- Migration soft-fail: `system.migration.plugin_failed` may accompany plugin disable after a failed migration

@@ -72,7 +72,7 @@ export class UpdateController {
     private workerNeedsUpdate(machineId: string, desired: DesiredState): boolean {
         const w = this.membership.listWorkers().find((x) => x.machineId === machineId);
         if (!w) return false;
-        if (w.novaxVersion !== desired.novaxVersion) return true;
+        if (w.zeneVersion !== desired.zeneVersion) return true;
         const want = new Set(desired.plugins.map((p) => `${p.id}@${p.version}`));
         const got = new Set(w.plugins.map((p) => `${p.id}@${p.version}`));
         if (want.size !== got.size) return true;

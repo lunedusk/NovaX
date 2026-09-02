@@ -77,6 +77,10 @@ export class InteractionHandler {
             await this.restClient.put(route, { body: commandData });
 
             log.info(`Successfully deployed commands ${guildId ? `to guild [${guildId}]` : 'globally'}.`);
+            void import('#core/manager/event.js')
+                .then(({ eventBus }) => eventBus.emitConcurrent('interaction.commands.synced', { count: commandData.length, guildId: guildId ?? null, global: !guildId }))
+                .catch(() => undefined);
+
 
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
@@ -225,7 +229,7 @@ export class InteractionHandler {
                 try {
                     await this.sendSystemState(interaction, 'FATAL_ERROR');
                 } catch {
-                    /* ignore */
+
                 }
             }
         } finally {

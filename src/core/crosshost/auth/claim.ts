@@ -4,7 +4,7 @@ import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('CrossHost:Claim');
 
-const CLAIM_KEY = 'novax:crosshost:orchestrator:claim';
+const CLAIM_KEY = 'zene:crosshost:orchestrator:claim';
 const CLAIM_TTL_SEC = 30;
 const RENEW_INTERVAL_MS = 10_000;
 
@@ -33,6 +33,10 @@ export async function acquireOrchestratorClaim(redis: Redis): Promise<ClaimHandl
     }
 
     log.info('Orchestrator claim acquired', { fingerprint: fingerprint.slice(0, 12) });
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('crosshost.claim.acquired', { fingerprint: fingerprint.slice(0, 12) }))
+            .catch(() => undefined);
+
 
     let stopped = false;
     const renew = async (): Promise<void> => {

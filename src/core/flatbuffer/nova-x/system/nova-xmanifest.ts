@@ -8,22 +8,22 @@ import { IntegrityPayload } from '../../nova-x/system/integrity-payload.js';
 import { NodeDependency } from '../../nova-x/system/node-dependency.js';
 
 
-export class NovaXManifest {
+export class ZeneManifest {
   bb: flatbuffers.ByteBuffer|null = null;
   bb_pos = 0;
-  __init(i:number, bb:flatbuffers.ByteBuffer):NovaXManifest {
+  __init(i:number, bb:flatbuffers.ByteBuffer):ZeneManifest {
   this.bb_pos = i;
   this.bb = bb;
   return this;
 }
 
-static getRootAsNovaXManifest(bb:flatbuffers.ByteBuffer, obj?:NovaXManifest):NovaXManifest {
-  return (obj || new NovaXManifest()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+static getRootAsZeneManifest(bb:flatbuffers.ByteBuffer, obj?:ZeneManifest):ZeneManifest {
+  return (obj || new ZeneManifest()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
-static getSizePrefixedRootAsNovaXManifest(bb:flatbuffers.ByteBuffer, obj?:NovaXManifest):NovaXManifest {
+static getSizePrefixedRootAsZeneManifest(bb:flatbuffers.ByteBuffer, obj?:ZeneManifest):ZeneManifest {
   bb.setPosition(bb.position() + flatbuffers.SIZE_PREFIX_LENGTH);
-  return (obj || new NovaXManifest()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+  return (obj || new ZeneManifest()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
 id():string|null
@@ -73,9 +73,9 @@ dependenciesLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
-novaxVersion():string|null
-novaxVersion(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-novaxVersion(optionalEncoding?:any):string|Uint8Array|null {
+zeneVersion():string|null
+zeneVersion(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+zeneVersion(optionalEncoding?:any):string|Uint8Array|null {
   const offset = this.bb!.__offset(this.bb_pos, 16);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
@@ -102,7 +102,7 @@ nodeDependenciesLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
-static startNovaXManifest(builder:flatbuffers.Builder) {
+static startZeneManifest(builder:flatbuffers.Builder) {
   builder.startObject(10);
 }
 
@@ -142,8 +142,8 @@ static startDependenciesVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
-static addNovaxVersion(builder:flatbuffers.Builder, novaxVersionOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(6, novaxVersionOffset, 0);
+static addzeneVersion(builder:flatbuffers.Builder, zeneVersionOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(6, zeneVersionOffset, 0);
 }
 
 static addNodeVersion(builder:flatbuffers.Builder, nodeVersionOffset:flatbuffers.Offset) {
@@ -170,16 +170,16 @@ static startNodeDependenciesVector(builder:flatbuffers.Builder, numElems:number)
   builder.startVector(4, numElems, 4);
 }
 
-static endNovaXManifest(builder:flatbuffers.Builder):flatbuffers.Offset {
+static endZeneManifest(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static finishNovaXManifestBuffer(builder:flatbuffers.Builder, offset:flatbuffers.Offset) {
+static finishZeneManifestBuffer(builder:flatbuffers.Builder, offset:flatbuffers.Offset) {
   builder.finish(offset);
 }
 
-static finishSizePrefixedNovaXManifestBuffer(builder:flatbuffers.Builder, offset:flatbuffers.Offset) {
+static finishSizePrefixedZeneManifestBuffer(builder:flatbuffers.Builder, offset:flatbuffers.Offset) {
   builder.finish(offset, undefined, true);
 }
 

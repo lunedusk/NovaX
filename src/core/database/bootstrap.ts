@@ -73,6 +73,15 @@ export async function initAllDatabases(): Promise<void> {
             log.info(`Initializing database [${cfg.alias}]...`);
             await DatabaseManager.init(cfg);
             log.info(`Database [${cfg.alias}] initialized successfully.`);
+            void import('#core/manager/event.js')
+                .then(({ eventBus }) =>
+                    eventBus.emitConcurrent('system.database.ready', {
+                        alias: cfg.alias,
+                        engine: cfg.engine,
+                    }),
+                )
+                .catch(() => undefined);
+
         } catch (error) {
             const err = error as Error;
             log.error(`Failed to initialize database [${cfg.alias}]: ${err.message}`, { stack: err.stack });
@@ -109,9 +118,14 @@ export async function initAllDatabases(): Promise<void> {
     })();
 
     if (!hasSqliteMain) {
+        const crossHost = secrets.getBoolean('CROSS_HOST', false);
         const disableDefaultSqlite = secrets.getBoolean('DisableDefaultSqlite', false);
 
-        if (disableDefaultSqlite) {
+        if (crossHost) {
+            log.info(
+                'CROSS_HOST is enabled: skipping default "main" SQLite instance (sqlite/file engines are forbidden for multi-host).',
+            );
+        } else if (disableDefaultSqlite) {
             log.warn('DisableDefaultSqlite is set to true. Skipping default "main" SQLite instance. The permission system and other core features that depend on SQLite will not function.');
         } else {
             const sqliteDir = path.join(process.cwd(), '.data', 'database-sqlite');

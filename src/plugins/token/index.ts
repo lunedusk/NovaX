@@ -7,9 +7,10 @@ export default class TokenPlugin extends BasePlugin {
         name: 'Token Manager',
         version: '1.0.1',
         description: 'HMAC-SHA256 bearer token management with REST API.',
-        author: 'NovaX Core',
+        author: 'Lunedusk',
         dependencies: ['api'],
-        novax_version: '>=0.1.9',
+        zene_version: '>=0.5.2',
+        node_version: '>=20',
         priority: -5,
     };
 

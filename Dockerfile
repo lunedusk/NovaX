@@ -32,12 +32,12 @@ COPY --from=builder /app/docker-compose.yml* ./
 
 COPY --from=builder /app/plugins ./plugins
 
-RUN addgroup --system --gid 1001 novax \
- && adduser --system --uid 1001 --ingroup novax novax \
+RUN addgroup --system --gid 1001 zene \
+ && adduser --system --uid 1001 --ingroup zene zene \
  && mkdir -p /app/.data /app/logs /app/configuration /app/plugins \
- && chown -R novax:novax /app
+ && chown -R zene:zene /app
 
-USER novax
+USER zene
 
 EXPOSE 3000
 

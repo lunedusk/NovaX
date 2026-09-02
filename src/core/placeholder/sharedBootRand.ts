@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const BOOT_SHARED_ENV_KEY = 'NOVAX_BOOT_SHARED_RAND';
+export const BOOT_SHARED_ENV_KEY = 'ZENE_BOOT_SHARED_RAND';
 
 const SHARED_PLACEHOLDER_RE = /\$\{rand:([^}]*@shared[^}]*)\}/g;
 

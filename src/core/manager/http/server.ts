@@ -96,6 +96,11 @@ export class HttpServer {
                 this.server = this.app!.listen(port, host, () => {
                     this.isRunning = true;
                     log.info(`REST API active on http://${host}:${port}`);
+                    void import('#core/manager/event.js')
+                        .then(({ eventBus }) =>
+                            eventBus.emitConcurrent('system.http.ready', { host, port }),
+                        )
+                        .catch(() => undefined);
                     resolve();
                 });
             } catch (error) {
@@ -190,7 +195,7 @@ export class HttpServer {
                             message: 'An unexpected error occurred.',
                         });
                     } catch {
-                        /* ignore */
+
                     }
                 }
             }
@@ -209,6 +214,11 @@ export class HttpServer {
                 settled = true;
                 this.isRunning = false;
                 log.info('REST API shut down.');
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) =>
+                eventBus.emitConcurrent('system.http.stopped', { at: Date.now() }),
+            )
+            .catch(() => undefined);
                 resolve();
             };
             const timer = setTimeout(() => {
@@ -216,7 +226,7 @@ export class HttpServer {
                 try {
                     const closer = srv as http.Server & { closeAllConnections?: () => void };
                     closer.closeAllConnections?.();
-                } catch { /* ignore */ }
+                } catch { }
                 done();
             }, timeoutMs);
             timer.unref();

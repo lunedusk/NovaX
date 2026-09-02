@@ -144,6 +144,10 @@ export class PermissionsManager {
         await this.seedBuiltInBits();
         await this.warnPreexistingOwnerRoles();
         log.info(`PermissionsManager initialized (engine=${choice.engine}, alias=${choice.alias}).`);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('permissions.ready', { engine: choice.engine, alias: choice.alias }))
+            .catch(() => undefined);
+
     }
 
     private async warnPreexistingOwnerRoles(): Promise<void> {

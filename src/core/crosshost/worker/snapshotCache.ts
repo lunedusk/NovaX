@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { applyPatch, type Operation } from 'fast-json-patch';
+import { applyPatch, type Operation } from '../jsonPatch.js';
 import { getLogger } from '#core/utils/logger.js';
 import { configManager } from '#core/manager/config.js';
 import { i18n } from '#core/manager/lang.js';
@@ -40,6 +40,16 @@ export class SnapshotCache {
             version: this.version,
             hash: this.hash.slice(0, 12),
         });
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) =>
+                eventBus.emitConcurrent('crosshost.snapshot.applied', {
+                    version: this.version,
+                    mode: 'full',
+                    hash: this.hash,
+                }),
+            )
+            .catch(() => undefined);
+
     }
 
     public applyDiff(
@@ -79,6 +89,16 @@ export class SnapshotCache {
                 ops: patch.length,
                 hash: this.hash.slice(0, 12),
             });
+            void import('#core/manager/event.js')
+                .then(({ eventBus }) =>
+                    eventBus.emitConcurrent('crosshost.snapshot.applied', {
+                        version: this.version,
+                        mode: 'diff',
+                        hash: this.hash,
+                    }),
+                )
+                .catch(() => undefined);
+
             return true;
         } catch (err) {
             log.warn('Snapshot diff apply failed; full fallback required', err);

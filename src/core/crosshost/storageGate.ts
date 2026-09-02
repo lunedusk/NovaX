@@ -53,4 +53,8 @@ export function assertCrossHostStorageAllowed(): void {
     }
 
     log.info('Cross-Host storage gate passed (no sqlite/file primary engines)');
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) => eventBus.emitConcurrent('crosshost.storage.gate.passed', { at: Date.now() }))
+            .catch(() => undefined);
+
 }

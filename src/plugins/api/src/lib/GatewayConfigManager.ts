@@ -48,7 +48,6 @@ interface GatewayAuthContext {
     bits: string[];
 }
 
-// ─── GatewayConfigManager ───────────────────────────────────────────────────
 
 export class GatewayConfigManager {
     private static _instance: GatewayConfigManager;
@@ -308,9 +307,9 @@ export class GatewayConfigManager {
                 definition: {
                     openapi: '3.1.0',
                     info: {
-                        title:       'NovaX API Gateway',
+                        title:       'Zene API Gateway',
                         version:     '0.0.1',
-                        description: 'API Gateway for the NovaX Framework.',
+                        description: 'API Gateway for the Zene Framework.',
                         contact: { name: 'Lunedusk' },
                         license: { name: 'Proprietary' },
                     },

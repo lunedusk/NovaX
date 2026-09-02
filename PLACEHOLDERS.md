@@ -1,4 +1,4 @@
-# NovaX Placeholders
+# Zene Placeholders
 
 Human reference for the placeholder system. Plugin authors should also read the **System Prompt - AI - Plugin.md** (authoring contract).
 
@@ -18,7 +18,7 @@ Every reload re-reads **raw** disk content, expands from scratch, then validates
 | `${env:KEY?}` / `${secret:KEY?}` | Optional; soft-miss → field **absent** | Placeholder stays on disk |
 | `${rand:hex:32}` (untagged) | One-time random; **persisted once** under global `configuration/` only | Rewritten to concrete value on first expand |
 | `${rand:hex:32#tag}` (tagged) | Once per process; **stable across reloads**; re-roll only on process restart (per-process, not fleet-shared) | Placeholder stays |
-| `${rand:hex:32@shared}` / `${rand:hex:32@shared:name}` | Generated once per **fleet boot** by primary/standalone; same value on every shard | Placeholder stays; value in env (`NOVAX_BOOT_SHARED_RAND`) |
+| `${rand:hex:32@shared}` / `${rand:hex:32@shared:name}` | Generated once per **fleet boot** by primary/standalone; same value on every shard | Placeholder stays; value in env (`ZENE_BOOT_SHARED_RAND`) |
 | `${rand:base64:N}` / `#tag` / `@shared` | Same rules as hex for each mode | Same |
 | `%%key%%` | Core `placeholders` map + custom keys | Stays on disk |
 | `%%emoji_*%%` | Emoji map | Resolved at **runtime** (lang/middleware), not at config load |
@@ -55,6 +55,6 @@ Optional `?` forms never fail-closed.
 
 ## SecretManager and process.env
 
-Secrets are stored in `process.env` as the source of truth. The vault no longer encrypts values in memory or scrubs sensitive keys from the environment. Shard children inherit `DiscordToken`, `NOVAX_BOOT_SHARED_RAND`, and other keys by normal process inheritance.
+Secrets are stored in `process.env` as the source of truth. The vault no longer encrypts values in memory or scrubs sensitive keys from the environment. Shard children inherit `DiscordToken`, `ZENE_BOOT_SHARED_RAND`, and other keys by normal process inheritance.
 
 Any plugin or dependency can read `process.env.DiscordToken` (and other keys) directly. That is intentional: isolation was traded for a correct sharding flow. Treat third-party plugins as fully trusted with respect to environment access.

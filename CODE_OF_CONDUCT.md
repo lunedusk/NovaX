@@ -56,7 +56,7 @@ further defined and clarified by project maintainers.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported using GitHub's private vulnerability/abuse reporting on the
-[lunedusk/NovaX](https://github.com/lunedusk/NovaX) repository, or by
+[lunedusk/Zene](https://github.com/lunedusk/Zene) repository, or by
 [reporting the content or user directly to GitHub](https://docs.github.com/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam).
 All complaints will be reviewed and investigated and will result in a response
 that is deemed necessary and appropriate to the circumstances. The project team

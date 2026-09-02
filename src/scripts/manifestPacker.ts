@@ -119,8 +119,8 @@ class BinaryManifestPacker {
                 dependencies: Array.isArray(raw.dependencies)
                     ? raw.dependencies.filter((d): d is string => typeof d === 'string')
                     : undefined,
-                novax_version: (typeof raw.novax_version === 'string' || Array.isArray(raw.novax_version))
-                    ? (raw.novax_version as string | string[])
+                zene_version: (typeof raw.zene_version === 'string' || Array.isArray(raw.zene_version))
+                    ? (raw.zene_version as string | string[])
                     : undefined,
                 node_version: typeof raw.node_version === 'string' ? raw.node_version : undefined,
                 priority: typeof raw.priority === 'number' ? raw.priority : undefined,
@@ -160,7 +160,7 @@ async function main() {
         secrets.assimilateEnv();
 
         const logger = getLogger('Bootstrap');
-        logger.info('Starting NovaX Binary Manifest Packer...');
+        logger.info('Starting Zene Binary Manifest Packer...');
 
         const args = process.argv.slice(2).filter(a => !a.startsWith('-'));
         let pluginId = args[0];

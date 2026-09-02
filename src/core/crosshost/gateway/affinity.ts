@@ -17,7 +17,7 @@ export function extractGuildId(input: {
     body?: unknown;
     headers?: Record<string, unknown>;
 }): string | null {
-    const fromHeader = input.headers?.['x-novax-guild-id'] ?? input.headers?.['X-NovaX-Guild-Id'];
+    const fromHeader = input.headers?.['x-zene-guild-id'] ?? input.headers?.['X-Zene-Guild-Id'];
     if (typeof fromHeader === 'string' && /^\d{5,30}$/.test(fromHeader.trim())) {
         return fromHeader.trim();
     }

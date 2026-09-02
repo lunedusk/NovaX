@@ -1248,7 +1248,7 @@ export class NovaCollection {
                 await fs.unlink(path.join(this.collectionDir, f)).catch(() => {});
                 log.info(`[${this.name}] Removed orphan SSTable not in manifest: ${f}`);
             }
-        } catch { /* ignore */ }
+        } catch { }
 
         this.invalidateSstablesCache();
         await this.writeManifestCheckpoint(checkpointLsn);

@@ -1,6 +1,6 @@
 # Integrity
 
-NovaX package integrity signs and verifies plugin (and core) file trees so tampered code cannot load unnoticed.
+Zene package integrity signs and verifies plugin (and core) file trees so tampered code cannot load unnoticed.
 
 ## What is hashed
 

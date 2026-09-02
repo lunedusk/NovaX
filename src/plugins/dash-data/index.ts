@@ -9,7 +9,8 @@ export default class DashDataPlugin extends BasePlugin {
             'Owns all dashboard persistence (dash_* tables, layouts, KV, surface flags). HTTP surface remains on the dashboard plugin.',
         author: 'Lunedusk',
         dependencies: [],
-        novax_version: '>=0.3.0',
+        zene_version: '>=0.5.2',
+        node_version: '>=20',
         priority: -5,
     };
 

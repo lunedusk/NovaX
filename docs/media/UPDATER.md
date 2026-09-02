@@ -12,7 +12,7 @@ Manual-first update system for core and first-party plugins. Not exposed over HT
 ## Pipeline
 
 1. Resolve target tag(s) (core `vX.Y.Z`; plugins `plugin-<id>-v*`)
-2. Plan adds/updates/skips (manifest `novax_version`, SafeUpdate baseline)
+2. Plan adds/updates/skips (manifest `zene_version`, SafeUpdate baseline)
 3. Stage archives under a temp tree
 4. **Backup** every path that apply will overwrite
 5. Apply with journal marker (crash-safe)

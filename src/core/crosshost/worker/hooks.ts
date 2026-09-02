@@ -16,7 +16,7 @@ export type DrainHook = (
 ) => void | Promise<void>;
 
 export type UpdateHook = (desired: {
-    novaxVersion: string;
+    zeneVersion: string;
     plugins: readonly { id: string; version: string }[];
 }) => void | Promise<void>;
 
@@ -115,7 +115,7 @@ export class WorkerHookRegistry {
     }
 
     public async runBeforeUpdate(desired: {
-        novaxVersion: string;
+        zeneVersion: string;
         plugins: readonly { id: string; version: string }[];
     }): Promise<void> {
         await this.runAll('beforeUpdate', this.beforeUpdate as never[], async (fn) => {

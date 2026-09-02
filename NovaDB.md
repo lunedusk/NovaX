@@ -1,8 +1,8 @@
 # NovaDB — Plugin Developer Reference
 
-> Access NovaDB in any NovaX plugin via `this.heart.db.nova`
+> Access NovaDB in any Zene plugin via `this.heart.db.nova`
 
-NovaDB is NovaX's built-in embedded document store — a full LSM-tree database written in TypeScript that lives on disk alongside your bot. No external server, no Docker container, no connection string gymnastics. Collections are created on demand, documents are stored as MessagePack blobs, and every write is WAL-protected so your data survives crashes.
+NovaDB is Zene's built-in embedded document store — a full LSM-tree database written in TypeScript that lives on disk alongside your bot. No external server, no Docker container, no connection string gymnastics. Collections are created on demand, documents are stored as MessagePack blobs, and every write is WAL-protected so your data survives crashes.
 
 This document covers every feature exposed through `this.heart.db.nova` with runnable examples you can drop straight into a plugin.
 
@@ -393,7 +393,7 @@ await DatabaseManager.closeAll();
 5. Closes all secondary index collections recursively.
 6. Closes all replication transports.
 
-In NovaX plugins you generally don't call this manually — `DatabaseManager.closeAll()` is called during bot shutdown and handles every registered instance.
+In Zene plugins you generally don't call this manually — `DatabaseManager.closeAll()` is called during bot shutdown and handles every registered instance.
 
 ---
 

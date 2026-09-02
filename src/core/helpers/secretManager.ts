@@ -95,6 +95,14 @@ export class SecretManager {
             this.#sealedKeys.add(key);
         }
         log.info(`Environment vault locked (${this.#sealedKeys.size} keys sealed, append-only).`);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) =>
+                eventBus.emitConcurrent('system.secrets.locked', {
+                    keyCount: this.#sealedKeys.size,
+                }),
+            )
+            .catch(() => undefined);
+
     }
 
     public applyEnvReload(

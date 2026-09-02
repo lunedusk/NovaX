@@ -6,24 +6,40 @@ const log = getLogger('PostgresNative');
 
 export class PostgresRegistry {
     private pools = new Map<string, pkg.Pool>();
+    private readonly connecting = new Map<string, Promise<void>>();
 
     public async connect(alias: string, uri: string, poolSize: number = 10): Promise<void> {
         if (this.pools.has(alias)) return;
+        const pending = this.connecting.get(alias);
+        if (pending) {
+            await pending;
+            return;
+        }
 
-        log.info(`Initializing Native Postgres pool [${alias}] (Max: ${poolSize})`);
-        
-        const pool = new Pool({ 
-            connectionString: uri,
-            max: poolSize,
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 5000,
-        });
+        const work = (async () => {
+            if (this.pools.has(alias)) return;
+            log.info(`Initializing Native Postgres pool [${alias}] (Max: ${poolSize})`);
 
-        const client = await pool.connect();
-        client.release();
-        
-        this.pools.set(alias, pool);
-        log.info(`Native Postgres [${alias}] connected successfully.`);
+            const pool = new Pool({
+                connectionString: uri,
+                max: poolSize,
+                idleTimeoutMillis: 30000,
+                connectionTimeoutMillis: 5000,
+            });
+
+            const client = await pool.connect();
+            client.release();
+
+            this.pools.set(alias, pool);
+            log.info(`Native Postgres [${alias}] connected successfully.`);
+        })();
+
+        this.connecting.set(alias, work);
+        try {
+            await work;
+        } finally {
+            this.connecting.delete(alias);
+        }
     }
 
     public has(alias: string): boolean {

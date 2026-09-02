@@ -105,7 +105,7 @@ export class DependencyLoader {
                         child.kill('SIGTERM');
                     }
                 } catch {
-                    try { child.kill('SIGKILL'); } catch { /* ignore */ }
+                    try { child.kill('SIGKILL'); } catch { }
                 }
             };
 

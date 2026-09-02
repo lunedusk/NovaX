@@ -27,6 +27,15 @@
       "severity": "high",
       "at": "2026-08-25T13:34:29Z",
       "active": true
+    },
+    {
+      "tag": "v0.5.1",
+      "status": "withdrawn",
+      "recommend": "v0.5.0",
+      "reason": "Cross Host highly unstable",
+      "severity": "critical",
+      "at": "2026-09-02T08:51:21Z",
+      "active": true
     }
   ]
 }
