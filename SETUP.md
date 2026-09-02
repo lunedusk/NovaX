@@ -1,4 +1,4 @@
-# NovaX Setup
+# Zene Setup
 
 ## Requirements
 
@@ -56,7 +56,7 @@ Never commit expanded secrets. Disk always keeps `${env:…}` / `${secret:…}` 
 
 ## SecretManager and process.env
 
-Secrets are stored in `process.env` as the source of truth. The vault no longer encrypts values in memory or scrubs sensitive keys from the environment. Shard children inherit `DiscordToken`, `NOVAX_BOOT_SHARED_RAND`, and other keys by normal process inheritance.
+Secrets are stored in `process.env` as the source of truth. The vault no longer encrypts values in memory or scrubs sensitive keys from the environment. Shard children inherit `DiscordToken`, `ZENE_BOOT_SHARED_RAND`, and other keys by normal process inheritance.
 
 Any plugin or dependency can read `process.env.DiscordToken` (and other keys) directly. That is intentional: isolation was traded for a correct sharding flow. Treat third-party plugins as fully trusted with respect to environment access.
 

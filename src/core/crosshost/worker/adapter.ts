@@ -165,7 +165,7 @@ export async function registerWithOrchestrator(env: CrossHostEnv): Promise<Worke
 
     const machineId = env.machineId;
     const bootGeneration = randomBytes(16).toString('hex');
-    const novaxVersion = await readCoreVersion();
+    const zeneVersion = await readCoreVersion();
     const plugins = await discoverLocalPlugins();
 
     const challengeUrl = new URL(joinUrl(env.orchestratorUrl, '/cross-host/v1/challenge'));
@@ -196,18 +196,18 @@ export async function registerWithOrchestrator(env: CrossHostEnv): Promise<Worke
         throw new Error('Challenge response missing required fields');
     }
 
-    const manifestHash = buildManifestHash(novaxVersion, plugins);
+    const manifestHash = buildManifestHash(zeneVersion, plugins);
     const hmac = computeRegisterHmac(env.clusterSecret, {
         nonce: challengeJson.nonce,
         machineId,
         manifestHash,
-        novaxVersion,
+        zeneVersion,
         bootGeneration,
     });
 
     const body = {
         machineId,
-        novaxVersion,
+        zeneVersion,
         plugins,
         nodeVersion: process.versions.node,
         platform: process.platform,
@@ -220,7 +220,7 @@ export async function registerWithOrchestrator(env: CrossHostEnv): Promise<Worke
     const registerUrl = joinUrl(env.orchestratorUrl, '/cross-host/v1/register');
     log.info('Submitting registration', {
         machineId,
-        novaxVersion,
+        zeneVersion,
         pluginCount: plugins.length,
         bootGeneration,
     });
@@ -404,11 +404,11 @@ export async function runWorkerControlPlane(
         if (instruct.machineId !== machineId) return;
         log.info('Update instruct received', {
             instructId: instruct.instructId,
-            novaxVersion: instruct.desiredState.novaxVersion,
+            zeneVersion: instruct.desiredState.zeneVersion,
             pluginCount: instruct.desiredState.plugins.length,
         });
         await workerHooks.runBeforeUpdate({
-            novaxVersion: instruct.desiredState.novaxVersion,
+            zeneVersion: instruct.desiredState.zeneVersion,
             plugins: instruct.desiredState.plugins,
         });
         let ok = false;

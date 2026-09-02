@@ -10,7 +10,7 @@
         "permissions",
         "token"
     ],
-    "novax_version": ">=0.1.6",
+    "zene_version": ">=0.5.2",
     "node_version": ">=20",
     "priority": 10
 }

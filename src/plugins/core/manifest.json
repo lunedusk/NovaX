@@ -5,5 +5,5 @@
     "author": "Lunedusk",
     "node_version": ">=18.20.8",
     "dependencies": ["api", "permissions"],
-    "novax_version": ">=0.2.0"
+    "zene_version": ">=0.5.2"
 }

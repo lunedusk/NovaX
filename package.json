@@ -1,5 +1,5 @@
 {
-  "name": "@lunedusk/novax",
+  "name": "@lunedusk/zene",
   "version": "0.5.1",
   "description": "The most versatile modular discord framework for Node.js (discord.js) in TypeScript",
   "main": "./index.js",

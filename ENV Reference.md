@@ -1,10 +1,10 @@
-# NovaX — Environment Variable Reference
+# Zene — Environment Variable Reference
 
-> **Framework Version:** NovaX v0.5.1
+> **Framework Version:** Zene v0.5.2
 > **Last Updated:** 2026
 > **Node.js Requirement:** ≥ 20
 
-This document is the complete reference for every environment variable recognized by the NovaX framework. Variables are read from your `.env` file at startup via `dotenv` and managed through the internal `secretManager`. Once the application boots, the secret store is locked — changes to `.env` require a full restart to take effect.
+This document is the complete reference for every environment variable recognized by the Zene framework. Variables are read from your `.env` file at startup via `dotenv` and managed through the internal `secretManager`. Once the application boots, the secret store is locked — changes to `.env` require a full restart to take effect.
 
 ---
 
@@ -48,7 +48,7 @@ Each variable entry follows this structure:
 
 ## 2. Configuration Sources — `.env` vs `common.json`
 
-NovaX supports **two ways** to supply configuration values. Understanding how they interact is essential before you set anything up.
+Zene supports **two ways** to supply configuration values. Understanding how they interact is essential before you set anything up.
 
 ### Option A — `.env` File (Standard)
 
@@ -236,7 +236,7 @@ BotOwnerIds=123456789012345678,987654321098765432
 
 ## 4. Cryptographic Keys & Plugin Integrity
 
-NovaX uses **Ed25519** asymmetric signatures to verify the authenticity and integrity of plugins distributed as `.nvx` manifests. The public/private key pair works together — if you change one, you must change the other.
+Zene uses **Ed25519** asymmetric signatures to verify the authenticity and integrity of plugins distributed as `.nvx` manifests. The public/private key pair works together — if you change one, you must change the other.
 
 ---
 
@@ -252,7 +252,7 @@ The Ed25519 public key used to verify `.nvx` plugin manifests at startup. If a p
 | **Breaking Risk** | **HIGH** — changing this without a matching `PrivateKey` will cause all signed plugins to fail integrity checks and be rejected |
 | **Recommended Action** | **Leave at default** unless you are self-signing your own plugins. If you distribute your own certified plugins, replace both `PublicKey` and `PrivateKey` with your own generated Ed25519 key pair. |
 
-The default value is the Lunedusk developer public key, which allows you to run any officially signed NovaX plugin without configuration. If you generate your own key pair (required for distributing your own certified plugins), the value must be the raw Base64-encoded public key **without** PEM headers.
+The default value is the Lunedusk developer public key, which allows you to run any officially signed Zene plugin without configuration. If you generate your own key pair (required for distributing your own certified plugins), the value must be the raw Base64-encoded public key **without** PEM headers.
 
 > ⚠️ **This key and `PrivateKey` are a matched pair.** If you change `PublicKey`, you must also have the corresponding `PrivateKey` available, and you must re-sign all plugins with it. Mismatching these will silently reject every plugin on startup.
 
@@ -555,7 +555,7 @@ APIPort=3000
 
 ### `ApiKey`
 
-The master API gateway key used when the gateway runs in env mode. When `configuration/api.json5` enables env mode, NovaX reads this value from the secrets manager and uses it as the gateway's primary authentication credential.
+The master API gateway key used when the gateway runs in env mode. When `configuration/api.json5` enables env mode, Zene reads this value from the secrets manager and uses it as the gateway's primary authentication credential.
 
 | | |
 |---|---|
@@ -609,7 +609,7 @@ The health-check script (`scripts/healthcheck.mjs` / `health.mjs`) should use a 
 
 Master key bypasses bit checks; ordinary keys must satisfy `httpRoutes` policy (`bits` + `bitsMode`).
 
-### `NOVAX_BOOT_SHARED_RAND`
+### `ZENE_BOOT_SHARED_RAND`
 
 Internal JSON blob injected by the primary process for `${rand:…@shared}` resolution on all shards. **Do not set manually** unless debugging multi-shard; it is written at boot by the shared-rand bootstrap.
 
@@ -859,7 +859,7 @@ hotReloadEnabled=false
 
 ## 13. Auto Updater
 
-NovaX can check GitHub for newer **tagged** releases and apply them without a local git repository. The updater runs after compilation via:
+Zene can check GitHub for newer **tagged** releases and apply them without a local git repository. The updater runs after compilation via:
 
 ```bash
 npm run updater
@@ -921,8 +921,8 @@ Highest-priority repository identifier. Accepts `owner/repo` or a full GitHub UR
 | **Recommended Action** | Leave empty to use the official default. Set only when tracking a fork or private mirror. |
 
 ```env
-# RepositoryUrl=lunedusk/NovaX
-# RepositoryUrl=https://github.com/lunedusk/NovaX
+# RepositoryUrl=lunedusk/Zene
+# RepositoryUrl=https://github.com/lunedusk/Zene
 ```
 
 ---
@@ -952,13 +952,13 @@ Fallback repository when `RepositoryUrl` is absent.
 | | |
 |---|---|
 | **Required** | No |
-| **Default** | `lunedusk/NovaX` |
+| **Default** | `lunedusk/Zene` |
 | **Safe to Change** | Yes |
 | **Breaking Risk** | Low |
 | **Recommended Action** | Leave at default unless you permanently track a different public repo. |
 
 ```env
-UpdaterDefaultRepo=lunedusk/NovaX
+UpdaterDefaultRepo=lunedusk/Zene
 ```
 
 ---
@@ -1147,7 +1147,7 @@ Optional Discord channel Snowflake for future/post-update notifications (only me
 
 ### `UpdaterPluginManifest`
 
-JSON filename used inside each plugin folder for identity / `novax_version` checks during updates (`.nvx` is preferred for cryptographic integrity when present).
+JSON filename used inside each plugin folder for identity / `zene_version` checks during updates (`.nvx` is preferred for cryptographic integrity when present).
 
 | | |
 |---|---|
@@ -1204,7 +1204,7 @@ Source of truth for which plugins the updater may touch:
 
 ```text
 plugin-error-reporter
-economy:lunedusk/novax-economy
+economy:lunedusk/zene-economy
 tickets:org/tickets-plugin@v2.0.0
 ```
 
@@ -1214,7 +1214,7 @@ tickets:org/tickets-plugin@v2.0.0
 | `name:owner/repo` | External GitHub plugin |
 | `name:owner/repo@v1.2.0` | External with pinned tag |
 
-Compatibility uses **`novax_version` only** (no `engines.novax`). Layouts L1 (`src/plugins/{id}`), L2 (repo root is the plugin), L3 (`plugins/{id}`) are detected from the archive; runtime always ends at `plugins/{id}/` after mirror.
+Compatibility uses **`zene_version` only**. Layouts L1 (`src/plugins/{id}`), L2 (repo root is the plugin), L3 (`plugins/{id}`) are detected from the archive; runtime always ends at `plugins/{id}/` after mirror.
 
 ---
 
@@ -1395,13 +1395,13 @@ The `iss` (issuer) claim embedded in every token. On verification, the Token Man
 | | |
 |---|---|
 | **Required** | No |
-| **Default** | `novax` |
+| **Default** | `zene` |
 | **Safe to Change** | Yes — but invalidates all existing tokens (they'll fail the issuer check) |
 | **Breaking Risk** | Medium — changing this is effectively a soft revocation of all tokens |
-| **Recommended Action** | Leave as `novax` unless you run multiple NovaX instances and need to prevent tokens from one environment being used in another. |
+| **Recommended Action** | Leave as `zene` unless you run multiple Zene instances and need to prevent tokens from one environment being used in another. |
 
 ```env
-TokenIssuer=novax
+TokenIssuer=zene
 ```
 
 ---
@@ -1430,7 +1430,7 @@ Copy this template as your starting point. Required variables are marked. All ot
 
 ```env
 # ============================================================
-# NovaX — Environment Configuration
+# Zene — Environment Configuration
 # ============================================================
 
 # ── RUNTIME ─────────────────────────────────────────────────
@@ -1510,7 +1510,7 @@ hotReloadEnabled=false
 # TokenMaxTTL=86400
 
 # Issuer and audience claims (change only if running multiple environments)
-# TokenIssuer=novax
+# TokenIssuer=zene
 # TokenAudience=dashboard
 
 # ── PLUGIN INTEGRITY (extra) ───────────────────────────────
@@ -1521,7 +1521,7 @@ hotReloadEnabled=false
 AutoUpdater=true
 # RepositoryUrl=                    # if set and fails → abort (no fallback)
 # GithubPat=                        # private repos / higher rate limits
-UpdaterDefaultRepo=lunedusk/NovaX
+UpdaterDefaultRepo=lunedusk/Zene
 UpdaterBranch=main
 DevBuilds=false
 SafeUpdate=true
@@ -1574,12 +1574,12 @@ UpdaterHealthGraceMs=900000
 | `TokenMasterSecret` | If token plugin loaded | *(none)* | Only with revocation | **Critical** |
 | `TokenTTL` | No | `900` | Yes | Low |
 | `TokenMaxTTL` | No | `86400` | Yes | None |
-| `TokenIssuer` | No | `novax` | Yes (invalidates tokens) | Medium |
+| `TokenIssuer` | No | `zene` | Yes (invalidates tokens) | Medium |
 | `TokenAudience` | No | `dashboard` | Yes (invalidates tokens) | Medium |
 | `AutoUpdater` | No | `true` | Yes | Low |
 | `RepositoryUrl` | No | *(empty)* | Yes | Medium (fail = abort) |
 | `GithubPat` | No* | *(none)* | Yes | **Critical if leaked** |
-| `UpdaterDefaultRepo` | No | `lunedusk/NovaX` | Yes | Low |
+| `UpdaterDefaultRepo` | No | `lunedusk/Zene` | Yes | Low |
 | `UpdaterBranch` | No | `main` | Yes | None |
 | `DevBuilds` | No | `false` | Yes | Low |
 | `SafeUpdate` | No | `true` | Yes | **High if disabled** |

@@ -3,9 +3,9 @@
     "name": "Permissions Manager",
     "version": "1.1.0",
     "description": "Admin commands and REST API for managing the bot permission system.",
-    "author": "NovaX Core",
+    "author": "Lunedusk",
     "dependencies": ["api"],
-    "novax_version": ">=0.2.0",
+    "zene_version": ">=0.5.2",
     "node_version": ">=20",
     "priority": -10
 }

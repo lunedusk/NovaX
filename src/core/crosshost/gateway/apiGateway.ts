@@ -115,9 +115,9 @@ function proxyRequest(
     for (const h of HOP_BY_HOP) {
         delete headers[h];
     }
-    headers['x-novax-worker'] = target.machineId;
-    if (target.shardId !== null) headers['x-novax-shard'] = String(target.shardId);
-    if (target.guildId) headers['x-novax-guild-id'] = target.guildId;
+    headers['x-zene-worker'] = target.machineId;
+    if (target.shardId !== null) headers['x-zene-shard'] = String(target.shardId);
+    if (target.guildId) headers['x-zene-guild-id'] = target.guildId;
     headers['x-forwarded-host'] = req.headers.host ?? '';
     headers['x-forwarded-proto'] = req.protocol;
     const prior = req.headers['x-forwarded-for'];
@@ -143,8 +143,8 @@ function proxyRequest(
             for (const [k, v] of Object.entries(outHeaders)) {
                 if (v !== undefined) res.setHeader(k, v);
             }
-            res.setHeader('x-novax-worker', target.machineId);
-            if (target.shardId !== null) res.setHeader('x-novax-shard', String(target.shardId));
+            res.setHeader('x-zene-worker', target.machineId);
+            if (target.shardId !== null) res.setHeader('x-zene-shard', String(target.shardId));
             upRes.pipe(res);
         },
     );

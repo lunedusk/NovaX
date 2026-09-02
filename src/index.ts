@@ -134,7 +134,7 @@ async function runBotMode(): Promise<void> {
     const { createPermissionsManager } = await import('#core/manager/permissions.js');
     const { createPermissionCache } = await import('#core/manager/permissionCache.js');
 
-    class NovaX {
+    class Zene {
         private readonly log = getLogger('Bootstrap');
         private readonly client: InstanceType<typeof Client<true>>;
         private isShuttingDown = false;
@@ -173,7 +173,7 @@ async function runBotMode(): Promise<void> {
 
         public async bootstrap(): Promise<void> {
             const start = performance.now();
-            this.log.info(`Booting NovaX ${this.shardIdentifier} [${process.env.NODE_ENV}]...`);
+            this.log.info(`Booting Zene ${this.shardIdentifier} [${process.env.NODE_ENV}]...`);
 
             try {
                 const hotReloadEnabled = secrets.getBoolean('hotReloadEnabled', false);
@@ -246,7 +246,7 @@ async function runBotMode(): Promise<void> {
                 await interactionHandler.syncCommands(this.client, secrets.getOptional('GuildID'));
 
                 const duration = ((performance.now() - start) / 1000).toFixed(2);
-                this.log.info(`NovaX fully initialized in ${duration}s.`);
+                this.log.info(`Zene fully initialized in ${duration}s.`);
 
                 if (this.isPrimaryShard) {
                     this.log.info('Panel Status Override: Bot Online, Running, Active, Bot Ready, Logged in, Server up and running');
@@ -419,7 +419,7 @@ async function runBotMode(): Promise<void> {
 
             await manager.spawn();
         } else {
-            const app = new NovaX();
+            const app = new Zene();
             await app.bootstrap();
         }
     } catch (error) {
@@ -428,7 +428,7 @@ async function runBotMode(): Promise<void> {
     }
 }
 
-const BOOT_LOCK = Symbol.for('NOVAX_BOOT_LOCK');
+const BOOT_LOCK = Symbol.for('ZENE_BOOT_LOCK');
 
 if (!(globalThis as any)[BOOT_LOCK]) {
     (globalThis as any)[BOOT_LOCK] = true;

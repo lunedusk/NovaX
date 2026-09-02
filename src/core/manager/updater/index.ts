@@ -65,7 +65,7 @@ function loadConfig(): UpdaterConfig {
         autoUpdater:    secrets.getBoolean('AutoUpdater', true),
         repositoryUrl:  secrets.getOptional('RepositoryUrl') || null,
         githubPat:      secrets.getOptional('GithubPat') || secrets.getOptional('GH_TOKEN') || null,
-        defaultRepo:    secrets.getOptional('UpdaterDefaultRepo') || 'lunedusk/NovaX',
+        defaultRepo:    secrets.getOptional('UpdaterDefaultRepo') || 'lunedusk/Zene',
         branch:         secrets.getOptional('UpdaterBranch') || 'main',
         devBuilds:      secrets.getBoolean('DevBuilds', false),
         safeUpdate:     secrets.getBoolean('SafeUpdate', true),
@@ -355,8 +355,8 @@ function readLocalManifestId(pluginRel: string, manifestName: string): string | 
 
 function manifestCompatible(manifestJson: string, coreVersion: SemVer): { ok: boolean; req: string } {
     try {
-        const manifest = JSON.parse(manifestJson) as { novax_version?: string | string[] };
-        const req: string | string[] = manifest.novax_version ?? '*';
+        const manifest = JSON.parse(manifestJson) as { zene_version?: string | string[] };
+        const req: string | string[] = manifest.zene_version ?? '*';
         let ok = false;
         try {
             ok = SemVerRange.satisfies(coreVersion.toString(), req);
@@ -1144,7 +1144,7 @@ export class Updater {
                     if (ok) {
                         selected = tag;
                         selectedReq = req;
-                        log.info(`[plugin] ${pluginName}: selected ${tag.name} (novax_version ${req})`);
+                        log.info(`[plugin] ${pluginName}: selected ${tag.name} (zene_version ${req})`);
                         break;
                     }
                     log.info(`[plugin] ${pluginName}: ${tag.name} incompatible (requires ${req})`);
@@ -1209,7 +1209,7 @@ export class Updater {
                 try {
                     const j = JSON.parse(remoteMan);
                     remoteId = j.id || j.name;
-                    if (!selectedReq && j.novax_version) {
+                    if (!selectedReq && j.zene_version) {
                         const { ok, req } = manifestCompatible(remoteMan, ctx.coreForCompat);
                         selectedReq = req;
                         if (!ok && !line.pinnedTag) {
@@ -1226,7 +1226,7 @@ export class Updater {
                     runtimePath: rtPath,
                     remotePath: null,
                     action: 'skip',
-                    reason: 'Incompatible novax_version after manifest read',
+                    reason: 'Incompatible zene_version after manifest read',
                     source: line
                 });
                 continue;

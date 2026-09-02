@@ -142,7 +142,7 @@ async function trySyncCommandsOnce(client: DiscordClient, machineId: string): Pr
         const { resolveCrossHostRedis } = await import('../env.js');
         const target = resolveCrossHostRedis();
         const redis = redisDB.get(target.alias);
-        const key = 'novax:crosshost:command_sync_v1';
+        const key = 'zene:crosshost:command_sync_v1';
         const got = await redis.main.set(key, machineId, 'EX', 86400, 'NX');
         if (got !== 'OK') {
             log.info('Skipping command sync; another worker already holds the fleet lock', {

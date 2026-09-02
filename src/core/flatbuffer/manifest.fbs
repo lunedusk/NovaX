@@ -1,4 +1,4 @@
-namespace NovaX.System;
+namespace Zene.System;
 
 table FileEntry {
   path: string (key);
@@ -18,17 +18,17 @@ table NodeDependency {
   version: string;
 }
 
-table NovaXManifest {
+table ZeneManifest {
   id: string;
   name: string;
   version: string;
   description: string;
   author: string;
   dependencies: [string];
-  novax_version: string;
+  zene_version: string;
   node_version: string;
   integrity: IntegrityPayload;
   node_dependencies: [NodeDependency];
 }
 
-root_type NovaXManifest;
+root_type ZeneManifest;

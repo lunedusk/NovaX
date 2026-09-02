@@ -17,13 +17,13 @@ export function createChallenge(machineId: string): ChallengeRecord {
 }
 
 export function buildManifestHash(
-    novaxVersion: string,
+    zeneVersion: string,
     plugins: readonly { id: string; version: string }[],
 ): string {
     const sorted = [...plugins]
         .map((p) => `${p.id}@${p.version}`)
         .sort((a, b) => a.localeCompare(b));
-    const payload = `${novaxVersion}|${sorted.join(',')}`;
+    const payload = `${zeneVersion}|${sorted.join(',')}`;
     return createHmac('sha256', 'manifest').update(payload).digest('hex');
 }
 
@@ -33,7 +33,7 @@ export function computeRegisterHmac(
         nonce: string;
         machineId: string;
         manifestHash: string;
-        novaxVersion: string;
+        zeneVersion: string;
         bootGeneration: string;
     },
 ): string {
@@ -41,7 +41,7 @@ export function computeRegisterHmac(
         parts.nonce,
         parts.machineId,
         parts.manifestHash,
-        parts.novaxVersion,
+        parts.zeneVersion,
         parts.bootGeneration,
     ].join('|');
     return createHmac('sha256', secret).update(material).digest('hex');

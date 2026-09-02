@@ -1,4 +1,4 @@
-# NovaX Cross-Host
+# Zene Cross-Host
 
 Multi-machine Discord shard hosting with a thin orchestrator control plane and stripped workers.
 
@@ -17,8 +17,8 @@ Classic standalone and single-host `isSharded` (`ShardingManager`) paths are unc
 
 1. Worker requires `CROSS_HOST_MACHINE_ID`, `CROSS_HOST_ORCHESTRATOR_URL`, and `CROSS_HOST_CLUSTER_SECRET`.
 2. **Challenge (step 1):** `GET /cross-host/v1/challenge?machineId=…` → `{ challengeId, nonce, expiresAt }`.
-3. Worker computes `manifestHash` over NovaX version + sorted `id@version` plugin pairs, then  
-   `HMAC-SHA256(clusterSecret, nonce|machineId|manifestHash|novaxVersion|bootGeneration)`.
+3. Worker computes `manifestHash` over Zene version + sorted `id@version` plugin pairs, then  
+   `HMAC-SHA256(clusterSecret, nonce|machineId|manifestHash|zeneVersion|bootGeneration)`.
 4. **Register (step 2):** `POST /cross-host/v1/register` with identity, plugin list, challengeId, and HMAC.
 5. Orchestrator verifies challenge (single-use, TTL), HMAC, then **deep check**.
 6. On success: short-lived machine token, Redis alias + channel prefix, generation, assigned shards (empty until later milestones), snapshot version (0 until M3), desired state, compat mode.
@@ -34,14 +34,14 @@ Classic standalone and single-host `isSharded` (`ShardingManager`) paths are unc
 
 | Mode | Rule |
 |------|------|
-| `strict` (default) | Exact NovaX version string and exact set of `(plugin id, version)` pairs (order-independent). |
-| `range` | Same plugin **ids** required. NovaX and each plugin version must equal desired or satisfy `SemVer.satisfies(version, desired)`. |
+| `strict` (default) | Exact Zene version string and exact set of `(plugin id, version)` pairs (order-independent). |
+| `range` | Same plugin **ids** required. Zene and each plugin version must equal desired or satisfy `SemVer.satisfies(version, desired)`. |
 
 Desired state on the orchestrator is the local `package.json` version plus `plugins/*/manifest.json` id/version pairs.
 
 ## Dual-orchestrator claim
 
-On orchestrator start a Redis key `novax:crosshost:orchestrator:claim` is acquired with `SET NX` and a short TTL, renewed while the process lives. A second orchestrator against the same Redis receives `CLAIM_CONFLICT` and must exit.
+On orchestrator start a Redis key `zene:crosshost:orchestrator:claim` is acquired with `SET NX` and a short TTL, renewed while the process lives. A second orchestrator against the same Redis receives `CLAIM_CONFLICT` and must exit.
 
 **Disclaimer:** Do not run two orchestrators against the same bot token / cluster secret / Redis instance. The Redis instance used for cross-host control must not be casually shared with unrelated workloads.
 
@@ -180,7 +180,7 @@ When `CROSS_HOST_API_GATEWAY_ENABLED=true` (default), the **orchestrator HTTP se
 
 **Affinity**
 
-- If `guildId` / `guild_id` is present (query, JSON body, or `X-NovaX-Guild-Id`):  
+- If `guildId` / `guild_id` is present (query, JSON body, or `X-Zene-Guild-Id`):  
   `shardId = (guildId >> 22) % totalShards` → worker that owns that shard.
 - Otherwise: any worker that has advertised `apiBaseUrl` (round-robin by time).
 

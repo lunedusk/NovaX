@@ -32,13 +32,13 @@ export interface PluginIdVersion {
 }
 
 export interface DesiredState {
-    readonly novaxVersion: string;
+    readonly zeneVersion: string;
     readonly plugins: readonly PluginIdVersion[];
 }
 
 export interface RegisterRequestBody {
     readonly machineId: string;
-    readonly novaxVersion: string;
+    readonly zeneVersion: string;
     readonly plugins: readonly PluginIdVersion[];
     readonly nodeVersion: string;
     readonly platform: string;
@@ -83,7 +83,7 @@ export interface ChallengeResponseBody {
 
 export interface WorkerView {
     readonly machineId: string;
-    readonly novaxVersion: string;
+    readonly zeneVersion: string;
     readonly plugins: readonly PluginIdVersion[];
     readonly nodeVersion: string;
     readonly platform: string;

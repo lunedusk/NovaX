@@ -7,20 +7,20 @@ export async function runWorkerUpdate(instruct: UpdateInstructMessage): Promise<
     const desired = instruct.desiredState;
     log.info('Worker update path starting', {
         instructId: instruct.instructId,
-        novaxVersion: desired.novaxVersion,
+        zeneVersion: desired.zeneVersion,
         pluginCount: desired.plugins.length,
     });
 
     const { runUpdater } = await import('#core/manager/updater/index.js');
     await runUpdater({
         force: true,
-        targetTag: desired.novaxVersion.startsWith('v')
-            ? desired.novaxVersion
-            : `v${desired.novaxVersion}`,
+        targetTag: desired.zeneVersion.startsWith('v')
+            ? desired.zeneVersion
+            : `v${desired.zeneVersion}`,
     });
 
     log.info('Worker update path finished', {
         instructId: instruct.instructId,
-        target: desired.novaxVersion,
+        target: desired.zeneVersion,
     });
 }

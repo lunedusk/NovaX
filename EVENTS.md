@@ -1,4 +1,4 @@
-# NovaX EventBus Reference
+# Zene EventBus Reference
 
 Authoritative catalog of EventBus events (`eventBus`). Framework lifecycle + Cross-Host are listed below; **Discord bridges add every `Events` enum value** (~89 on discord.js v14) as `discord.<name>`, all typed on `EventArgsMap` (`#core/manager/event.js` → `events/EventBus.ts`).
 

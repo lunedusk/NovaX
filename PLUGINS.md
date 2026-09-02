@@ -2,14 +2,14 @@
 
 ## License
 
-NovaX is licensed under the **PolyForm Noncommercial License 1.0.0**.
+Zene is licensed under the **PolyForm Noncommercial License 1.0.0**.
 
 - Free to use and modify for personal and non-commercial purposes.
 - You may not sell it, claim it as your own, or use it commercially without written permission.
 
 ## Plugin ownership
 
-Any independent plugins, commands, or extensions you create using NovaX remain **your** intellectual property. You retain full ownership of your original plugin code.
+Any independent plugins, commands, or extensions you create using Zene remain **your** intellectual property. You retain full ownership of your original plugin code.
 
 ## Plugin rules
 
@@ -27,12 +27,12 @@ Violating any of the following means your plugin will not be verified or signed,
 - Email your plugin’s **source code** to **vedant.storm@gmail.com** for safety verification.
 - Submit **readable source only** — do not send pre-obfuscated builds. If you want obfuscation, Lunedusk will obfuscate **and** sign after verifying the source.
 - A Lunedusk-signed manifest lets the plugin load **without** the boot warning: `BYPASS ACTIVE — loading plugin without cryptographic guarantees`.
-- Being listed in the official repo’s `plugins.txt` means any NovaX user can install your plugin through the built-in auto-updater.
+- Being listed in the official repo’s `plugins.txt` means any Zene user can install your plugin through the built-in auto-updater.
 
 ## Help & issues
 
 Report bugs or ask questions via GitHub Issues and Discussions:  
-https://github.com/lunedusk/NovaX
+https://github.com/lunedusk/Zene
 
 ## Related
 

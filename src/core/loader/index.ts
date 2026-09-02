@@ -68,9 +68,9 @@ export class PluginManager extends EventEmitter {
             const pkgPath = path.join(process.cwd(), 'package.json');
             const pkgRaw = await fs.readFile(pkgPath, 'utf-8');
             this.coreVersion = JSON.parse(pkgRaw).version || '0.0.0';
-            log.debug(`NovaX Core Version resolved to: v${this.coreVersion}`);
+            log.debug(`Zene Core Version resolved to: v${this.coreVersion}`);
         } catch {
-            log.warn('Could not read core package.json. NovaX version checks may fail.');
+            log.warn('Could not read core package.json. Zene version checks may fail.');
         }
     }
 
@@ -220,8 +220,8 @@ export class PluginManager extends EventEmitter {
                             dependencies: Array.isArray(raw.dependencies)
                                 ? raw.dependencies.filter((d): d is string => typeof d === 'string')
                                 : undefined,
-                            novax_version: (typeof raw.novax_version === 'string' || Array.isArray(raw.novax_version))
-                                ? (raw.novax_version as string | string[])
+                            zene_version: (typeof raw.zene_version === 'string' || Array.isArray(raw.zene_version))
+                                ? (raw.zene_version as string | string[])
                                 : undefined,
                             node_version: typeof raw.node_version === 'string' ? raw.node_version : undefined,
                             priority: typeof raw.priority === 'number' ? raw.priority : undefined,
@@ -234,15 +234,15 @@ export class PluginManager extends EventEmitter {
                         }
                     }
 
-                    if (manifest!.novax_version) {
-                        let novaxOk = false;
+                    if (manifest!.zene_version) {
+                        let zeneOk = false;
                         try {
-                            novaxOk = SemVer.satisfies(this.coreVersion, manifest!.novax_version as string | string[]);
+                            zeneOk = SemVer.satisfies(this.coreVersion, manifest!.zene_version as string | string[]);
                         } catch {
-                            novaxOk = false;
+                            zeneOk = false;
                         }
-                        if (!novaxOk) {
-                            log.warn(`[${manifest!.id}] Incompatible Core Version. Plugin requires ${JSON.stringify(manifest!.novax_version)}, but core is v${this.coreVersion}. Skipping.`);
+                        if (!zeneOk) {
+                            log.warn(`[${manifest!.id}] Incompatible Core Version. Plugin requires ${JSON.stringify(manifest!.zene_version)}, but core is v${this.coreVersion}. Skipping.`);
                             return;
                         }
                     }

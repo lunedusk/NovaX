@@ -57,7 +57,7 @@ async function runOrchestrator(): Promise<void> {
     log.info('Connecting Cross-Host Redis', { alias: redisTarget.alias });
     await redisDB.connect(redisTarget.alias, redisTarget.uri);
     const clients = redisDB.get(redisTarget.alias);
-    const channelPrefix = `novax:crosshost:${redisTarget.alias}`;
+    const channelPrefix = `zene:crosshost:${redisTarget.alias}`;
 
     const indexResolved = await resolveIndexBackend(env, clients.main, channelPrefix);
     const indexBackend: IndexBackend | null = indexResolved.enabled
@@ -92,7 +92,7 @@ async function runOrchestrator(): Promise<void> {
     const coreVersion = await resolveCoreVersion();
     const desiredState = await discoverLocalDesiredState(coreVersion);
     log.info('Desired state resolved', {
-        novaxVersion: desiredState.novaxVersion,
+        zeneVersion: desiredState.zeneVersion,
         pluginCount: desiredState.plugins.length,
         compatMode: env.compatMode,
         totalShards,

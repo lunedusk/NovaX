@@ -195,12 +195,12 @@ export class MembershipRegistry {
             };
         }
 
-        const manifestHash = buildManifestHash(body.novaxVersion, body.plugins);
+        const manifestHash = buildManifestHash(body.zeneVersion, body.plugins);
         const expectedHmac = computeRegisterHmac(this.config.clusterSecret, {
             nonce: challenge.nonce,
             machineId: body.machineId,
             manifestHash,
-            novaxVersion: body.novaxVersion,
+            zeneVersion: body.zeneVersion,
             bootGeneration: body.bootGeneration,
         });
         if (!verifyHmacEqual(expectedHmac, body.hmac)) {
@@ -213,7 +213,7 @@ export class MembershipRegistry {
         }
 
         const check = runDeepCheck(this.config.compatMode, this.desiredState, {
-            novaxVersion: body.novaxVersion,
+            zeneVersion: body.zeneVersion,
             plugins: body.plugins,
         });
         if (!check.ok) {
@@ -240,7 +240,7 @@ export class MembershipRegistry {
 
         const view: WorkerView = {
             machineId: body.machineId,
-            novaxVersion: body.novaxVersion,
+            zeneVersion: body.zeneVersion,
             plugins: body.plugins.map((p) => ({ id: p.id, version: p.version })),
             nodeVersion: body.nodeVersion,
             platform: body.platform,
@@ -326,7 +326,7 @@ export async function discoverLocalDesiredState(coreVersion: string): Promise<De
     }
 
     plugins.sort((a, b) => a.id.localeCompare(b.id));
-    return { novaxVersion: coreVersion, plugins };
+    return { zeneVersion: coreVersion, plugins };
 }
 
 export async function resolveCoreVersion(): Promise<string> {

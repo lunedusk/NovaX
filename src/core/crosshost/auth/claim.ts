@@ -4,7 +4,7 @@ import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('CrossHost:Claim');
 
-const CLAIM_KEY = 'novax:crosshost:orchestrator:claim';
+const CLAIM_KEY = 'zene:crosshost:orchestrator:claim';
 const CLAIM_TTL_SEC = 30;
 const RENEW_INTERVAL_MS = 10_000;
 

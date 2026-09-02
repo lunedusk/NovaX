@@ -148,7 +148,7 @@ jobs:
           npm run copy-assets
 
           echo "📦 Packaging Slim Source..."
-          zip -q -r "NovaX-v${VERSION}-Slim-Source.zip" . \
+          zip -q -r "Zene-v${VERSION}-Slim-Source.zip" . \
             -x "*.git*" \
             -x "*node_modules*" \
             -x "*.zip" \
@@ -174,7 +174,7 @@ jobs:
           cp *.sh slim_build/ 2>/dev/null || true
 
           echo "📦 Packaging Slim Compiled..."
-          (cd slim_build && zip -q -r "../NovaX-v${VERSION}-Slim-Compiled.zip" .)
+          (cd slim_build && zip -q -r "../Zene-v${VERSION}-Slim-Compiled.zip" .)
 
           npm run clean || rm -rf core plugins scripts index.js index.d.ts
           rm -rf slim_build
@@ -293,7 +293,7 @@ jobs:
                 continue
               fi
 
-              REQ=$(node -e 'const m=JSON.parse(process.argv[1]); const r=m.novax_version??"*"; process.stdout.write(Array.isArray(r)?r.join(" "):String(r));' "$MANIFEST")
+              REQ=$(node -e 'const m=JSON.parse(process.argv[1]); const r=m.zene_version??"*"; process.stdout.write(Array.isArray(r)?r.join(" "):String(r));' "$MANIFEST")
               # 0 = compatible, 1 = incompatible, 2+ = parse/engine error (skip tag; engine-down is caught by sanity check above)
               set +e
               SEMVER_OUT=$("${SEMVER_CLI[@]}" satisfies "$CORE_VER" "$REQ" --include-prerelease 2>&1)
@@ -548,7 +548,7 @@ jobs:
           npm run copy-assets
 
           echo "📦 Packaging Bundled Source..."
-          zip -q -r "NovaX-v${VERSION}-Bundled-Source.zip" . \
+          zip -q -r "Zene-v${VERSION}-Bundled-Source.zip" . \
             -x "*.git*" \
             -x "*node_modules*" \
             -x "*.zip" \
@@ -575,7 +575,7 @@ jobs:
           cp *.sh bundled_build/ 2>/dev/null || true
 
           echo "📦 Packaging Bundled Compiled..."
-          (cd bundled_build && zip -q -r "../NovaX-v${VERSION}-Bundled-Compiled.zip" .)
+          (cd bundled_build && zip -q -r "../Zene-v${VERSION}-Bundled-Compiled.zip" .)
 
           npm run clean || rm -rf core plugins scripts index.js index.d.ts
           rm -rf bundled_build
@@ -620,19 +620,19 @@ jobs:
           gh workflow run "sync_template.yml" -f tag="${TAG_NAME}"
           if [ "$IS_PRERELEASE" = "true" ]; then
             gh release create "${TAG_NAME}" \
-              "NovaX-v${VERSION}-Slim-Source.zip" \
-              "NovaX-v${VERSION}-Slim-Compiled.zip" \
-              "NovaX-v${VERSION}-Bundled-Source.zip" \
-              "NovaX-v${VERSION}-Bundled-Compiled.zip" \
+              "Zene-v${VERSION}-Slim-Source.zip" \
+              "Zene-v${VERSION}-Slim-Compiled.zip" \
+              "Zene-v${VERSION}-Bundled-Source.zip" \
+              "Zene-v${VERSION}-Bundled-Compiled.zip" \
               --prerelease \
               --title "${TAG_NAME} Pre-release" \
               --generate-notes
           else
             gh release create "${TAG_NAME}" \
-              "NovaX-v${VERSION}-Slim-Source.zip" \
-              "NovaX-v${VERSION}-Slim-Compiled.zip" \
-              "NovaX-v${VERSION}-Bundled-Source.zip" \
-              "NovaX-v${VERSION}-Bundled-Compiled.zip" \
+              "Zene-v${VERSION}-Slim-Source.zip" \
+              "Zene-v${VERSION}-Slim-Compiled.zip" \
+              "Zene-v${VERSION}-Bundled-Source.zip" \
+              "Zene-v${VERSION}-Bundled-Compiled.zip" \
               --title "${TAG_NAME}" \
               --generate-notes
           fi
