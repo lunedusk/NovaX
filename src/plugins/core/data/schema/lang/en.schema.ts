@@ -135,10 +135,36 @@ const commandsSection = z
     })
     .catchall(node);
 
+const errorsDiscord = z
+    .object({
+        permission_denied: nonEmpty,
+        hierarchy: nonEmpty,
+        target_is_owner: nonEmpty,
+    })
+    .catchall(node);
+
+const errorsCodes = z
+    .object({
+        COMMAND_FAILED: nonEmpty,
+        PAGINATOR_EXPIRED: nonEmpty,
+        HIERARCHY_RANK: nonEmpty,
+        ROLE_BITS_MISSING: nonEmpty,
+        MISSING_BIT: nonEmpty,
+    })
+    .catchall(node);
+
+const errorsSection = z
+    .object({
+        discord: errorsDiscord,
+        codes: errorsCodes,
+    })
+    .catchall(node);
+
 export const langSchema = z
     .object({
         commands: commandsSection,
         layouts: z.record(z.string(), node),
+        errors: errorsSection,
     })
     .catchall(node);
 

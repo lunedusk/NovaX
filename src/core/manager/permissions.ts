@@ -46,9 +46,19 @@ function parseJsonArray(value: unknown): string[] {
 }
 
 const OWNER_BIT = 'bot.owner';
+const BOT_PROTECTED_BIT = 'bot.protected';
+const SERVER_PROTECTED_BIT = 'server.protected';
 
 function bitsIncludeOwner(bits: string[] | undefined | null): boolean {
     return Array.isArray(bits) && bits.includes(OWNER_BIT);
+}
+
+function bitsIncludeBotProtected(bits: string[] | undefined | null): boolean {
+    return Array.isArray(bits) && bits.includes(BOT_PROTECTED_BIT);
+}
+
+function bitsIncludeServerProtected(bits: string[] | undefined | null): boolean {
+    return Array.isArray(bits) && bits.includes(SERVER_PROTECTED_BIT);
 }
 
 function envOwnerIds(): string[] {
@@ -61,30 +71,28 @@ function isEnvOwner(userId: string | null | undefined): boolean {
     return envOwnerIds().includes(userId);
 }
 
-function assertCanMutateOwnerInvolved(
+function assertCanMutateOwnerBit(
     actorUserId: string | null | undefined,
-    involvesOwner: boolean,
+    bits: string[] | undefined | null,
     action: string,
     target: string,
 ): void {
-    if (!involvesOwner) return;
-    if (!isEnvOwner(actorUserId)) {
-        void audit.record({
-            actorType: actorUserId ? 'user' : 'api_key',
-            actorId: actorUserId ?? 'api_key',
-            action,
-            target,
-            outcome: 'fail',
-            reason: 'FORBIDDEN',
-            meta: { bit: OWNER_BIT },
-        });
-        throw new PermissionError(
-            'FORBIDDEN',
-            'Only BotOwnerIds (env) Discord users may create, modify, assign, revoke, or delete roles that include bot.owner. API keys cannot perform these mutations.',
-        );
-    }
+    if (!bitsIncludeOwner(bits)) return;
+    if (isEnvOwner(actorUserId)) return;
+    void audit.record({
+        actorType: actorUserId ? 'user' : 'api_key',
+        actorId: actorUserId ?? 'api_key',
+        action,
+        target,
+        outcome: 'fail',
+        reason: 'FORBIDDEN',
+        meta: { bit: OWNER_BIT },
+    });
+    throw new PermissionError(
+        'FORBIDDEN',
+        'Only BotOwnerIds (env) Discord users may create, modify, assign, revoke, or delete roles that include bot.owner. API keys cannot perform these mutations.',
+    );
 }
-
 
 export interface RouteAccessConfig {
     permissionLevel?: string;
@@ -97,6 +105,10 @@ export interface RouteAccessConfig {
     devOnly?: boolean;
     serverBit?: string | string[];
     require?: string | string[] | ((resolved: ResolvedPermissions) => boolean);
+    requireAll?: string[];
+    requireAny?: string[];
+    denyIf?: string | string[];
+    denyIfAny?: string | string[];
 }
 
 export type CommandBuilderLike = {
@@ -142,6 +154,50 @@ export class PermissionsManager {
         this.db = openSqlAdapter(choice);
 
         await this.seedBuiltInBits();
+        const { ensureRoleLinkSchema, migrateLegacyAssignedAsDirect } = await import(
+            '#core/manager/permissionRoleLinks.js'
+        );
+        await ensureRoleLinkSchema(this.db);
+        const { ensureMirrorSchema } = await import('#core/permissions/discordMirror.js');
+        await ensureMirrorSchema(this.db);
+        try {
+            const botRoles = await this.listBotRoles();
+            const serverRows =
+                this.db.engine === 'mongo'
+                    ? await this.db.mongoCollection('perm_sroles').find({})
+                    : await this.db.all(`SELECT id, guildId, assignedUserIds FROM perm_sroles`);
+            await migrateLegacyAssignedAsDirect(this.db, [
+                ...botRoles.map((r) => ({
+                    roleId: r._id,
+                    guildId: null as string | null,
+                    userIds: r.assignedUserIds,
+                })),
+                ...serverRows.map((row) => {
+                    const r = row as {
+                        id?: string;
+                        _id?: string;
+                        guildId?: string;
+                        assignedUserIds?: unknown;
+                    };
+                    return {
+                        roleId: String(r._id ?? r.id ?? ''),
+                        guildId: String(r.guildId ?? ''),
+                        userIds: Array.isArray(r.assignedUserIds)
+                            ? r.assignedUserIds.map(String)
+                            : (() => {
+                                  try {
+                                      const parsed = JSON.parse(String(r.assignedUserIds ?? '[]'));
+                                      return Array.isArray(parsed) ? parsed.map(String) : [];
+                                  } catch {
+                                      return [] as string[];
+                                  }
+                              })(),
+                    };
+                }),
+            ]);
+        } catch (err) {
+            log.warn(`Legacy grant migration skipped: ${(err as Error).message}`);
+        }
         await this.warnPreexistingOwnerRoles();
         log.info(`PermissionsManager initialized (engine=${choice.engine}, alias=${choice.alias}).`);
         void import('#core/manager/event.js')
@@ -162,7 +218,6 @@ export class PermissionsManager {
             log.warn(`Owner-role boot scan failed: ${(err as Error).message}`);
         }
     }
-
 
     private async seedBuiltInBits(): Promise<void> {
         const at = nowSeconds();
@@ -244,12 +299,21 @@ export class PermissionsManager {
         return new RegExp(`^${escaped}$`).test(actualPath);
     }
 
-    public async registerBit(bit: string, description: string, pluginId?: string): Promise<void> {
+    public async registerBit(
+        bit: string,
+        description: string,
+        pluginId?: string,
+        rank?: number,
+    ): Promise<void> {
         const scope: PermBitDoc['scope'] = bit.startsWith('bot.')
             ? 'bot'
             : bit.startsWith('server.')
               ? 'server'
               : 'plugin';
+        if (typeof rank === 'number' && Number.isFinite(rank)) {
+            const { setBitRank } = await import('#core/types/permissions.js');
+            setBitRank(bit, rank);
+        }
         const at = nowSeconds();
         if (this.db.engine === 'mongo') {
             await this.db.mongoCollection('perm_bits').updateOne(
@@ -319,11 +383,133 @@ export class PermissionsManager {
         return Number(row?.cnt ?? 0) === bits.length;
     }
 
+    private async assertCanMutateBotProtectedBit(
+        actorUserId: string | null | undefined,
+        bits: string[] | undefined | null,
+        action: string,
+        target: string,
+    ): Promise<void> {
+        if (!bitsIncludeBotProtected(bits)) return;
+        if (bitsIncludeOwner(bits)) {
+            assertCanMutateOwnerBit(actorUserId, bits, action, target);
+            return;
+        }
+        if (!actorUserId) {
+            throw new PermissionError(
+                'FORBIDDEN',
+                'Only users with bot.owner may create, modify, assign, or revoke roles that include bot.protected.',
+            );
+        }
+        if (isEnvOwner(actorUserId)) return;
+        const resolved = await this.resolve(actorUserId);
+        if (resolved.botOwner || resolved.bits.has(OWNER_BIT)) return;
+        void audit.record({
+            actorType: 'user',
+            actorId: actorUserId,
+            action,
+            target,
+            outcome: 'fail',
+            reason: 'FORBIDDEN',
+            meta: { bit: BOT_PROTECTED_BIT },
+        });
+        throw new PermissionError(
+            'FORBIDDEN',
+            'Only users with bot.owner may create, modify, assign, or revoke roles that include bot.protected.',
+        );
+    }
+
+    private async assertCanMutateServerProtectedBit(
+        actorUserId: string | null | undefined,
+        guildId: string,
+        bits: string[] | undefined | null,
+        action: string,
+        target: string,
+    ): Promise<void> {
+        if (!bitsIncludeServerProtected(bits)) return;
+        if (!actorUserId) {
+            throw new PermissionError(
+                'FORBIDDEN',
+                'Only server.owner (or bot.owner) may manage roles that include server.protected.',
+            );
+        }
+        const resolved = await this.resolve(actorUserId, guildId);
+        if (resolved.bits.has('server.owner')) return;
+        if (resolved.botOwner || resolved.bits.has(OWNER_BIT) || isEnvOwner(actorUserId)) return;
+        void audit.record({
+            actorType: 'user',
+            actorId: actorUserId,
+            action,
+            target,
+            outcome: 'fail',
+            reason: 'FORBIDDEN',
+            meta: { bit: SERVER_PROTECTED_BIT, guildId },
+        });
+        throw new PermissionError(
+            'FORBIDDEN',
+            'Only server.owner (or bot.owner) may manage roles that include server.protected.',
+        );
+    }
+
+    private async assertActorHoldsRoleBits(
+        actorUserId: string | null | undefined,
+        bits: string[] | undefined | null,
+        guildId?: string,
+    ): Promise<void> {
+        if (!bits || bits.length === 0) return;
+        if (!actorUserId) {
+            throw new PermissionError(
+                'FORBIDDEN',
+                'API keys cannot grant permission bits onto roles without a Discord actor context.',
+            );
+        }
+        const { actorHoldsAllBits } = await import('#core/permissions/hierarchy.js');
+        const resolved = await this.resolve(actorUserId, guildId);
+        const check = actorHoldsAllBits(actorUserId, resolved, bits);
+        if (!check.ok) {
+            let detail = `You cannot place bits you do not hold on a role. Missing: ${check.missing.join(', ')}`;
+            try {
+                const { coreErrorMessage } = await import('#plugins/core/src/lib/coreErrors.js');
+                detail = coreErrorMessage('ROLE_BITS_MISSING', { missing: check.missing.join(', ') });
+            } catch {
+                
+            }
+            throw new PermissionError('FORBIDDEN', detail);
+        }
+        for (const b of bits) {
+            if (b.startsWith('bot.') && guildId) {
+                throw new PermissionError(
+                    'INVALID_SCOPE',
+                    `Bot-scoped bit "${b}" cannot be attached to a server role.`,
+                );
+            }
+        }
+    }
+
+    public async canActOnMember(
+        actorUserId: string,
+        targetUserId: string,
+        guildId?: string,
+        discordGuildOwnerId?: string,
+    ): Promise<import('#core/permissions/hierarchy.js').HierarchyDecision> {
+        const { canActOnMember } = await import('#core/permissions/hierarchy.js');
+        const actor = await this.resolve(actorUserId, guildId, discordGuildOwnerId);
+        const target = await this.resolve(targetUserId, guildId, discordGuildOwnerId);
+        return canActOnMember({
+            actorUserId,
+            targetUserId,
+            actor,
+            target,
+            scope: guildId ? 'any' : 'bot',
+        });
+    }
+
     public async createBotRole(
         data: CreateBotRoleInput,
         actorUserId?: string | null,
     ): Promise<BotWideRoleDoc> {
-        assertCanMutateOwnerInvolved(actorUserId, bitsIncludeOwner(data.bits), 'perm.role.create', 'bot-role');
+        assertCanMutateOwnerBit(actorUserId, data.bits, 'perm.role.create', 'bot-role');
+        await this.assertCanMutateBotProtectedBit(actorUserId, data.bits, 'perm.role.create', 'bot-role');
+        await this.assertActorHoldsRoleBits(actorUserId, data.bits);
         if (!(await this.bitsExist(data.bits))) {
             throw new PermissionError('INVALID_BIT', 'One or more bits do not exist in the catalogue.');
         }
@@ -390,7 +576,11 @@ export class PermissionsManager {
             bitsIncludeOwner(existing.bits) ||
             bitsIncludeOwner(data.bits) ||
             (Array.isArray(data.bits) && bitsIncludeOwner(nextBits));
-        assertCanMutateOwnerInvolved(actorUserId, involves, 'perm.role.update', roleId);
+        assertCanMutateOwnerBit(actorUserId, [...(existing.bits ?? []), ...(data.bits ?? [])], 'perm.role.update', roleId);
+        await this.assertCanMutateBotProtectedBit(actorUserId, [...(existing.bits ?? []), ...(data.bits ?? [])], 'perm.role.update', roleId);
+        if (data.bits) {
+            await this.assertActorHoldsRoleBits(actorUserId, data.bits);
+        }
         if (data.bits) {
             if (!(await this.bitsExist(data.bits))) {
                 throw new PermissionError('INVALID_BIT', 'One or more bits do not exist in the catalogue.');
@@ -445,7 +635,8 @@ export class PermissionsManager {
 
     public async deleteBotRole(roleId: string, actorUserId?: string | null): Promise<void> {
         const existing = await this.getBotRole(roleId);
-        assertCanMutateOwnerInvolved(actorUserId, bitsIncludeOwner(existing?.bits), 'perm.role.delete', roleId);
+        assertCanMutateOwnerBit(actorUserId, existing?.bits, 'perm.role.delete', roleId);
+        await this.assertCanMutateBotProtectedBit(actorUserId, existing?.bits, 'perm.role.delete', roleId);
         if (this.db.engine === 'mongo') {
             await this.db.mongoCollection('perm_bwroles').deleteOne({ $or: [{ _id: roleId }, { id: roleId }] });
         } else {
@@ -493,7 +684,18 @@ export class PermissionsManager {
     ): Promise<void> {
         const existing = await this.getBotRole(roleId);
         if (!existing) throw new PermissionError('INVALID_BIT', `Bot role ${roleId} not found.`);
-        assertCanMutateOwnerInvolved(actorUserId, bitsIncludeOwner(existing.bits), 'perm.role.assign', roleId);
+        assertCanMutateOwnerBit(actorUserId, existing.bits, 'perm.role.assign', roleId);
+        await this.assertCanMutateBotProtectedBit(actorUserId, existing.bits, 'perm.role.assign', roleId);
+        const { upsertGrant } = await import('#core/manager/permissionRoleLinks.js');
+        for (const uid of userIds) {
+            await upsertGrant(this.db, {
+                userId: uid,
+                permRoleId: roleId,
+                guildId: null,
+                source: 'direct',
+                discordRoleId: null,
+            });
+        }
         const merged = Array.from(new Set([...existing.assignedUserIds, ...userIds]));
         await this.writeBotAssigned(roleId, merged);
         await Promise.all(userIds.map((uid) => this.invalidateUserCache(uid)));
@@ -516,8 +718,23 @@ export class PermissionsManager {
     ): Promise<void> {
         const existing = await this.getBotRole(roleId);
         if (!existing) throw new PermissionError('INVALID_BIT', `Bot role ${roleId} not found.`);
-        assertCanMutateOwnerInvolved(actorUserId, bitsIncludeOwner(existing.bits), 'perm.role.revoke', roleId);
-        const remaining = existing.assignedUserIds.filter((uid) => !userIds.includes(uid));
+        assertCanMutateOwnerBit(actorUserId, existing.bits, 'perm.role.revoke', roleId);
+        await this.assertCanMutateBotProtectedBit(actorUserId, existing.bits, 'perm.role.revoke', roleId);
+        const { deleteGrants, userHasAnyGrant } = await import('#core/manager/permissionRoleLinks.js');
+        const remaining = [...existing.assignedUserIds];
+        for (const uid of userIds) {
+            await deleteGrants(this.db, {
+                userId: uid,
+                permRoleId: roleId,
+                guildId: null,
+                source: 'direct',
+            });
+            const still = await userHasAnyGrant(this.db, uid, roleId, null);
+            if (!still) {
+                const idx = remaining.indexOf(uid);
+                if (idx >= 0) remaining.splice(idx, 1);
+            }
+        }
         await this.writeBotAssigned(roleId, remaining);
         await Promise.all(userIds.map((uid) => this.invalidateUserCache(uid)));
         if (bitsIncludeOwner(existing.bits)) {
@@ -570,8 +787,10 @@ export class PermissionsManager {
         }
     }
 
-    public async createServerRole(guildId: string, data: CreateServerRoleInput): Promise<ServerRoleDoc> {
+    public async createServerRole(guildId: string, data: CreateServerRoleInput, actorUserId?: string | null): Promise<ServerRoleDoc> {
         this.assertServerScopedBits(data.bits);
+        await this.assertCanMutateServerProtectedBit(actorUserId, guildId, data.bits, 'perm.srole.create', guildId);
+        await this.assertActorHoldsRoleBits(actorUserId, data.bits, guildId);
         if (!(await this.bitsExist(data.bits))) {
             throw new PermissionError('INVALID_BIT', 'One or more bits do not exist in the catalogue.');
         }
@@ -623,11 +842,20 @@ export class PermissionsManager {
         guildId: string,
         roleId: string,
         data: Partial<CreateServerRoleInput>,
+        actorUserId?: string | null,
     ): Promise<ServerRoleDoc> {
         const existing = await this.getServerRole(guildId, roleId);
         if (!existing) throw new PermissionError('INVALID_BIT', `Server role ${roleId} not found.`);
         if (data.bits) {
             this.assertServerScopedBits(data.bits);
+            await this.assertCanMutateServerProtectedBit(
+                actorUserId ?? data.createdBy ?? null,
+                guildId,
+                [...existing.bits, ...data.bits],
+                'perm.srole.update',
+                roleId,
+            );
+            await this.assertActorHoldsRoleBits(actorUserId ?? data.createdBy ?? null, data.bits, guildId);
             if (!(await this.bitsExist(data.bits))) {
                 throw new PermissionError('INVALID_BIT', 'One or more bits do not exist in the catalogue.');
             }
@@ -742,6 +970,16 @@ export class PermissionsManager {
     public async assignServerRole(guildId: string, roleId: string, userIds: string[]): Promise<void> {
         const existing = await this.getServerRole(guildId, roleId);
         if (!existing) throw new PermissionError('INVALID_BIT', `Server role ${roleId} not found.`);
+        const { upsertGrant } = await import('#core/manager/permissionRoleLinks.js');
+        for (const uid of userIds) {
+            await upsertGrant(this.db, {
+                userId: uid,
+                permRoleId: roleId,
+                guildId,
+                source: 'direct',
+                discordRoleId: null,
+            });
+        }
         const merged = Array.from(new Set([...existing.assignedUserIds, ...userIds]));
         await this.writeServerAssigned(guildId, roleId, merged);
         await Promise.all(userIds.map((uid) => this.invalidateUserCache(uid, guildId)));
@@ -750,7 +988,21 @@ export class PermissionsManager {
     public async revokeServerRole(guildId: string, roleId: string, userIds: string[]): Promise<void> {
         const existing = await this.getServerRole(guildId, roleId);
         if (!existing) throw new PermissionError('INVALID_BIT', `Server role ${roleId} not found.`);
-        const remaining = existing.assignedUserIds.filter((uid) => !userIds.includes(uid));
+        const { deleteGrants, userHasAnyGrant } = await import('#core/manager/permissionRoleLinks.js');
+        const remaining = [...existing.assignedUserIds];
+        for (const uid of userIds) {
+            await deleteGrants(this.db, {
+                userId: uid,
+                permRoleId: roleId,
+                guildId,
+                source: 'direct',
+            });
+            const still = await userHasAnyGrant(this.db, uid, roleId, guildId);
+            if (!still) {
+                const idx = remaining.indexOf(uid);
+                if (idx >= 0) remaining.splice(idx, 1);
+            }
+        }
         await this.writeServerAssigned(guildId, roleId, remaining);
         await Promise.all(userIds.map((uid) => this.invalidateUserCache(uid, guildId)));
     }
@@ -895,7 +1147,6 @@ export class PermissionsManager {
         }
     }
 
-
     public async canExecute(interaction: Interaction, access?: RouteAccessConfig | null): Promise<PermissionCheckResult> {
             if (!access) {
                 return { allowed: true, reason: '', ephemeral: false };
@@ -905,9 +1156,13 @@ export class PermissionsManager {
                 const userId = interaction.user.id;
                 const guildId = interaction.guildId ?? undefined;
                 const discordGuildOwnerId = interaction.guild?.ownerId;
-                const resolved = await this.cachedResolve(userId, guildId, discordGuildOwnerId);
-
-                if (resolved.botOwner) {
+                                let resolved = await this.cachedResolve(userId, guildId, discordGuildOwnerId);
+                if (guildId && interaction.memberPermissions) {
+                    const bits = new Set(resolved.bits);
+                    await this.applyDiscordMirrorBits(bits, guildId, interaction.memberPermissions);
+                    resolved = { ...resolved, bits };
+                }
+ if (resolved.botOwner) {
                     return { allowed: true, reason: '', ephemeral: false };
                 }
 
@@ -1000,6 +1255,24 @@ export class PermissionsManager {
                     }
                 }
 
+                const denyIfBits = access.denyIf
+                    ? Array.isArray(access.denyIf)
+                        ? access.denyIf
+                        : [access.denyIf]
+                    : [];
+                if (denyIfBits.length > 0 && denyIfBits.every((b) => resolved.bits.has(b))) {
+                    return { allowed: false, reason: denyMsg, ephemeral: true };
+                }
+
+                const denyIfAnyBits = access.denyIfAny
+                    ? Array.isArray(access.denyIfAny)
+                        ? access.denyIfAny
+                        : [access.denyIfAny]
+                    : [];
+                if (denyIfAnyBits.length > 0 && denyIfAnyBits.some((b) => resolved.bits.has(b))) {
+                    return { allowed: false, reason: denyMsg, ephemeral: true };
+                }
+
                 if (access.require) {
                     let requirePassed: boolean;
                     if (typeof access.require === 'function') {
@@ -1009,6 +1282,18 @@ export class PermissionsManager {
                         requirePassed = bits.every((b: string) => resolved.bits.has(b));
                     }
                     if (!requirePassed) {
+                        return { allowed: false, reason: denyMsg, ephemeral: true };
+                    }
+                }
+
+                if (access.requireAll && access.requireAll.length > 0) {
+                    if (!access.requireAll.every((b) => resolved.bits.has(b))) {
+                        return { allowed: false, reason: denyMsg, ephemeral: true };
+                    }
+                }
+
+                if (access.requireAny && access.requireAny.length > 0) {
+                    if (!access.requireAny.some((b) => resolved.bits.has(b))) {
                         return { allowed: false, reason: denyMsg, ephemeral: true };
                     }
                 }
@@ -1093,6 +1378,187 @@ export class PermissionsManager {
             }
         } catch (err) {
             log.error(`sendDenied failed: ${(err as Error).message}`);
+        }
+    }
+
+    public async getGuildDiscordMirror(guildId: string) {
+        const { getGuildMirror } = await import('#core/permissions/discordMirror.js');
+        return getGuildMirror(this.db, guildId);
+    }
+
+    public async setGuildDiscordMirror(
+        guildId: string,
+        input: { enabled: boolean; map?: Record<string, string> | null; updatedBy: string | null },
+    ) {
+        const { setGuildMirror } = await import('#core/permissions/discordMirror.js');
+        return setGuildMirror(this.db, guildId, input);
+    }
+
+    public async applyDiscordMirrorBits(
+        bits: Set<string>,
+        guildId: string | undefined,
+        memberPermissions: import('discord.js').PermissionsBitField | null | undefined,
+    ): Promise<Set<string>> {
+        if (!guildId || !memberPermissions) return bits;
+        const { getGuildMirror, mirrorDiscordPermissionsToBits } = await import(
+            '#core/permissions/discordMirror.js'
+        );
+        const state = await getGuildMirror(this.db, guildId);
+        if (!state.enabled) return bits;
+        const mirrored = mirrorDiscordPermissionsToBits(memberPermissions, state.map);
+        for (const b of mirrored) bits.add(b);
+        return bits;
+    }
+
+    public async linkDiscordRole(input: {
+        scope: 'bot' | 'server';
+        guildId: string | null;
+        discordRoleId: string;
+        permRoleId: string;
+        createdBy: string;
+    }): Promise<import('#core/manager/permissionRoleLinks.js').RoleLinkDoc> {
+        if (input.scope === 'bot') {
+            const role = await this.getBotRole(input.permRoleId);
+            if (!role) throw new PermissionError('INVALID_BIT', `Bot role ${input.permRoleId} not found.`);
+        } else {
+            if (!input.guildId) throw new PermissionError('NOT_IN_GUILD', 'guildId required for server role links');
+            const role = await this.getServerRole(input.guildId, input.permRoleId);
+            if (!role) throw new PermissionError('INVALID_BIT', `Server role ${input.permRoleId} not found.`);
+        }
+        const { insertLink } = await import('#core/manager/permissionRoleLinks.js');
+        const doc = await insertLink(this.db, input);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) =>
+                eventBus.emitConcurrent('permissions.role_link.linked', {
+                    ...input,
+                    at: Date.now(),
+                }),
+            )
+            .catch(() => undefined);
+        return doc;
+    }
+
+    public async unlinkDiscordRole(input: {
+        scope: 'bot' | 'server';
+        guildId: string | null;
+        discordRoleId: string;
+        permRoleId: string;
+    }): Promise<void> {
+        const { deleteLink, deleteGrants, listGrantsForRole, userHasAnyGrant } = await import(
+            '#core/manager/permissionRoleLinks.js'
+        );
+        await deleteLink(this.db, input);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) =>
+                eventBus.emitConcurrent('permissions.role_link.unlinked', {
+                    ...input,
+                    at: Date.now(),
+                }),
+            )
+            .catch(() => undefined);
+        const guildKey = input.scope === 'bot' ? null : input.guildId;
+        await deleteGrants(this.db, {
+            permRoleId: input.permRoleId,
+            guildId: guildKey,
+            source: 'discord_role',
+            discordRoleId: input.discordRoleId,
+        });
+        const grants = await listGrantsForRole(this.db, input.permRoleId, guildKey);
+        const still = new Set(grants.map((g) => g.userId));
+        if (input.scope === 'bot') {
+            const role = await this.getBotRole(input.permRoleId);
+            if (role) {
+                const next = role.assignedUserIds.filter((uid) => still.has(uid));
+                await this.writeBotAssigned(input.permRoleId, next);
+                await Promise.all(role.assignedUserIds.map((uid) => this.invalidateUserCache(uid)));
+            }
+        } else if (input.guildId) {
+            const role = await this.getServerRole(input.guildId, input.permRoleId);
+            if (role) {
+                const next = role.assignedUserIds.filter((uid) => still.has(uid));
+                await this.writeServerAssigned(input.guildId, input.permRoleId, next);
+                await Promise.all(role.assignedUserIds.map((uid) => this.invalidateUserCache(uid, input.guildId!)));
+            }
+        }
+        void userHasAnyGrant;
+    }
+
+    public async listDiscordRoleLinks(filter?: {
+        scope?: 'bot' | 'server';
+        guildId?: string | null;
+    }): Promise<import('#core/manager/permissionRoleLinks.js').RoleLinkDoc[]> {
+        const { listLinks } = await import('#core/manager/permissionRoleLinks.js');
+        return listLinks(this.db, filter);
+    }
+
+    public async applyDiscordGrant(
+        scope: 'bot' | 'server',
+        guildId: string | null,
+        permRoleId: string,
+        userId: string,
+        discordRoleId: string,
+    ): Promise<void> {
+        const { upsertGrant } = await import('#core/manager/permissionRoleLinks.js');
+        const gId = scope === 'bot' ? null : guildId;
+        await upsertGrant(this.db, {
+            userId,
+            permRoleId,
+            guildId: gId,
+            source: 'discord_role',
+            discordRoleId,
+        });
+        if (scope === 'bot') {
+            const existing = await this.getBotRole(permRoleId);
+            if (!existing) return;
+            if (!existing.assignedUserIds.includes(userId)) {
+                await this.writeBotAssigned(permRoleId, [...existing.assignedUserIds, userId]);
+            }
+            await this.invalidateUserCache(userId);
+        } else if (guildId) {
+            const existing = await this.getServerRole(guildId, permRoleId);
+            if (!existing) return;
+            if (!existing.assignedUserIds.includes(userId)) {
+                await this.writeServerAssigned(guildId, permRoleId, [...existing.assignedUserIds, userId]);
+            }
+            await this.invalidateUserCache(userId, guildId);
+        }
+    }
+
+    public async revokeDiscordGrantIfOrphan(
+        scope: 'bot' | 'server',
+        guildId: string | null,
+        permRoleId: string,
+        userId: string,
+        discordRoleId: string,
+    ): Promise<void> {
+        const { deleteGrants, userHasAnyGrant } = await import('#core/manager/permissionRoleLinks.js');
+        const gId = scope === 'bot' ? null : guildId;
+        await deleteGrants(this.db, {
+            userId,
+            permRoleId,
+            guildId: gId,
+            source: 'discord_role',
+            discordRoleId,
+        });
+        const still = await userHasAnyGrant(this.db, userId, permRoleId, gId);
+        if (still) return;
+        if (scope === 'bot') {
+            const existing = await this.getBotRole(permRoleId);
+            if (!existing) return;
+            await this.writeBotAssigned(
+                permRoleId,
+                existing.assignedUserIds.filter((u) => u !== userId),
+            );
+            await this.invalidateUserCache(userId);
+        } else if (guildId) {
+            const existing = await this.getServerRole(guildId, permRoleId);
+            if (!existing) return;
+            await this.writeServerAssigned(
+                guildId,
+                permRoleId,
+                existing.assignedUserIds.filter((u) => u !== userId),
+            );
+            await this.invalidateUserCache(userId, guildId);
         }
     }
 

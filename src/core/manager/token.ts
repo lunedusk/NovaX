@@ -15,6 +15,8 @@ export const BitSets = {
     "server.members.mute",
     "server.members.history",
     "server.members.notes",
+    "server.members.nick",
+    "server.members.role",
     "server.roles.manage",
     "server.lang.manage",
     "server.logs.view",
@@ -30,6 +32,8 @@ export const BitSets = {
     "bot.members.ban",
     "bot.members.mute",
     "bot.members.ban_global",
+    "bot.members.nick",
+    "bot.members.role",
     "bot.plugins.view",
     "bot.plugins.manage",
     "bot.plugins.reload",
@@ -37,10 +41,42 @@ export const BitSets = {
     "bot.theme.manage",
     "bot.dash.pages.manage",
     "bot.logs.view",
+    "bot.audit.view",
+    "bot.audit.export",
+    "bot.errors.view",
+    "bot.errors.export",
     "bot.analytics.view",
+    "bot.fleet.view",
+    "bot.fleet.restart",
+    "bot.shard.view",
+    "bot.shard.shift",
+    "bot.worker.restart",
+    "bot.crosshost.view",
+    "bot.crosshost.manage",
+    "bot.cache.manage",
+    "bot.config.reload",
+    "bot.lang.reload",
+  ] as Bit[],
+  BOT_FLEET_OPS: [
+    "bot.fleet.view",
+    "bot.fleet.restart",
+    "bot.shard.view",
+    "bot.shard.shift",
+    "bot.worker.restart",
+    "bot.crosshost.view",
+    "bot.crosshost.manage",
+  ] as Bit[],
+  SERVER_MODERATION: [
+    "server.members.view",
+    "server.members.kick",
+    "server.members.ban",
+    "server.members.mute",
+    "server.members.nick",
+    "server.members.role",
+    "server.members.history",
+    "server.members.notes",
   ] as Bit[],
 } as const;
-
 
 export interface TokenPayload {
   userId: string;
@@ -133,7 +169,6 @@ export interface TokenStore {
   deleteDevice(userId: string, deviceId: string, guildId?: string): Promise<void>;
   getLastJti(userId: string, deviceId: string, guildId?: string): Promise<string | undefined>;
 }
-
 
 export class DbTokenStore implements TokenStore {
   private db!: import('#core/database/sqlAdapter.js').SqlAdapter;
@@ -522,7 +557,6 @@ export class TokenManager {
 
     return token;
   }
-
 
   async verify(token: string, options: { skipRotationCheck?: boolean } = {}): Promise<VerifiedToken> {
     let parsedUserId: string | undefined;

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getLogger } from '#core/utils/logger.js';
+import { buildRequirementContext, evaluateRequirements, requirementsMode } from './requirements.js';
 import type { IHeart } from '#core/heart/index.js';
 import { BaseHandler } from '#core/bases/Handler.js';
 import { handlerRegistry } from '#core/manager/handler/registry.js';
@@ -67,7 +68,19 @@ export class HandlerLoader {
                     return;
                 }
 
-                const instance: BaseHandler = new HandlerClass(heart);
+                const instance = new HandlerClass(heart);
+                if (instance.requirements) {
+                    const ctx = buildRequirementContext(heart, pluginId);
+                    const req = await evaluateRequirements(instance.requirements, ctx);
+                    if (!req.ok) {
+                        const mode = requirementsMode(instance.requirements, 'soft');
+                        if (mode === 'strict') {
+                            throw new Error(`Handler ${instance.name} requirements failed: ${req.reasons.join('; ')}`);
+                        }
+                        log.info(`[${pluginId}] skipped handler ${instance.name}: ${req.reasons.join('; ')}`);
+                        return;
+                    }
+                }
 
                 if (!instance.name || typeof instance.name !== 'string') {
                     log.warn(`[${pluginId}] Handler in ${path.basename(file)} has a missing or invalid name. Skipping.`);

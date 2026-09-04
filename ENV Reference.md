@@ -1616,6 +1616,9 @@ All standard env variables above are also valid as top-level keys in `common.jso
 
 ## 17. Cross-Host / Orchestrator
 
+
+**Worker cluster client** (after register) may call orchestrator `GET /cross-host/v1/cluster/shards|workers`, `GET /cross-host/v1/cluster/guild-owner`, `POST /cross-host/v1/cluster/shard-shift` with the machine Bearer token. See [CROSS_HOST.md](CROSS_HOST.md).
+
 Master switch and multi-machine control plane. When `CROSS_HOST` is true, the process branches before classic standalone / `isSharded` boot. See [CROSS_HOST.md](CROSS_HOST.md). Lifecycle events: [EVENTS.md](EVENTS.md).
 
 ### Master
@@ -1760,3 +1763,9 @@ Default alias: `main`. Core migrations use the permissions-resolved backend.
 | **Purpose** | Comma-separated plugin ids allowed to register **Tier 3** (host-origin, unsandboxed) dashboard surfaces |
 | **Default** | empty (no Tier 3) |
 | **Safe to Change** | Yes (requires restart or registry rebuild after lifecycle) |
+
+## Permissions / token notes
+
+- `BotOwnerIds` — comma-separated Discord user IDs; highest ownership (env owners).
+- Token plugin master secret must be configured for `/api/tokens/*` issue/verify.
+- Cross-host storage still rejects sqlite/file primary engines when Cross-Host is on.

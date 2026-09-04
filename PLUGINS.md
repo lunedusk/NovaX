@@ -100,3 +100,22 @@ See **System Prompt - AI - Plugin.md** → Plugin Dashboard UI SDK (broker).
 | `GET /api/dash/events/ws` | Session | **Deferred** (501) — WebSocket via Next BFF upgrade is a follow-up; does not block SSE |
 
 `registry.updated` is emitted when plugin enable/disable/reload bumps the dash registry version (A5). Clients should re-fetch `GET /api/dash/registry` so surfaces for plugins that failed the load gate disappear.
+
+## Registering structure from index.ts
+
+```ts
+await this.heart.registry.registerCommand(MyCommand);
+await this.heart.registry.extendCommand('admin', {
+  kind: 'subcommand',
+  name: 'fleet-restart',
+  description: '…',
+  requirements: { modes: ['crosshost'], crossHostRole: 'worker' },
+  execute: async (i) => { /* … */ },
+});
+```
+
+Duplicates hard-fail. See System Prompt → heart.registry.
+
+## Dynamic registration & requirements
+
+Commands, events, routes, handlers, and middlewares may declare `requirements` (mode: cross-host / sharded / standalone, env, plugins, `when` fn). Access on commands/routes uses permission predicates (`requireAny` / `requireAll` / `denyIf` / …). Prefer registering complete structures then resync; freeze after boot.

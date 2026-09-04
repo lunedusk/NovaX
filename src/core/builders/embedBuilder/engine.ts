@@ -32,7 +32,6 @@ export class EmbedBuilderEngine {
         };
     }
 
-
     public build(layout: EmbedLayout, localContext?: BuildContext, localOptions?: BuildOptions): EmbedBuildResult {
         const ctx = this.mergeContext(localContext);
         const spec = interpolateVariables(layout, ctx.variables);

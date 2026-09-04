@@ -4,6 +4,10 @@
     "version": "0.2.0",
     "author": "Lunedusk",
     "node_version": ">=18.20.8",
-    "dependencies": ["api", "permissions"],
-    "zene_version": ">=0.5.2"
+    "dependencies": [
+        "api",
+        "permissions"
+    ],
+    "zene_version": ">=0.5.2",
+    "emoji": "\u2699\ufe0f"
 }

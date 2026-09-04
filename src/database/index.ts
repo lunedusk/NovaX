@@ -41,7 +41,6 @@ function asBigInt(value: unknown): bigint {
     return BigInt(String(value));
 }
 
-
 export interface NovaConfig {
     dbDir: string;
     memtableLimitBytes: number;
@@ -1536,7 +1535,6 @@ export class NovaCollection {
             this.isCompacting = false;
         }
     }
-
 
     private levelTargetBytes(level: number): number {
         const l1  = this.config.l1MaxBytes    ?? 256 * 1024 * 1024;

@@ -61,7 +61,6 @@ async function fileExists(p: string): Promise<boolean> {
     return fs.access(p).then(() => true).catch(() => false);
 }
 
-/** RAW registry — placeholders intact (source of truth for dashboard). */
 export async function getPluginConfig(pluginId: string): Promise<Record<string, unknown>> {
     const mgr = await realConfigManager();
     const key = configFileKey(pluginId);

@@ -72,7 +72,7 @@ class BinaryManifestPacker {
                 try {
                     await fs.access(man);
                     return dir;
-                } catch { /* try next */ }
+                } catch {  }
             }
         }
         throw new Error(

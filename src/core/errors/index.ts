@@ -72,6 +72,13 @@ export async function getById(id: string): Promise<ErrorOccurrence | null> {
 
 export type { ErrorListFilter } from './store.js';
 
+export {
+    GlobalErrorCatcher,
+    globalCatcher,
+    injectUnhandledEmitter,
+} from './catcher.js';
+export type { TeardownHook, UnhandledErrorPayload } from './catcher.js';
+
 export const errors = Object.freeze({
     record,
     recordFromError,

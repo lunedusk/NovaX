@@ -219,3 +219,61 @@ this.heart.system.eventBus.on('crosshost.assignment.applied', (p) => { /* ... */
 ```
 
 (Access path may be `eventBus` import from `#core/manager/event.js` when not exposed on heart — prefer the public EventBus import.)
+
+## Phase 4 — Gateway & affinity
+
+### Runtime model
+
+| Mode | Gateway stack |
+|------|----------------|
+| Standalone | Stock **discord.js** single `Client` |
+| Classic `isSharded` | Stock **discord.js** `ShardingManager` / worker clients |
+| Cross-Host worker | **`DiscordShardAdapter`**: one discord.js `Client` per assigned shard id; add/remove without touching other sockets; identify grants before `login` |
+
+`@lunedusk/gateway-multiplex` is a **Cross-Host-only** optional raw-gateway package (gateway v10, identify buckets, resume). Load only via `#core/crosshost/gateway/multiplexLoader.js` — never from standalone or classic sharded paths.
+
+Install/build: `npm run install-packages` (builds `packages/gateway-multiplex` and links `file:packages/gateway-multiplex`). Runtime Cross-Host workers use **discord.js** `Client`s via `DiscordShardAdapter`; multiplex is optional and does **not** replace `discord.js`. The tree `packages/discord.js-14.27.0` is vendored reference source only.
+
+
+### Guild affinity
+
+- Shard for guild: `(guildId >> 22) % totalShards`
+- Helper: `#core/helpers/guildAffinity.js`
+- Adapter: `getClientForGuild` / `getGuild` / `shardIdForGuild`
+- Interactions with `guildId` but no `guild` resolve via fetch; failure → A1 `not_in_guild` (wrong worker / not in cache)
+- Moderation fan-out (Phase 3b) uses orchestrator `guild-owner` + plugin bus when the guild is not local
+
+### Adapter guarantees
+
+- `applyShardSet` is single-flight and **diff-based** (only add/remove changed ids)
+- **totalShards change** forces client recreate for live shards (shardCount must match Discord)
+- Empty assignment tears down all sockets (standby; no identify)
+
+### Cluster HTTP API (worker Bearer token)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/cross-host/v1/cluster/shards` | Ownership dump + per-worker shard lists |
+| GET | `/cross-host/v1/cluster/workers` | Membership snapshot |
+| GET | `/cross-host/v1/cluster/guild-owner?guildId=` | Guild → shard → machine |
+| POST | `/cross-host/v1/cluster/shard-shift` | Body `{ shardId, toMachineId }` — manual move, no classic rebalance |
+
+Auth: `Authorization: Bearer <machineToken>` from registration. Worker helper: `#core/crosshost/worker/clusterClient.js`.
+
+### Plugin surfaces (Phases 1–4)
+
+| Surface | Notes |
+|---------|------|
+| `core` handler `moderation` | ban/kick/timeout/role/nick; guild `"all"`; CH fan-out via bus `zene:moderation` |
+| `/admin metrics` | All modes |
+| `/admin shard-info` | Sharded + Cross-Host |
+| `/admin fleet-restart` / `worker-restart` / `shard-shift` | Cross-Host only; bit-gated |
+| Dashboard owner gates | `bot.owner` bit or env seed — not env-only for authoring |
+
+## Commands under Cross-Host
+
+Slash commands deploy on **workers** only. Use `requirements: { modes: ['crosshost'], crossHostRole: 'worker' }` or `heart.registry.extendCommand('admin', …)` for fleet controls. Classic standalone/sharded paths ignore those nodes (soft requirements).
+
+## Related permission APIs
+
+Workers expose the same REST surface as standalone when HTTP is enabled. Fleet control (restart, shard shift) is also available under dashboard admin fleet routes when the dashboard plugin is loaded. Use `scripts/route-probe.mjs` against each worker `BASE_URL`.

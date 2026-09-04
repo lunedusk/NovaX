@@ -4,8 +4,11 @@
     "version": "1.0.1",
     "description": "HMAC-SHA256 bearer token management with REST API for authentication, issuance, and revocation.",
     "author": "Lunedusk",
-    "dependencies": ["api"],
+    "dependencies": [
+        "api"
+    ],
     "zene_version": ">=0.5.2",
     "node_version": ">=20",
-    "priority": -5
+    "priority": -5,
+    "emoji": "\ud83c\udfab"
 }

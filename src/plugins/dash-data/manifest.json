@@ -7,5 +7,6 @@
     "dependencies": [],
     "zene_version": ">=0.5.2",
     "node_version": ">=20",
-    "priority": -5
+    "priority": -5,
+    "emoji": "\ud83d\uddc4\ufe0f"
 }

@@ -18,8 +18,12 @@ export default class DashboardPlugin extends BasePlugin {
     public async onSetup(): Promise<void> {
         const perms = this.heart.system.handler.$get('permissions', 'manager') as PermissionsHandler | undefined;
         if (perms) {
+            const ranks: Record<string, number> = {
+                'plugin.dashboard.members.notes': 50,
+                'plugin.dashboard.infractions.manage': 120,
+            };
             for (const { bit, description } of CUSTOM_BITS_TO_REGISTER) {
-                await perms.registerBit(bit, description, this.heart.id);
+                await perms.registerBit(bit, description, this.heart.id, ranks[bit]);
             }
             this.log.info(`Registered ${CUSTOM_BITS_TO_REGISTER.length} custom dashboard permission bit(s).`);
         } else {

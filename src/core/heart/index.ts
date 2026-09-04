@@ -14,6 +14,8 @@ import { tokenDomain, type TokenDomain } from './token.js';
 import { cacheDomain, type CacheDomain } from './cache.js';
 import { guildDomain, type GuildDomain } from './guild.js';
 import { setHeartClient } from './holders.js';
+import { createRegistryDomain, type RegistryDomain } from './registry.js';
+import { createPaginatorDomain, type PaginatorDomain } from './paginator.js';
 
 export interface IHeart {
     readonly id: string;
@@ -34,6 +36,8 @@ export interface IHeart {
     readonly token: TokenDomain;
     readonly cache: CacheDomain;
     readonly guild: GuildDomain;
+    readonly registry: RegistryDomain;
+    readonly paginator: PaginatorDomain;
 }
 
 export class HeartFactory {
@@ -43,7 +47,7 @@ export class HeartFactory {
         overrides?: Partial<IHeart>,
     ): IHeart {
         setHeartClient(client);
-        return Object.freeze({
+        const base = {
             id: pluginId,
             client: overrides?.client ?? client,
 
@@ -62,7 +66,23 @@ export class HeartFactory {
             token: overrides?.token ?? tokenDomain,
             cache: overrides?.cache ?? cacheDomain,
             guild: overrides?.guild ?? guildDomain,
-        });
+        };
+
+        const provisional = {
+            ...base,
+            registry:
+                overrides?.registry ??
+                createRegistryDomain(base as unknown as IHeart),
+        } as IHeart;
+
+        const heart = {
+            ...provisional,
+            paginator:
+                overrides?.paginator ??
+                createPaginatorDomain(provisional),
+        } as IHeart;
+
+        return Object.freeze(heart);
     }
 }
 
@@ -72,6 +92,8 @@ export type { PermissionsDomain } from './permissions.js';
 export type { TokenDomain } from './token.js';
 export type { CacheDomain } from './cache.js';
 export type { GuildDomain } from './guild.js';
+export type { RegistryDomain, CommandDefinition } from './registry.js';
+export type { PaginatorDomain } from './paginator.js';
 export {
     setHeartPermissions,
     setHeartTokenManager,

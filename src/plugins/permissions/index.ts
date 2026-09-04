@@ -18,7 +18,13 @@ export default class PermissionsPlugin extends BasePlugin {
     }
 
     public async onEnable(): Promise<void> {
-        this.log.info('Permissions plugin is live.');
+        try {
+            const bits = await this.heart.permissions.listBits();
+            this.log.info(`Permissions plugin is live. Catalogue size: ${bits.length}`);
+        } catch (err) {
+            this.log.info('Permissions plugin is live.');
+            this.log.debug(`Catalogue list skipped: ${(err as Error).message}`);
+        }
     }
 
     public async onDisable(): Promise<void> {

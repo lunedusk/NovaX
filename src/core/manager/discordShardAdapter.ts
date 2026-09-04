@@ -79,6 +79,24 @@ export class DiscordShardAdapter {
         return sortedCopy([...this.managed.keys()]);
     }
 
+    public shardIdForGuild(guildId: string): number {
+        const total = Math.max(1, this.totalShards);
+        return Number((BigInt(guildId) >> 22n) % BigInt(total));
+    }
+
+    public getClientForGuild(guildId: string): DiscordClient | null {
+        const shardId = this.shardIdForGuild(guildId);
+        return this.getClientForShard(shardId);
+    }
+
+    public getGuild(guildId: string) {
+        for (const entry of this.managed.values()) {
+            const g = entry.client.guilds.cache.get(guildId);
+            if (g) return g;
+        }
+        return null;
+    }
+
     public getStatus(): DiscordShardAdapterStatus {
         const ids = this.getShardIds();
         const primary = this.getPrimaryClient();
@@ -120,6 +138,7 @@ export class DiscordShardAdapter {
         totalShards: number,
         waitForGrant: ShardGrantWaiter,
     ): Promise<void> {
+        const previousTotal = this.totalShards;
         this.totalShards = totalShards;
         const next = sortedCopy(nextIds);
         const current = new Set(this.managed.keys());
@@ -133,7 +152,8 @@ export class DiscordShardAdapter {
             return;
         }
 
-        if (sameSet([...current], next) && this.totalShards === totalShards) {
+        const setUnchanged = sameSet([...current], next);
+        if (setUnchanged && previousTotal === totalShards) {
             const allReady = next.every((id) => this.managed.get(id)?.ready === true);
             if (allReady) {
                 log.debug('Shard set unchanged; connections left intact', { shards: next });
@@ -141,8 +161,16 @@ export class DiscordShardAdapter {
             }
         }
 
-        const toRemove = [...current].filter((id) => !nextSet.has(id));
-        const toAdd = next.filter((id) => !current.has(id));
+        let toRemove = [...current].filter((id) => !nextSet.has(id));
+        let toAdd = next.filter((id) => !current.has(id));
+        if (setUnchanged && previousTotal !== totalShards) {
+            toRemove = [...current];
+            toAdd = [...next];
+            log.info('totalShards changed; recreating shard clients', {
+                previousTotal,
+                totalShards,
+            });
+        }
 
         for (const shardId of toRemove) {
             await this.dropShard(shardId);
@@ -243,4 +271,14 @@ export class DiscordShardAdapter {
 
 export function createDiscordShardAdapter(): DiscordShardAdapter {
     return new DiscordShardAdapter();
+}
+
+let activeAdapter: DiscordShardAdapter | null = null;
+
+export function getActiveDiscordShardAdapter(): DiscordShardAdapter | null {
+    return activeAdapter;
+}
+
+export function setActiveDiscordShardAdapter(adapter: DiscordShardAdapter | null): void {
+    activeAdapter = adapter;
 }

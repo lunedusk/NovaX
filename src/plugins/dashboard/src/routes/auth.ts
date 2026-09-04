@@ -4,6 +4,7 @@ import { applyGateway, requireSession, type DashRequest } from '../lib/authz.js'
 import { ok, guarded, HttpError } from '../lib/http.js';
 import { isGloballyBanned } from '../lib/db.js';
 import { BOT_OWNER_BIT } from '../lib/bits.js';
+import { isBotOwnerFromBits } from '../lib/owner.js';
 import { tokens } from '../lib/tokens.js';
 import type PermissionsHandler from '../../../permissions/src/handlers/manager.js';
 
@@ -21,7 +22,48 @@ export default class AuthRoute extends BaseRoute {
         return this.heart.system.handler.$get('permissions', 'manager') as PermissionsHandler | undefined;
     }
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/auth/resolve:
+     *   get:
+     *     tags: [DashboardAuth]
+     *     summary: Resolve Discord OAuth access token into dash session
+     *     parameters:
+     *       - in: header
+     *         name: X-Discord-Access-Token
+     *         required: true
+     *         schema: { type: string }
+     *       - in: header
+     *         name: X-Dash-Device-Id
+     *         required: true
+     *         schema: { type: string }
+     *     responses:
+     *       '200':
+     *         description: Session token issued
+     *       '400':
+     *         description: Missing headers
+     * /api/dash/auth/permissions:
+     *   get:
+     *     tags: [DashboardAuth]
+     *     summary: Current session permission bits
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200':
+     *         description: Bits / owner flags
+     * /api/dash/auth/session-check:
+     *   get:
+     *     tags: [DashboardAuth]
+     *     summary: Validate bearer session
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200':
+     *         description: Session ok
+     *       '401':
+     *         description: Invalid session
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
 
         this.router.get('/resolve', this.asyncHandler(guarded(this.heart, this.resolve.bind(this))));
@@ -80,7 +122,7 @@ export default class AuthRoute extends BaseRoute {
                     : null,
             },
             bits: verified.payload.bits,
-            isBotOwner: verified.payload.bits.includes(BOT_OWNER_BIT),
+            isBotOwner: isBotOwnerFromBits(verified.payload.userId, verified.payload.bits),
         });
     }
 

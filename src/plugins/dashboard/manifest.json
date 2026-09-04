@@ -12,5 +12,6 @@
     ],
     "zene_version": ">=0.5.2",
     "node_version": ">=20",
-    "priority": 10
+    "priority": 10,
+    "emoji": "\ud83d\udcca"
 }

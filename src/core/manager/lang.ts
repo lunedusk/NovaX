@@ -213,7 +213,6 @@ const SUPPORTED_LOCALES = new Set([
   'zh-HK',
 ]);
 
-
 export type TranslationVars = Record<string, string | number | boolean>;
 export type CompiledTranslation = (vars?: TranslationVars) => string;
 
@@ -249,7 +248,6 @@ export class LanguageManager {
         void import('#core/manager/event.js')
             .then(({ eventBus }) => eventBus.emitConcurrent('lang.loaded', { namespaces: loadedCount }))
             .catch(() => undefined);
-
 
         if (hotReload) {
             this.watcher = new FileWatcher(this.targetDir, { includePatterns: ['**/*.json5'] });

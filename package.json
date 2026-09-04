@@ -14,16 +14,19 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "clean": "rm -rf core plugins scripts database index.js index.d.ts",
-    "install-packages": "cd packages/gateway-multiplex && npm install && npm run build && cd ../..",
+    "clean": "rm -rf core plugins scripts database types index.js index.d.ts",
+    "install-packages": "npm install --prefix packages/gateway-multiplex && npm run build --prefix packages/gateway-multiplex",
+    "postinstall": "npm run install-packages",
     "compile": "tsc",
     "copy-assets": "copyfiles -u 1 \"src/**/*.{json5,json,nvx,png,webp,jpg,jpeg,svg}\" \"src/**/data/**/*\" ./",
     "build": "npm run clean && npm run install-packages && npm run compile && npm run copy-assets",
+    "slim-build": "npm run clean && npm run compile && npm run copy-assets",
     "start": "node --import ./core/dependency/index.mjs ./index.js",
     "pack": "node --import ./core/dependency/index.mjs ./scripts/manifestPacker.js",
     "dev": "tsx --import ./src/core/dependency/index.mts ./src/index.ts",
     "docs": "npm run rmdocs && typedoc",
     "rmdocs": "rm -rf docs",
+    "lint": "eslint src --fix",
     "flush": "rm -rf core plugins configuration logs .data scripts index.js index.d.ts",
     "updater": "node --import ./core/dependency/index.mjs ./index.js --updater"
   },
@@ -51,7 +54,8 @@
     "typeorm": "^0.3.20",
     "winston": "^3.12.0",
     "winston-daily-rotate-file": "^5.0.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "@lunedusk/gateway-multiplex": "file:packages/gateway-multiplex"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",

@@ -21,6 +21,8 @@ export interface PluginManifest {
     readonly priority?: number;
     readonly nodeDependencies?: Record<string, string>;
     readonly ignoreHash?: readonly string[];
+    readonly emoji?: string;
+    readonly icon?: string;
 }
 
 export abstract class BasePlugin {

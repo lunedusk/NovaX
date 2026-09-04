@@ -190,5 +190,23 @@ Listeners may register early; zero listeners is always safe.
 
 - [CROSS_HOST.md](CROSS_HOST.md) — multi-host control plane  
 - [LOADER.md](LOADER.md) — plugin load order  
+- [ERRORS.md](ERRORS.md) - errors
 - [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) — plugin contracts including EventBus  
 - Source of truth: `src/core/manager/events/EventBus.ts` (`EventArgsMap`)
+
+## Command structure
+
+| Event | When | Payload |
+|-------|------|---------|
+| `commands.structure.freeze` | After plugin boot, before/at sync barrier | `{ roots, at }` |
+| `commands.structure.resync` | After `resyncApplicationCommands` | `{ guildId, at, tree }` |
+
+## Permissions hierarchy & role links (Phase 4–5)
+
+| Event | When | Shape (summary) |
+|-------|------|-----------------|
+| `permissions.hierarchy.denied` | Moderation target blocked by Discord or rank hierarchy | `{ actorUserId, targetUserId, guildId, action, code, at }` |
+| `permissions.role_link.linked` | Discord role linked to perm role | `{ scope, guildId, discordRoleId, permRoleId, createdBy, at }` |
+| `permissions.role_link.unlinked` | Link removed | `{ scope, guildId, discordRoleId, permRoleId, at }` |
+| `commands.structure.freeze` | Command tree frozen after boot | `{ roots, at }` |
+| `commands.structure.resync` | Application commands resynced | `{ guildId, at, tree }` |

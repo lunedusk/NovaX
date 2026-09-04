@@ -8,7 +8,20 @@ import { buildUpdaterStatusDto } from '../lib/updaterStatus.js';
 export default class AdminUpdaterRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin/updater';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/admin/updater/status:
+     *   get:
+     *     tags: [DashboardAdmin]
+     *     summary: Updater status
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Status payload }
+     *       '401': { description: Unauthorized }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
         const owner = requireAuthedBit(this.heart, BOT_OWNER_BIT);
 

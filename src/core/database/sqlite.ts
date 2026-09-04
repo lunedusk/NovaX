@@ -9,8 +9,8 @@ export class SqliteNativeRegistry {
     public connect(alias: string, uri: string): void {
         if (this.dbs.has(alias)) return;
 
-        const filepath = uri.replace(/^sqlite:\/\//, '').replace(/^sqlite:/, '');
-        
+        const filepath = uri.replace(/^sqlite:\/\//, '');
+
         log.info(`Initializing Native SQLite [${alias}] at path: ${filepath}`);
 
         try {

@@ -119,6 +119,21 @@ export async function validate(
     for (const path of REQUIRED_ADMIN_KEYS) {
         requireStringPath(d, path, issues);
     }
+    const errorKeys = [
+        'errors.discord.permission_denied',
+        'errors.discord.hierarchy',
+        'errors.discord.target_is_owner',
+        'errors.codes.COMMAND_FAILED',
+        'errors.codes.PAGINATOR_EXPIRED',
+        'errors.codes.HIERARCHY_RANK',
+        'errors.codes.ROLE_BITS_MISSING',
+        'errors.codes.MISSING_BIT',
+        'layouts.containerError',
+        'layouts.containerSuccess',
+    ];
+    for (const path of errorKeys) {
+        requireStringPath(d, path, issues);
+    }
 
     if (issues.length > 0) {
         return issues;

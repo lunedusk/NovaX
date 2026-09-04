@@ -214,3 +214,13 @@ Persistence for the web dashboard lives in the **`dash-data`** plugin (not the H
 | `dashboard/src/lib/db.ts` | Compatibility **re-export** of the store — existing `/api/dash/*` routes unchanged |
 
 Nova collections `dash_infractions`, `dash_audit_log`, `dash_command_counters` remain on NovaDB `main`.
+
+## Permission link tables
+
+When using SQL adapters, permissions manager ensures:
+
+- `perm_role_links` — Discord role ↔ perm role
+- `perm_role_grants` — provenance (`direct` | `discord_role`)
+- `perm_guild_mirror` — per-guild Discord permission mirror flag + optional map JSON
+
+Legacy role `assignedUserIds` without grant rows are migrated to `direct` on init.

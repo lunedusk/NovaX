@@ -10,7 +10,58 @@ type GuildParams = { guildId: string };
 export default class MeRoute extends BaseRoute {
     public readonly basePath = '/api/dash/me';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/me:
+     *   get:
+     *     tags: [DashboardMe]
+     *     summary: Current user profile
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Profile }
+     * /api/dash/me/data:
+     *   get:
+     *     tags: [DashboardMe]
+     *     summary: Stored user data
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Data blob }
+     * /api/dash/me/data/deletion-request:
+     *   post:
+     *     tags: [DashboardMe]
+     *     summary: Request data deletion
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Queued }
+     *   delete:
+     *     tags: [DashboardMe]
+     *     summary: Cancel deletion request
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Cancelled }
+     * /api/dash/me/servers:
+     *   get:
+     *     tags: [DashboardMe]
+     *     summary: Servers for current user
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Server list }
+     * /api/dash/me/servers/{guildId}/stats:
+     *   get:
+     *     tags: [DashboardMe]
+     *     summary: Per-server stats for current user
+     *     security: [{ bearerAuth: [] }]
+     *     parameters:
+     *       - in: path
+     *         name: guildId
+     *         required: true
+     *         schema: { type: string }
+     *     responses:
+     *       '200': { description: Stats }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
         const auth = requireSession(this.heart);
 

@@ -78,6 +78,32 @@ export function requireAuthedBit(heart: IHeart, bit: string) {
     return [requireSession(heart), requireBit(heart, bit)];
 }
 
+export function requireAnyBit(heart: IHeart, bits: readonly string[]) {
+    return (req: DashRequest, res: Response, next: NextFunction): void => {
+        const t = tryTokens(heart);
+        const verified = req.dashSession;
+        if (!t || !verified) {
+            err(res, 401, 'unauthorized', heart.assets.lang.get(heart.id, 'errors.unauthorized'));
+            return;
+        }
+        if (t.hasBit(verified, BOT_OWNER_BIT as Bit)) {
+            next();
+            return;
+        }
+        for (const bit of bits) {
+            if (t.hasBit(verified, bit as Bit)) {
+                next();
+                return;
+            }
+        }
+        err(res, 403, 'forbidden', heart.assets.lang.get(heart.id, 'errors.forbidden'));
+    };
+}
+
+export function requireAuthedAnyBit(heart: IHeart, bits: readonly string[]) {
+    return [requireSession(heart), requireAnyBit(heart, bits)];
+}
+
 export function requireGuildBit(heart: IHeart, bit: string, crossServerBit?: string) {
     return [
         requireSession(heart),

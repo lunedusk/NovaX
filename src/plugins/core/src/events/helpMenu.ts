@@ -394,31 +394,34 @@ export default class HelpMenuEvent extends BaseEvent<[unknown]> {
         }
 
         if (needsPagination) {
+            const utilCount = row.components.length;
             row.components.push({
                 type: 'button',
                 style: 'primary',
                 customId: `core_help_nav:${type}:${targetId}:${page - 1}`,
                 emoji: HelpUtils.getEmoji(this.heart, 'navLeft'),
                 disabled: page <= 0,
-                label: '\u200b',
+                label: '​',
             });
-            row.components.push({
-                type: 'button',
-                style: 'secondary',
-                customId: `mock_page_ind`,
-                label: this.heart.assets.lang.get(this.heart.id, 'commands.help.pageFooter', {
-                    current: page + 1,
-                    total: totalPages,
-                }),
-                disabled: true,
-            });
+            if (utilCount === 0) {
+                row.components.push({
+                    type: 'button',
+                    style: 'secondary',
+                    customId: `mock_page_ind`,
+                    label: this.heart.assets.lang.get(this.heart.id, 'commands.help.pageFooter', {
+                        current: page + 1,
+                        total: totalPages,
+                    }),
+                    disabled: true,
+                });
+            }
             row.components.push({
                 type: 'button',
                 style: 'primary',
                 customId: `core_help_nav:${type}:${targetId}:${page + 1}`,
                 emoji: HelpUtils.getEmoji(this.heart, 'navRight'),
                 disabled: page >= totalPages - 1,
-                label: '\u200b',
+                label: '​',
             });
         }
 

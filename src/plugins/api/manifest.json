@@ -2,9 +2,10 @@
     "id": "api",
     "name": "API",
     "version": "0.1.0",
-    "description": "API Gateway — CORS, bearer auth, security headers, and OpenAPI spec.",
+    "description": "API Gateway \u2014 CORS, bearer auth, security headers, and OpenAPI spec.",
     "author": "Lunedusk",
     "zene_version": ">=0.5.2",
     "node_version": ">=20",
-    "priority": -11
+    "priority": -11,
+    "emoji": "\ud83c\udf10"
 }

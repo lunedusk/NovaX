@@ -152,7 +152,6 @@ export default class PermissionsApiRoute extends BaseRoute {
         res.json({ userId, guildId: guildId ?? null, mode, bits, allowed });
     }
 
-
     private async listBits(req: Request, res: Response): Promise<void> {
         const scope = this.query(req, 'scope') as 'bot' | 'server' | 'plugin' | undefined;
         res.json({ bits: await this.mgr.listBits(scope) });

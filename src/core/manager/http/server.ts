@@ -77,7 +77,6 @@ export class HttpServer {
         log.debug(`Unmounted API Router: ${basePath}`);
     }
 
-
     public listMounts(): string[] {
         return Array.from(this.mounts.keys()).sort();
     }

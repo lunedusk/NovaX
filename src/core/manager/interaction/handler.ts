@@ -20,6 +20,7 @@ import { permissionsManager, type RouteAccessConfig } from '#core/manager/permis
 import { CrossGuildResolver } from '#core/helpers/crossGuild/index.js';
 import { NovaError } from '#core/errors/NovaError.js';
 import { errors } from '#core/errors/index.js';
+import { replyFromUnknownError, replyDiscordActionError } from '#plugins/core/src/lib/discordActionErrors.js';
 
 const log = getLogger('InteractionHandler');
 
@@ -81,7 +82,6 @@ export class InteractionHandler {
                 .then(({ eventBus }) => eventBus.emitConcurrent('interaction.commands.synced', { count: commandData.length, guildId: guildId ?? null, global: !guildId }))
                 .catch(() => undefined);
 
-
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             log.error(`Failed to synchronize commands with Discord API: ${err.message}`);
@@ -106,9 +106,42 @@ export class InteractionHandler {
 
         try {
             if (!route.handler) {
+                if (interaction.isButton()) {
+                    const { parseNavCustomId, Paginator } = await import('#core/paginator/index.js');
+                    if (parseNavCustomId(interaction.customId)) {
+                        const handled = await Paginator.handleButton(interaction);
+                        if (handled) {
+                            isSuccess = true;
+                            return;
+                        }
+                    }
+                }
                 log.debug(`Unmapped interaction route: [${route.lookupKey}]`);
                 metricsManager.interactionsTotal.inc({ type: route.category, command: route.lookupKey, status: 'unmapped' });
                 return;
+            }
+
+            if (
+                interaction.guildId &&
+                !interaction.guild &&
+                !interaction.isAutocomplete() &&
+                interaction.isRepliable()
+            ) {
+                try {
+                    const { ensureGuildOnClient } = await import('#core/helpers/guildAffinity.js');
+                    const g = await ensureGuildOnClient(interaction.client, interaction.guildId);
+                    if (!g) {
+                        await replyDiscordActionError(interaction, 'not_in_guild');
+                        metricsManager.interactionsTotal.inc({
+                            type: route.category,
+                            command: route.lookupKey,
+                            status: 'wrong_shard',
+                        });
+                        return;
+                    }
+                } catch {
+                    
+                }
             }
 
             if (guildGate.isReady() && interaction.guildId) {
@@ -123,7 +156,7 @@ export class InteractionHandler {
                         );
                         isOwner = !!resolved.botOwner;
                     } catch {
-                        /* non-owner */
+                        
                     }
 
                     if (!isOwner) {
@@ -221,6 +254,14 @@ export class InteractionHandler {
                     })
                     .catch(() => {});
 
+                if (!isNova) {
+                    try {
+                        await replyFromUnknownError(interaction, error, true);
+                        return;
+                    } catch {
+                        
+                    }
+                }
                 const replyText = isNova ? error.userMessage : undefined;
                 await this.sendSystemState(interaction, 'FATAL_ERROR', undefined, replyText);
             } catch (boundaryErr: unknown) {

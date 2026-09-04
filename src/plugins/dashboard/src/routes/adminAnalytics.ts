@@ -15,7 +15,40 @@ interface CounterDoc {
 export default class AdminAnalyticsRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/admin/analytics/overview:
+     *   get:
+     *     tags: [DashboardAnalytics]
+     *     summary: Analytics overview
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Overview }
+     * /api/dash/admin/analytics/commands:
+     *   get:
+     *     tags: [DashboardAnalytics]
+     *     summary: Command usage analytics
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Series }
+     * /api/dash/admin/analytics/plugins:
+     *   get:
+     *     tags: [DashboardAnalytics]
+     *     summary: Plugin analytics
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Series }
+     * /api/dash/admin/logs:
+     *   get:
+     *     tags: [DashboardAnalytics]
+     *     summary: Recent logs
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Log lines }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
         const analytics = requireAuthedBit(this.heart, BITS.BOT_ANALYTICS_VIEW);
         const logs = requireAuthedBit(this.heart, BITS.BOT_LOGS_VIEW);

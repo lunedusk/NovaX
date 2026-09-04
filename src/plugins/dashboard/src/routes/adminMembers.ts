@@ -12,7 +12,100 @@ type UserNoteParams = { userId: string; noteId: string };
 export default class AdminMembersRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin/members';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/admin/members:
+     *   get:
+     *     tags: [DashboardMembers]
+     *     summary: List members (admin)
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Members }
+     * /api/dash/admin/members/{userId}:
+     *   get:
+     *     tags: [DashboardMembers]
+     *     summary: Member detail
+     *     security: [{ bearerAuth: [] }]
+     *     parameters:
+     *       - in: path
+     *         name: userId
+     *         required: true
+     *         schema: { type: string }
+     *     responses:
+     *       '200': { description: Member }
+     * /api/dash/admin/members/{userId}/infractions:
+     *   get:
+     *     tags: [DashboardMembers]
+     *     summary: Member infractions
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Infractions }
+     * /api/dash/admin/members/{userId}/kick:
+     *   post:
+     *     tags: [DashboardMembers]
+     *     summary: Kick member
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Result }
+     * /api/dash/admin/members/{userId}/ban:
+     *   post:
+     *     tags: [DashboardMembers]
+     *     summary: Ban member
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Result }
+     * /api/dash/admin/members/{userId}/ban-global:
+     *   post:
+     *     tags: [DashboardMembers]
+     *     summary: Global ban
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Result }
+     * /api/dash/admin/members/{userId}/unban:
+     *   post:
+     *     tags: [DashboardMembers]
+     *     summary: Unban member
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Result }
+     * /api/dash/admin/members/{userId}/mute:
+     *   post:
+     *     tags: [DashboardMembers]
+     *     summary: Mute / timeout
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Result }
+     * /api/dash/admin/members/{userId}/unmute:
+     *   post:
+     *     tags: [DashboardMembers]
+     *     summary: Unmute
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Result }
+     * /api/dash/admin/members/{userId}/notes:
+     *   get:
+     *     tags: [DashboardMembers]
+     *     summary: List notes
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Notes }
+     *   post:
+     *     tags: [DashboardMembers]
+     *     summary: Add note
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '201': { description: Created }
+     * /api/dash/admin/members/{userId}/notes/{noteId}:
+     *   delete:
+     *     tags: [DashboardMembers]
+     *     summary: Delete note
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Deleted }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
 
         const view = requireAuthedBit(this.heart, BITS.BOT_MEMBERS_VIEW);

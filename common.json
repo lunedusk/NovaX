@@ -1,7 +1,7 @@
 {   
     "__info__": {
         "__author__": "Lunedusk",
-        "version": "0.1.17"
+        "version": "0.5.3"
     },
     "BotName": "MyBot",
     "MainGuildName": "MyGuild",
@@ -21,9 +21,5 @@
         }
     },
     "isSharded": true,
-    "hotReloadEnabled": false,
-    "SmtpHost": "SMTP_HOST",
-    "SmtpPort": 587,
-    "SmtpUser": "SMTP_USER",
-    "SmtpPass": "SMTP_PASS"
+    "hotReloadEnabled": false
 }

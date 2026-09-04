@@ -4,6 +4,99 @@
         containerError: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#ED4245", "children": [ { "type": "text", "content": "%%emoji_cross%% **{{title}}**" }, { "type": "separator", "spacing": "small" }, { "type": "text", "content": "INJECT_DETAILS" } ] } ] }',
         helpContainer: '{ "version": 1, "components": [ { "type": "container", "accentColor": "#5865F2", "children": [] } ] }'
     },
+    errors: {
+        discord: {
+            permission_denied: "Permission denied.",
+            missing_bit: "You are missing a required permission: {{bit}}.",
+            hierarchy: "I cannot perform this action due to role hierarchy.",
+            target_is_owner: "You cannot punish a bot owner.",
+            target_is_protected: "You cannot punish a protected member.",
+            target_is_bot_protected: "You cannot punish a member with bot-wide protection.",
+            target_is_server_protected: "You cannot punish a member with server protection.",
+            target_is_self: "You cannot perform this action on yourself.",
+            target_is_bot: "This action cannot be applied to a bot.",
+            bot_missing_perms: "I do not have the required Discord permissions.",
+            not_in_guild: "The bot is not in that server.",
+            unknown_member: "Member not found.",
+            unknown_guild: "Server not found.",
+            unknown_role: "Role not found.",
+            unknown_channel: "Channel not found.",
+            unknown_user: "User not found.",
+            rate_limited: "Rate limited; try again later.",
+            api_error: "Discord API error ({{code}}): {{message}}",
+            action_failed: "Action failed: {{reason}}.",
+            invalid_duration: "Invalid duration.",
+            invalid_target: "Invalid target.",
+            partial_failure: "Completed with some failures.",
+            not_available_here: "This action is not available in this mode.",
+            fleet_unreachable: "Could not reach the control plane.",
+            titles: {
+                permission_denied: "Permission denied",
+                missing_bit: "Missing permission",
+                hierarchy: "Hierarchy",
+                target_is_owner: "Protected owner",
+                target_is_protected: "Protected member",
+                target_is_bot_protected: "Bot-protected member",
+                target_is_server_protected: "Server-protected member",
+                target_is_self: "Invalid target",
+                target_is_bot: "Invalid target",
+                bot_missing_perms: "Missing permissions",
+                not_in_guild: "Not in server",
+                unknown_member: "Unknown member",
+                unknown_guild: "Unknown server",
+                unknown_role: "Unknown role",
+                unknown_channel: "Unknown channel",
+                unknown_user: "Unknown user",
+                rate_limited: "Rate limited",
+                api_error: "API error",
+                action_failed: "Action failed",
+                invalid_duration: "Invalid duration",
+                invalid_target: "Invalid target",
+                partial_failure: "Partial failure",
+                not_available_here: "Unavailable",
+                fleet_unreachable: "Control plane"
+            }
+        },
+        codes: {
+            COMMAND_FAILED: "An error occurred while executing this command.",
+            STRUCTURE_LOCKED: "Command structure is frozen; resync is required before further changes.",
+            DUPLICATE_COMMAND: "A command with this name is already registered by another plugin.",
+            PAGINATOR_EXPIRED: "This menu expired.",
+            PAGINATOR_AUTHOR_ONLY: "Only the command author can use these controls.",
+            PAGINATOR_CLOSED: "Closed.",
+            HIERARCHY_RANK: "Your permission rank ({{actorRank}}) is not higher than the target ({{targetRank}}).",
+            HIERARCHY_EQUAL: "You cannot act on a member with equal permission rank.",
+            HIERARCHY_ENV_OWNER: "Environment bot owners cannot be targeted.",
+            ROLE_BITS_MISSING: "You cannot place bits you do not hold on a role. Missing: {{missing}}.",
+            SERVER_PROTECTED_MUTATE: "Only server.owner (or bot.owner) may manage roles that include server.protected.",
+            BOT_PROTECTED_MUTATE: "Only bot.owner may manage roles that include bot.protected.",
+            BOT_OWNER_MUTATE: "Only environment BotOwnerIds may manage roles that include bot.owner.",
+            MIRROR_OFF: "Discord permission mirror is disabled for this guild.",
+            MIRROR_ON: "Discord permission mirror is enabled for this guild.",
+            LINKS_EMPTY: "No Discord role links configured.",
+            GUILD_MEMBERS_INTENT: "GuildMembers intent is disabled. Automatic Discord role sync will soft-fail until it is enabled.",
+            RATE_LIMIT: "You are being rate limited. Try again later.",
+            INTERNAL: "An internal error occurred.",
+            FORBIDDEN: "You are not allowed to perform this action.",
+            MISSING_BIT: "You are missing required permission bit: {{bit}}."
+        },
+        titles: {
+            COMMAND_FAILED: "Command failed",
+            STRUCTURE_LOCKED: "Structure locked",
+            DUPLICATE_COMMAND: "Duplicate command",
+            PAGINATOR_EXPIRED: "Expired",
+            PAGINATOR_AUTHOR_ONLY: "Not allowed",
+            HIERARCHY_RANK: "Rank hierarchy",
+            ROLE_BITS_MISSING: "Missing bits",
+            FORBIDDEN: "Forbidden",
+            MISSING_BIT: "Missing permission",
+            INTERNAL: "Error"
+        },
+        unauthorized: "%%emoji_no_entry%% Authentication required.",
+        forbidden: "%%emoji_no_entry%% You do not have permission to perform this action.",
+        sessionExpired: "%%emoji_clock%% Your session has expired. Please sign in again.",
+        rotationDetected: "%%emoji_shield%% Session invalidated for security reasons. Please sign in again."
+    },
     commands: {
         help: {
             description: "View the dynamic command directory.",
@@ -56,10 +149,14 @@
                 env: "Environment",
                 audit: "Audit Registry",
                 errors: "Error Registry",
-                bitHolders: "Bit Holders"
+                bitHolders: "Bit Holders",
+                metrics: "Metrics",
+                shard: "Shards",
+                fleet: "Fleet",
+                worker: "Worker"
             },
             messages: {
-                denied: "%%emoji_no_entry%% Bot owner only (BotOwnerIds / bot.owner).",
+                denied: "%%emoji_no_entry%% Missing required permission (bot.owner or action bit).",
                 unavailable: "%%emoji_caution%% Permission subsystem unavailable.",
                 fatalError: "%%emoji_alert%% Fatal error:\n```\n{{error}}\n```",
                 gated: "%%emoji_no_entry%% This feature is disabled in this server by the bot owner."
@@ -68,6 +165,47 @@
                 description: "Restart the bot process.",
                 reasonDescription: "Optional reason for logs",
                 acknowledged: "%%emoji_tick%% Restart accepted.\n**By:** {{user}}\n**Reason:** {{reason}}"
+            },
+            metrics: {
+                description: "Show process, shard, and Cross-Host metrics for this instance."
+            },
+            status: {
+                description: "Process status: mode, shards, worker, guilds, uptime."
+            },
+            shardInfo: {
+                description: "Show shard ownership info for this process.",
+                shardDescription: "Optional shard id",
+                guildDescription: "Optional guild id to resolve its shard",
+                none: "No shard ids available on this process."
+            },
+            shards: {
+                description: "Paginated list of all shards and local ownership.",
+                pageDescription: "Page number (8 shards per page)",
+                header: "Shards page **{{page}}/{{pages}}** · total **{{total}}** · local **{{local}}**"
+            },
+            guildShard: {
+                description: "Resolve which shard one or more guild ids hash to.",
+                guildDescription: "Guild id (or comma/space-separated ids)",
+                invalid: "Provide at least one valid snowflake guild id."
+            },
+            fleetInfo: {
+                description: "Cross-Host fleet snapshot for this worker."
+            },
+            fleetRestart: {
+                description: "Gracefully shut down the entire Cross-Host fleet (no reassignment).",
+                acknowledged: "%%emoji_tick%% Fleet shutdown requested.\n**By:** {{user}}\n**Reason:** {{reason}}"
+            },
+            workerRestart: {
+                description: "Gracefully shut down a Cross-Host worker by machine id.",
+                machineDescription: "Worker machine id",
+                acknowledged: "%%emoji_tick%% Worker shutdown requested for `{{machine}}`.\n**By:** {{user}}\n**Reason:** {{reason}}"
+            },
+            shardShift: {
+                description: "Request moving a shard to another worker (orchestrator applies when available).",
+                shardDescription: "Shard id to move",
+                machineDescription: "Target machine id",
+                pending: "%%emoji_caution%% Shard shift pending.\n**Shard:** {{shard}}\n**Machine:** {{machine}}",
+                done: "%%emoji_tick%% Shard **{{shard}}** moved **{{from}}** → **{{machine}}** (gen {{generation}})."
             },
             reload: {
                 configDescription: "Reload configuration file(s).",
@@ -171,11 +309,5 @@
                 pluginListHeader: "**Blocked plugin rows:** {{count}}"
             }
         }
-    },
-    errors: {
-        unauthorized: "%%emoji_no_entry%% Authentication required.",
-        forbidden: "%%emoji_no_entry%% You do not have permission to perform this action.",
-        sessionExpired: "%%emoji_clock%% Your session has expired. Please sign in again.",
-        rotationDetected: "%%emoji_shield%% Session invalidated for security reasons. Please sign in again."
     }
 }

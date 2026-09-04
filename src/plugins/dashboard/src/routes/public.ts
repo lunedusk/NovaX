@@ -7,7 +7,33 @@ import { dashGet, dashMongo, ensureDashboardAdapter, cmdCounterCollection } from
 export default class PublicRoute extends BaseRoute {
     public readonly basePath = '/api/dash/public';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/public/landing-config:
+     *   get:
+     *     tags: [DashboardPublic]
+     *     summary: Public landing config
+     *     responses:
+     *       '200':
+     *         description: Landing config JSON
+     * /api/dash/public/stats:
+     *   get:
+     *     tags: [DashboardPublic]
+     *     summary: Public stats
+     *     responses:
+     *       '200':
+     *         description: Aggregate stats
+     * /api/dash/public/bot-info:
+     *   get:
+     *     tags: [DashboardPublic]
+     *     summary: Public bot info
+     *     responses:
+     *       '200':
+     *         description: Bot identity payload
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
 
         this.router.get('/landing-config', this.asyncHandler(guarded(this.heart, this.landingConfig.bind(this))));

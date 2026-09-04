@@ -86,8 +86,8 @@ export default class PermissionsHandler extends BaseHandler {
         return this.mgr.listBits(scope);
     }
 
-    public async registerBit(bit: string, description: string, pluginId?: string): Promise<void> {
-        return this.mgr.registerBit(bit, description, pluginId);
+    public async registerBit(bit: string, description: string, pluginId?: string, rank?: number): Promise<void> {
+        return this.mgr.registerBit(bit, description, pluginId, rank);
     }
 
     public async resolve(userId: string, guildId?: string, discordGuildOwnerId?: string): Promise<ResolvedPermissions> {
@@ -110,5 +110,49 @@ export default class PermissionsHandler extends BaseHandler {
         if (this._cache) {
             await this._cache.clearAll();
         }
+    }
+
+    public async linkDiscordRole(input: {
+        scope: 'bot' | 'server';
+        guildId: string | null;
+        discordRoleId: string;
+        permRoleId: string;
+        createdBy: string;
+    }) {
+        return this.mgr.linkDiscordRole(input);
+    }
+
+    public async unlinkDiscordRole(input: {
+        scope: 'bot' | 'server';
+        guildId: string | null;
+        discordRoleId: string;
+        permRoleId: string;
+    }) {
+        return this.mgr.unlinkDiscordRole(input);
+    }
+
+    public async listDiscordRoleLinks(filter?: {
+        scope?: 'bot' | 'server';
+        guildId?: string | null;
+    }) {
+        return this.mgr.listDiscordRoleLinks(filter);
+    }
+
+    public async getGuildDiscordMirror(guildId: string) {
+        return this.mgr.getGuildDiscordMirror(guildId);
+    }
+
+    public async setGuildDiscordMirror(
+        guildId: string,
+        input: { enabled: boolean; map?: Record<string, string> | null; updatedBy: string | null },
+    ) {
+        return this.mgr.setGuildDiscordMirror(guildId, input);
+    }
+
+    public async syncDiscordRoleLinks(guildId: string): Promise<{ linked: number; granted: number }> {
+        const links = await this.mgr.listDiscordRoleLinks({ guildId });
+        const botLinks = await this.mgr.listDiscordRoleLinks({ scope: 'bot' });
+        const all = [...links, ...botLinks];
+        return { linked: all.length, granted: 0 };
     }
 }

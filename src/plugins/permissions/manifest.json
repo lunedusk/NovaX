@@ -4,8 +4,11 @@
     "version": "1.1.0",
     "description": "Admin commands and REST API for managing the bot permission system.",
     "author": "Lunedusk",
-    "dependencies": ["api"],
+    "dependencies": [
+        "api"
+    ],
     "zene_version": ">=0.5.2",
     "node_version": ">=20",
-    "priority": -10
+    "priority": -10,
+    "emoji": "\ud83d\udd10"
 }
