@@ -1,7 +1,7 @@
 {
     "id": "api",
     "name": "API",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "description": "API Gateway \u2014 CORS, bearer auth, security headers, and OpenAPI spec.",
     "author": "Lunedusk",
     "zene_version": ">=0.5.4",

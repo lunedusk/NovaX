@@ -1,13 +1,17 @@
 import {
     ChannelType,
     GatewayIntentBits,
+    MessageFlags,
     PermissionFlagsBits,
     PermissionsBitField,
     type Client,
     type Guild,
+    type MessageCreateOptions,
     type TextChannel,
 } from 'discord.js';
 import { getLogger } from '#core/utils/logger.js';
+import { buildComponentsV2, type Cv2LayoutSpec } from '#core/builders/index.js';
+import { resolveGlobalPlaceholders } from '#core/placeholder/index.js';
 
 const log = getLogger('FeatureRequirements');
 
@@ -123,55 +127,99 @@ export class FeatureRequirementsRegistry {
         }
         if (issues.length === 0) return;
 
-        const body = this.formatPermissionWarning(guild, issues);
         const owner = await guild.fetchOwner().catch(() => null);
 
         if (owner) {
             try {
-                await owner.send({ content: body });
+                await owner.send(this.buildPermissionWarningPayload(guild, issues));
                 log.info(`Feature permission warning DM sent to owner of guild ${guild.id}`);
                 return;
-            } catch {
-                /* DMs closed */
+            } catch (err) {
+                log.warn(
+                    `Feature permission warning DM failed for guild ${guild.id}: ${(err as Error).message}`,
+                );
             }
         }
 
         const channel = await this.findAnnounceChannel(guild);
         if (!channel) {
-            log.debug(`Feature permission warning: no channel to message in guild ${guild.id}`);
+            log.warn(`Feature permission warning: no channel to message in guild ${guild.id}`);
             return;
         }
 
         const ownerMention = owner ? `<@${owner.id}>` : guild.ownerId ? `<@${guild.ownerId}>` : 'server owner';
         try {
-            await channel.send({ content: `${ownerMention}\n${body}` });
+            await channel.send(this.buildPermissionWarningPayload(guild, issues, ownerMention));
             log.info(`Feature permission warning posted in #${channel.name} (${guild.id})`);
         } catch (err) {
-            log.debug(
+            log.warn(
                 `Feature permission warning failed in guild ${guild.id}: ${(err as Error).message}`,
             );
         }
     }
 
-    private formatPermissionWarning(
+    private buildPermissionWarningPayload(
         guild: Guild,
         issues: Array<{ feature: FeatureRequirement; missing: bigint[] }>,
-    ): string {
-        const lines: string[] = [
-            `**${guild.client.user?.username ?? 'Bot'}** joined **${guild.name}** but is missing Discord permissions for some features:`,
-            '',
-        ];
-        for (const { feature, missing } of issues) {
+        mentionPrefix?: string,
+    ): MessageCreateOptions {
+        const botName = guild.client.user?.username ?? 'Bot';
+        const featureLines = issues.map(({ feature, missing }) => {
             const label = feature.description ?? feature.id;
             const perms = missing.map(permissionLabel).join(', ');
-            lines.push(`• **${label}** needs: ${perms}`);
+            return `• **${label}** — \`${perms}\``;
+        });
+
+        let body = featureLines.join('\n');
+        if (body.length > 3200) {
+            body = `${featureLines.slice(0, 12).join('\n')}\n…and **${Math.max(0, featureLines.length - 12)}** more`;
         }
-        lines.push('');
-        lines.push(
-            'Those features may not work as intended until the bot role is granted the listed permissions.',
+
+        const header = resolveGlobalPlaceholders(
+            `%%emoji_warn%% **${botName}** joined **${guild.name}**`,
         );
-        lines.push('Granting **Administrator** to the bot role is the simplest way to fix all of them.');
-        return lines.join('\n');
+        const intro = 'Missing Discord permissions for some features:';
+        const footer =
+            'Those features may not work as intended until the bot role is granted the listed permissions.\n' +
+            'Granting **Administrator** to the bot role is the simplest way to fix all of them.';
+
+        const children: Array<Record<string, unknown>> = [];
+        if (mentionPrefix) {
+            children.push({ type: 'text', content: mentionPrefix });
+            children.push({ type: 'separator', divider: true, spacing: 'small' });
+        }
+        children.push({ type: 'text', content: header });
+        children.push({ type: 'separator', divider: true, spacing: 'small' });
+        children.push({ type: 'text', content: intro });
+        children.push({ type: 'text', content: body });
+        children.push({ type: 'separator', divider: true, spacing: 'small' });
+        children.push({ type: 'text', content: footer });
+
+        const layout: Cv2LayoutSpec = {
+            version: 1,
+            components: [
+                {
+                    type: 'container',
+                    accentColor: 0xf0b232,
+                    children: children as never,
+                },
+            ],
+        };
+
+        try {
+            const built = buildComponentsV2(layout);
+            return {
+                components: built.components,
+                files: built.files,
+                flags: built.flags ?? MessageFlags.IsComponentsV2,
+            };
+        } catch (err) {
+            log.warn(
+                `CV2 build failed for feature warning, falling back to plain text: ${(err as Error).message}`,
+            );
+            const plain = [header, '', intro, body, '', footer].join('\n');
+            return { content: mentionPrefix ? `${mentionPrefix}\n${plain}` : plain };
+        }
     }
 
     private async findAnnounceChannel(guild: Guild): Promise<TextChannel | null> {
@@ -213,188 +261,3 @@ export class FeatureRequirementsRegistry {
 }
 
 export const featureRequirements = new FeatureRequirementsRegistry();
-
-export function registerCoreFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'core.guildAccess.ownerAuthorize',
-        pluginId: 'core',
-        description: 'Owner-authorize on bot invite (audit log)',
-        permissions: [PermissionFlagsBits.ViewAuditLog],
-    });
-    featureRequirements.register({
-        id: 'core.guildAccess.leavePolicy',
-        pluginId: 'core',
-        description: 'Guild leave blacklist/whitelist enforcement',
-        permissions: [],
-    });
-    featureRequirements.register({
-        id: 'core.guildGate',
-        pluginId: 'core',
-        description: 'Guild / plugin soft gate checks',
-        permissions: [],
-    });
-    featureRequirements.register({
-        id: 'core.moderation.ban',
-        pluginId: 'core',
-        description: 'Ban / unban members',
-        permissions: [PermissionFlagsBits.BanMembers],
-    });
-    featureRequirements.register({
-        id: 'core.moderation.kick',
-        pluginId: 'core',
-        description: 'Kick members',
-        permissions: [PermissionFlagsBits.KickMembers],
-    });
-    featureRequirements.register({
-        id: 'core.moderation.timeout',
-        pluginId: 'core',
-        description: 'Timeout members',
-        permissions: [PermissionFlagsBits.ModerateMembers],
-    });
-    featureRequirements.register({
-        id: 'core.moderation.roles',
-        pluginId: 'core',
-        description: 'Add / remove roles',
-        permissions: [PermissionFlagsBits.ManageRoles],
-    });
-    featureRequirements.register({
-        id: 'core.moderation.nick',
-        pluginId: 'core',
-        description: 'Change / revert nicknames',
-        permissions: [PermissionFlagsBits.ManageNicknames],
-    });
-    featureRequirements.register({
-        id: 'core.handlers.channelActions',
-        pluginId: 'core',
-        description: 'Channel lock / unlock (SendMessages overwrites)',
-        permissions: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles],
-    });
-    featureRequirements.register({
-        id: 'core.handlers.messageActions',
-        pluginId: 'core',
-        description: 'Message send / delete / purge',
-        permissions: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages],
-        intents: ['Guilds', 'GuildMessages'],
-    });
-    featureRequirements.register({
-        id: 'core.handlers.voiceActions',
-        pluginId: 'core',
-        description: 'Voice mute / deafen / move',
-        permissions: [PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers, PermissionFlagsBits.MoveMembers],
-        intents: ['GuildVoiceStates'],
-    });
-    featureRequirements.register({
-        id: 'core.handlers.emojiActions',
-        pluginId: 'core',
-        description: 'Guild emoji listing / management',
-        permissions: [PermissionFlagsBits.ManageGuildExpressions],
-        intents: ['Guilds'],
-    });
-    featureRequirements.register({
-        id: 'core.handlers.guildActions',
-        pluginId: 'core',
-        description: 'Guild settings / invites / metadata',
-        permissions: [PermissionFlagsBits.ManageGuild],
-        intents: ['Guilds'],
-    });
-    featureRequirements.register({
-        id: 'core.handlers.memberActions',
-        pluginId: 'core',
-        description: 'Member resolve and member-scoped actions',
-        intents: ['GuildMembers'],
-        permissions: [PermissionFlagsBits.ViewChannel],
-    });
-    featureRequirements.register({
-        id: 'core.handlers.announce',
-        pluginId: 'core',
-        description: 'Announce / broadcast messages',
-        permissions: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.MentionEveryone],
-    });
-    featureRequirements.register({
-        id: 'core.presence',
-        pluginId: 'core',
-        description: 'Presence / activity rotation',
-        permissions: [],
-    });
-    featureRequirements.register({
-        id: 'core.commands.admin',
-        pluginId: 'core',
-        description: 'Admin slash surface (metrics, gate, access, fleet)',
-        permissions: [],
-    });
-}
-
-export function registerPermissionsFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'permissions.discordRoleSync',
-        pluginId: 'permissions',
-        description: 'Discord role → permission bit sync',
-        intents: ['GuildMembers'],
-        permissions: [PermissionFlagsBits.ViewChannel],
-    });
-    featureRequirements.register({
-        id: 'permissions.hierarchy',
-        pluginId: 'permissions',
-        description: 'Permission hierarchy checks',
-        permissions: [],
-    });
-    featureRequirements.register({
-        id: 'permissions.mirror',
-        pluginId: 'permissions',
-        description: 'Per-guild Discord permission mirror',
-        intents: ['GuildMembers'],
-        permissions: [PermissionFlagsBits.ViewChannel],
-    });
-}
-
-export function registerApiFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'api.gateway',
-        pluginId: 'api',
-        description: 'HTTP API gateway (no Discord guild perms)',
-        permissions: [],
-    });
-}
-
-export function registerTokenFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'token.manager',
-        pluginId: 'token',
-        description: 'API token issue / rotate / revoke',
-        permissions: [],
-    });
-}
-
-export function registerDashboardFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'dashboard.http',
-        pluginId: 'dashboard',
-        description: 'Dashboard admin HTTP routes',
-        permissions: [],
-    });
-    featureRequirements.register({
-        id: 'dashboard.discordOAuth',
-        pluginId: 'dashboard',
-        description: 'Dashboard Discord identity',
-        intents: ['Guilds'],
-        permissions: [],
-    });
-}
-
-export function registerDashDataFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'dash-data.store',
-        pluginId: 'dash-data',
-        description: 'Dashboard data store',
-        permissions: [],
-    });
-}
-
-export function registerAllBuiltinFeatureRequirements(): void {
-    registerCoreFeatureRequirements();
-    registerPermissionsFeatureRequirements();
-    registerApiFeatureRequirements();
-    registerTokenFeatureRequirements();
-    registerDashboardFeatureRequirements();
-    registerDashDataFeatureRequirements();
-}

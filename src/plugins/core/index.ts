@@ -1,12 +1,11 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
-import { ActivityType, type PresenceStatusData, type Client } from 'discord.js';
+import { ActivityType, type PresenceStatusData, type Client, PermissionFlagsBits } from 'discord.js';
 import { guildGate } from '#core/manager/guildGate.js';
 import { guildAccess } from '#core/manager/guildAccess.js';
 import { guildLocale } from '#core/manager/guildLocale.js';
 import { resolveCoreDataBackend } from '#core/database/backendSelector.js';
 import {
-    featureRequirements,
-    registerAllBuiltinFeatureRequirements,
+    featureRequirements
 } from '#core/manager/featureRequirements.js';
 
 type ConfigActivityType = 'PLAYING' | 'STREAMING' | 'LISTENING' | 'WATCHING' | 'COMPETING' | 'CUSTOM';
@@ -46,7 +45,7 @@ export default class Core extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'core',
         name: 'Core',
-        version: '1.0.0',
+        version: '1.2.0',
         author: 'Lunedusk',
         zene_version: '>=0.5.4',
         node_version: '>=20',
@@ -128,7 +127,7 @@ export default class Core extends BasePlugin {
             throw new Error('Fatal: Discord Client is not accessible on the Heart object.');
         }
 
-        registerAllBuiltinFeatureRequirements();
+        this.registerCoreFeatureRequirements();
         featureRequirements.warnMissingIntents(client);
 
         await this.enforceAccessOnBoot(client);
@@ -211,5 +210,114 @@ export default class Core extends BasePlugin {
             const err = error instanceof Error ? error : new Error(String(error));
             this.log.error(`Failed to update presence to Discord Gateway: ${err.message}`);
         }
+    }
+    private registerCoreFeatureRequirements(): void {
+        featureRequirements.register({
+            id: 'core.guildAccess.ownerAuthorize',
+            pluginId: 'core',
+            description: 'Owner-authorize on bot invite (audit log)',
+            permissions: [PermissionFlagsBits.ViewAuditLog],
+        });
+        featureRequirements.register({
+            id: 'core.guildAccess.leavePolicy',
+            pluginId: 'core',
+            description: 'Guild leave blacklist/whitelist enforcement',
+            permissions: [],
+        });
+        featureRequirements.register({
+            id: 'core.guildGate',
+            pluginId: 'core',
+            description: 'Guild / plugin soft gate checks',
+            permissions: [],
+        });
+        featureRequirements.register({
+            id: 'core.moderation.ban',
+            pluginId: 'core',
+            description: 'Ban / unban members',
+            permissions: [PermissionFlagsBits.BanMembers],
+        });
+        featureRequirements.register({
+            id: 'core.moderation.kick',
+            pluginId: 'core',
+            description: 'Kick members',
+            permissions: [PermissionFlagsBits.KickMembers],
+        });
+        featureRequirements.register({
+            id: 'core.moderation.timeout',
+            pluginId: 'core',
+            description: 'Timeout members',
+            permissions: [PermissionFlagsBits.ModerateMembers],
+        });
+        featureRequirements.register({
+            id: 'core.moderation.roles',
+            pluginId: 'core',
+            description: 'Add / remove roles',
+            permissions: [PermissionFlagsBits.ManageRoles],
+        });
+        featureRequirements.register({
+            id: 'core.moderation.nick',
+            pluginId: 'core',
+            description: 'Change / revert nicknames',
+            permissions: [PermissionFlagsBits.ManageNicknames],
+        });
+        featureRequirements.register({
+            id: 'core.handlers.channelActions',
+            pluginId: 'core',
+            description: 'Channel lock / unlock (SendMessages overwrites)',
+            permissions: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles],
+        });
+        featureRequirements.register({
+            id: 'core.handlers.messageActions',
+            pluginId: 'core',
+            description: 'Message send / delete / purge',
+            permissions: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages],
+            intents: ['Guilds', 'GuildMessages'],
+        });
+        featureRequirements.register({
+            id: 'core.handlers.voiceActions',
+            pluginId: 'core',
+            description: 'Voice mute / deafen / move',
+            permissions: [PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers, PermissionFlagsBits.MoveMembers],
+            intents: ['GuildVoiceStates'],
+        });
+        featureRequirements.register({
+            id: 'core.handlers.emojiActions',
+            pluginId: 'core',
+            description: 'Guild emoji listing / management',
+            permissions: [PermissionFlagsBits.ManageGuildExpressions],
+            intents: ['Guilds'],
+        });
+        featureRequirements.register({
+            id: 'core.handlers.guildActions',
+            pluginId: 'core',
+            description: 'Guild settings / invites / metadata',
+            permissions: [PermissionFlagsBits.ManageGuild],
+            intents: ['Guilds'],
+        });
+        featureRequirements.register({
+            id: 'core.handlers.memberActions',
+            pluginId: 'core',
+            description: 'Member resolve and member-scoped actions',
+            intents: ['GuildMembers'],
+            permissions: [PermissionFlagsBits.ViewChannel],
+        });
+        featureRequirements.register({
+            id: 'core.handlers.announce',
+            pluginId: 'core',
+            description: 'Announce / broadcast messages',
+            permissions: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.MentionEveryone],
+        });
+        featureRequirements.register({
+            id: 'core.presence',
+            pluginId: 'core',
+            description: 'Presence / activity rotation',
+            permissions: [],
+        });
+        featureRequirements.register({
+            id: 'core.commands.admin',
+            pluginId: 'core',
+            description: 'Admin slash surface (metrics, gate, access, fleet)',
+            permissions: [],
+        });
     }
 }

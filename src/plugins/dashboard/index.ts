@@ -3,14 +3,14 @@ import { CUSTOM_BITS_TO_REGISTER } from './src/lib/bits.js';
 import type PermissionsHandler from '../permissions/src/handlers/manager.js';
 import type DashboardAnalyticsHandler from './src/handlers/analytics.js';
 
-import { registerDashboardFeatureRequirements } from '#core/manager/featureRequirements.js';
+import { featureRequirements } from '#core/manager/featureRequirements.js';
 
 export default class DashboardPlugin extends BasePlugin {
 
     public readonly manifest: PluginManifest = {
         id: 'dashboard',
         name: 'Dashboard API',
-        version: '1.1.0',
+        version: '1.2.0',
         description: 'REST API surface consumed by the web dashboard.',
         dependencies: ['dash-data', 'api', 'permissions', 'token'],
         zene_version: '>=0.5.4',
@@ -19,7 +19,7 @@ export default class DashboardPlugin extends BasePlugin {
     };
 
     public async onSetup(): Promise<void> {
-        registerDashboardFeatureRequirements();
+        this.registerDashboardFeatureRequirements();
         const perms = this.heart.system.handler.$get('permissions', 'manager') as PermissionsHandler | undefined;
         if (perms) {
             const ranks: Record<string, number> = {
@@ -55,5 +55,20 @@ export default class DashboardPlugin extends BasePlugin {
 
     public async onDisable(): Promise<void> {
         this.log.info('Dashboard API shutting down.');
+    }
+    private registerDashboardFeatureRequirements(): void {
+        featureRequirements.register({
+            id: 'dashboard.http',
+            pluginId: 'dashboard',
+            description: 'Dashboard admin HTTP routes',
+            permissions: [],
+        });
+        featureRequirements.register({
+            id: 'dashboard.discordOAuth',
+            pluginId: 'dashboard',
+            description: 'Dashboard Discord identity',
+            intents: ['Guilds'],
+            permissions: [],
+        });
     }
 }

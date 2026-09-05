@@ -1,6 +1,6 @@
 {
   "name": "@lunedusk/zene",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "The most versatile modular discord framework for Node.js (discord.js) in TypeScript",
   "main": "./index.js",
   "type": "module",

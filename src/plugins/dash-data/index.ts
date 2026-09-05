@@ -1,12 +1,11 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
-
-import { registerDashDataFeatureRequirements } from '#core/manager/featureRequirements.js';
+import { featureRequirements } from '#core/manager/featureRequirements.js';
 
 export default class DashDataPlugin extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'dash-data',
         name: 'Dashboard Data',
-        version: '1.1.0',
+        version: '1.2.0',
         description:
             'Owns all dashboard persistence (dash_* tables, layouts, KV, surface flags). HTTP surface remains on the dashboard plugin.',
         author: 'Lunedusk',
@@ -17,7 +16,7 @@ export default class DashDataPlugin extends BasePlugin {
     };
 
     public async onSetup(): Promise<void> {
-        registerDashDataFeatureRequirements();
+        this.registerDashDataFeatureRequirements();
         this.log.info('dash-data store ready (persistence owner).');
     }
 
@@ -27,5 +26,13 @@ export default class DashDataPlugin extends BasePlugin {
 
     public async onDisable(): Promise<void> {
         this.log.info('dash-data plugin shutting down.');
+    }
+    private registerDashDataFeatureRequirements(): void {
+        featureRequirements.register({
+            id: 'dash-data.store',
+            pluginId: 'dash-data',
+            description: 'Dashboard data store',
+            permissions: [],
+        });
     }
 }

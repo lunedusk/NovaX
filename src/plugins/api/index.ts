@@ -2,14 +2,14 @@ import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 import { GatewayConfigManager, type GatewayPluginConfig } from './src/lib/GatewayConfigManager.js';
 import { NovaError } from '#core/errors/NovaError.js';
 
-import { registerApiFeatureRequirements } from '#core/manager/featureRequirements.js';
+import { featureRequirements } from '#core/manager/featureRequirements.js';
 
 export default class ApiGatewayPlugin extends BasePlugin {
 
     public readonly manifest: PluginManifest = {
         id:            'api',
         name:          'API',
-        version:       '1.0.0',
+        version:       '1.2.0',
         description:   'API Gateway — CORS, bearer auth, security headers, and OpenAPI spec.',
         author:        'Lunedusk',
         zene_version: '>=0.5.4',
@@ -17,7 +17,7 @@ export default class ApiGatewayPlugin extends BasePlugin {
     };
 
     public async onSetup(): Promise<void> {
-        registerApiFeatureRequirements();
+        this.registerApiFeatureRequirements();
         const config = this.heart.assets.config.get<GatewayPluginConfig>('api');
 
         if (!config) {
@@ -40,5 +40,13 @@ export default class ApiGatewayPlugin extends BasePlugin {
 
     public async onDisable(): Promise<void> {
         this.log.info('API Gateway shut down.');
+    }
+    private registerApiFeatureRequirements(): void {
+        featureRequirements.register({
+            id: 'api.gateway',
+            pluginId: 'api',
+            description: 'HTTP API gateway (no Discord guild perms)',
+            permissions: [],
+        });
     }
 }

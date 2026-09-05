@@ -1,13 +1,13 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 
-import { registerTokenFeatureRequirements } from '#core/manager/featureRequirements.js';
+import { featureRequirements } from '#core/manager/featureRequirements.js';
 
 export default class TokenPlugin extends BasePlugin {
 
     public readonly manifest: PluginManifest = {
         id: 'token',
         name: 'Token Manager',
-        version: '1.1.0',
+        version: '1.2.0',
         description: 'HMAC-SHA256 bearer token management with REST API.',
         author: 'Lunedusk',
         dependencies: ['api'],
@@ -17,7 +17,7 @@ export default class TokenPlugin extends BasePlugin {
     };
 
     public async onSetup(): Promise<void> {
-        registerTokenFeatureRequirements();
+        this.registerTokenFeatureRequirements();
         this.log.info('Token plugin setting up.');
     }
 
@@ -27,5 +27,13 @@ export default class TokenPlugin extends BasePlugin {
 
     public async onDisable(): Promise<void> {
         this.log.info('Token plugin shutting down.');
+    }
+    private registerTokenFeatureRequirements(): void {
+        featureRequirements.register({
+            id: 'token.manager',
+            pluginId: 'token',
+            description: 'API token issue / rotate / revoke',
+            permissions: [],
+        });
     }
 }
