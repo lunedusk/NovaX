@@ -3,23 +3,31 @@ import { CUSTOM_BITS_TO_REGISTER } from './src/lib/bits.js';
 import type PermissionsHandler from '../permissions/src/handlers/manager.js';
 import type DashboardAnalyticsHandler from './src/handlers/analytics.js';
 
+import { registerDashboardFeatureRequirements } from '#core/manager/featureRequirements.js';
+
 export default class DashboardPlugin extends BasePlugin {
 
     public readonly manifest: PluginManifest = {
         id: 'dashboard',
         name: 'Dashboard API',
-        version: '1.0.0',
+        version: '1.1.0',
         description: 'REST API surface consumed by the web dashboard.',
         dependencies: ['dash-data', 'api', 'permissions', 'token'],
-        zene_version: '>=0.5.2',
+        zene_version: '>=0.5.4',
+        node_version: '>=20',
         priority: 10,
     };
 
     public async onSetup(): Promise<void> {
+        registerDashboardFeatureRequirements();
         const perms = this.heart.system.handler.$get('permissions', 'manager') as PermissionsHandler | undefined;
         if (perms) {
+            const ranks: Record<string, number> = {
+                'plugin.dashboard.members.notes': 50,
+                'plugin.dashboard.infractions.manage': 120,
+            };
             for (const { bit, description } of CUSTOM_BITS_TO_REGISTER) {
-                await perms.registerBit(bit, description, this.heart.id);
+                await perms.registerBit(bit, description, this.heart.id, ranks[bit]);
             }
             this.log.info(`Registered ${CUSTOM_BITS_TO_REGISTER.length} custom dashboard permission bit(s).`);
         } else {

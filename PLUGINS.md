@@ -34,6 +34,40 @@ Violating any of the following means your plugin will not be verified or signed,
 Report bugs or ask questions via GitHub Issues and Discussions:  
 https://github.com/lunedusk/Zene
 
+
+
+## Feature requirements (intents & Discord permissions)
+
+Plugins and core register what they need so operators get soft-fail visibility without hard-disabling features.
+
+```ts
+import {
+  featureRequirements,
+  registerPermissionsFeatureRequirements, // or register your own
+} from '#core/manager/featureRequirements.js';
+import { PermissionFlagsBits } from 'discord.js';
+
+// Prefer onSetup() so registrations exist before Client ready / guildCreate:
+featureRequirements.register({
+  id: 'myplugin.syncMembers',
+  pluginId: 'myplugin',
+  description: 'Short operator-facing label',
+  intents: ['GuildMembers'],
+  permissions: [PermissionFlagsBits.ManageRoles],
+  // softDisabled: true  // skip intent warn + join permission notices
+});
+```
+
+| Concern | Behaviour |
+|---------|-----------|
+| Missing **intents** | Console soft-warn once: feature label + intents in parentheses. Feature is **not** auto-disabled. |
+| Missing **permissions** on join | DM Discord **server owner**; else staff-like / first sendable channel + owner ping; else silence. |
+| Modes | Standalone, classic shard, Cross-Host **worker** (guild-owning process only). |
+| Built-ins | `registerAllBuiltinFeatureRequirements()` from core covers core handlers, permissions, api, token, dashboard, dash-data. Each plugin also calls its `register*FeatureRequirements()` in `onSetup`. |
+
+Do **not** put guild ID lists in config for gate/access — use commands + DB. Locale **pick** helpers: `guildLocale.setGuildLocaleValidated` (schema/rules fail closed); no public edit cmds/routes yet.
+
+
 ## Related
 
 - [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) — authoring contract  
@@ -100,3 +134,22 @@ See **System Prompt - AI - Plugin.md** → Plugin Dashboard UI SDK (broker).
 | `GET /api/dash/events/ws` | Session | **Deferred** (501) — WebSocket via Next BFF upgrade is a follow-up; does not block SSE |
 
 `registry.updated` is emitted when plugin enable/disable/reload bumps the dash registry version (A5). Clients should re-fetch `GET /api/dash/registry` so surfaces for plugins that failed the load gate disappear.
+
+## Registering structure from index.ts
+
+```ts
+await this.heart.registry.registerCommand(MyCommand);
+await this.heart.registry.extendCommand('admin', {
+  kind: 'subcommand',
+  name: 'fleet-restart',
+  description: '…',
+  requirements: { modes: ['crosshost'], crossHostRole: 'worker' },
+  execute: async (i) => { /* … */ },
+});
+```
+
+Duplicates hard-fail. See System Prompt → heart.registry.
+
+## Dynamic registration & requirements
+
+Commands, events, routes, handlers, and middlewares may declare `requirements` (mode: cross-host / sharded / standalone, env, plugins, `when` fn). Access on commands/routes uses permission predicates (`requireAny` / `requireAll` / `denyIf` / …). Prefer registering complete structures then resync; freeze after boot.

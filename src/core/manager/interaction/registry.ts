@@ -7,6 +7,7 @@ import type {
     ContextMenuCommandInteraction
 } from 'discord.js';
 import { getLogger } from '#core/utils/logger.js';
+import { DuplicateRegistrationError } from '#core/loader/discordLimits.js';
 import type { RouteAccessConfig } from '#core/manager/permissions.js';
 
 const log = getLogger('InteractionRegistry');
@@ -59,6 +60,14 @@ class RouteStore<T> {
         } else {
             if (!id || typeof id !== 'string') {
                 throw new TypeError(`[${this.routeName}] Router Error: Exact route ID must be a non-empty string.`);
+            }
+            if (this.exact.has(id)) {
+                const prev = this.exact.get(id)!;
+                if (prev.owner !== owner || owner === undefined) {
+                    throw new DuplicateRegistrationError(
+                        `[${this.routeName}] Duplicate route "${id}" (existing owner: ${prev.owner ?? 'Core'}, new owner: ${owner ?? 'Core'})`,
+                    );
+                }
             }
             this.exact.set(id, { handler: handler as Handler<T>, owner, metadata });
             log.debug(`Registered Exact [${this.routeName}]: ${id} (Owner: ${owner ?? 'Core'})`);

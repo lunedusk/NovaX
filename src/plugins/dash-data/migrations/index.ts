@@ -219,6 +219,23 @@ async function alterEpochColumnsToBigint(
     }
 }
 
+const SQL_TABLES_V4 = `
+CREATE TABLE IF NOT EXISTS dash_moderation_actions (
+    id TEXT PRIMARY KEY,
+    action TEXT NOT NULL,
+    actorId TEXT NOT NULL,
+    targetUserId TEXT NOT NULL,
+    guildId TEXT,
+    reason TEXT,
+    outcome TEXT NOT NULL DEFAULT 'success',
+    detail TEXT,
+    createdAt BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dash_mod_actor ON dash_moderation_actions(actorId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_dash_mod_target ON dash_moderation_actions(targetUserId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_dash_mod_guild ON dash_moderation_actions(guildId, createdAt);
+`;
+
 export const migrations: MigrationStep[] = [
     {
         version: 1,
@@ -273,6 +290,32 @@ export const migrations: MigrationStep[] = [
         name: 'dash_data_epoch_ms_bigint',
         async up(ctx) {
             await alterEpochColumnsToBigint(ctx);
+        },
+    },
+    {
+        version: 4,
+        name: 'dash_moderation_actions',
+        async up(ctx) {
+            if (ctx.engine === 'mongo') {
+                const { mongoDB } = await import('#core/database/mongo.js');
+                const conn = mongoDB.get(ctx.adapter.alias);
+                const db = conn.db;
+                if (!db) return;
+                const existing = await db.listCollections({}, { nameOnly: true }).toArray();
+                const have = new Set(existing.map((c: { name: string }) => c.name));
+                if (!have.has('dash_moderation_actions')) {
+                    await db.createCollection('dash_moderation_actions');
+                }
+                try {
+                    await db.collection('dash_moderation_actions').createIndex({ actorId: 1, createdAt: -1 });
+                    await db.collection('dash_moderation_actions').createIndex({ targetUserId: 1, createdAt: -1 });
+                    await db.collection('dash_moderation_actions').createIndex({ guildId: 1, createdAt: -1 });
+                } catch {
+                    return;
+                }
+                return;
+            }
+            await ctx.adapter.exec(SQL_TABLES_V4);
         },
     },
 ];

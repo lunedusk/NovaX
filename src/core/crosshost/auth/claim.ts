@@ -37,7 +37,6 @@ export async function acquireOrchestratorClaim(redis: Redis): Promise<ClaimHandl
             .then(({ eventBus }) => eventBus.emitConcurrent('crosshost.claim.acquired', { fingerprint: fingerprint.slice(0, 12) }))
             .catch(() => undefined);
 
-
     let stopped = false;
     const renew = async (): Promise<void> => {
         if (stopped) return;

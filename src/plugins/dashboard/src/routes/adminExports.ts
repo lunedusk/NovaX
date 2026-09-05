@@ -1,6 +1,6 @@
 import { BaseRoute } from '#core/bases/Route.js';
 import { type Response } from 'express';
-import { applyGateway, requireAuthedBit, type DashRequest } from '../lib/authz.js';
+import { applyGateway, requireAuthedAnyBit, type DashRequest } from '../lib/authz.js';
 import { ok, guarded } from '../lib/http.js';
 import { audit } from '#core/audit/index.js';
 import { list as listErrors } from '#core/errors/index.js';
@@ -9,9 +9,7 @@ import {
     serializeErrorForExport,
     toCsv,
 } from '../lib/exportFormat.js';
-
-const BOT_AUDIT_VIEW = 'bot.audit.view';
-const BOT_ERRORS_VIEW = 'bot.errors.view';
+import { BITS } from '../lib/bits.js';
 
 function formatParam(req: DashRequest): 'json' | 'csv' {
     const raw = req.query.format;
@@ -38,10 +36,29 @@ function queryNumber(req: DashRequest, key: string): number | undefined {
 export default class AdminExportsRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/admin/audit/export:
+     *   get:
+     *     tags: [DashboardAdmin]
+     *     summary: Export audit log
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Export body }
+     * /api/dash/admin/errors/export:
+     *   get:
+     *     tags: [DashboardAdmin]
+     *     summary: Export error log
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Export body }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
-        const auditBit = requireAuthedBit(this.heart, BOT_AUDIT_VIEW);
-        const errorsBit = requireAuthedBit(this.heart, BOT_ERRORS_VIEW);
+        const auditBit = requireAuthedAnyBit(this.heart, [BITS.BOT_AUDIT_EXPORT, BITS.BOT_AUDIT_VIEW]);
+        const errorsBit = requireAuthedAnyBit(this.heart, [BITS.BOT_ERRORS_EXPORT, BITS.BOT_ERRORS_VIEW]);
 
         this.router.get(
             '/audit/export',

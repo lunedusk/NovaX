@@ -48,7 +48,6 @@ interface GatewayAuthContext {
     bits: string[];
 }
 
-
 export class GatewayConfigManager {
     private static _instance: GatewayConfigManager;
     private _config!: Readonly<GatewayPluginConfig>;
@@ -148,7 +147,6 @@ export class GatewayConfigManager {
 
         next();
     };
-
 
     private routePattern(req: Request): string {
         const full = `${req.baseUrl || ''}${typeof req.route?.path === 'string' ? req.route.path : req.path || ''}`;
@@ -300,7 +298,6 @@ export class GatewayConfigManager {
         next();
     };
 
-
     public buildOpenApiSpec(): Record<string, unknown> {
         if (!this._cachedSpec) {
             this._cachedSpec = swaggerJsdoc({
@@ -369,7 +366,6 @@ export class GatewayConfigManager {
         return { ...this._cachedSpec, servers: [{ url: this._config.publicBaseUrl, description: 'Canonical public API base URL' }] };
     }
 
-
     public isOriginAllowed(origin: string): boolean {
         return this._config.cors.allowedOrigins.some(pattern => {
             if (pattern === '*') return true;
@@ -378,7 +374,6 @@ export class GatewayConfigManager {
             return pattern === origin;
         });
     }
-
 
     public isValidKey(key: string): boolean {
         return !!this.resolveAuthContext(key);

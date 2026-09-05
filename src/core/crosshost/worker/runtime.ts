@@ -11,6 +11,7 @@ import { IdentifyGrantWaiter } from './identifyClient.js';
 import { SnapshotCache } from './snapshotCache.js';
 import {
     createDiscordShardAdapter,
+    setActiveDiscordShardAdapter,
     type DiscordShardAdapter,
 } from '#core/manager/discordShardAdapter.js';
 
@@ -39,11 +40,13 @@ export function createWorkerRuntimeState(
     initialShards: readonly number[],
     generation: number,
 ): WorkerRuntimeState {
+    const shardAdapter = createDiscordShardAdapter();
+    setActiveDiscordShardAdapter(shardAdapter);
     return {
         machineId,
         snapshotCache: new SnapshotCache(),
         grantWaiter: new IdentifyGrantWaiter(),
-        shardAdapter: createDiscordShardAdapter(),
+        shardAdapter,
         generation,
         totalShards,
         shards: [...initialShards],

@@ -3,9 +3,9 @@ import { type Response } from 'express';
 import { applyGateway, requireSession, type DashRequest } from '../lib/authz.js';
 import { ok, guarded, HttpError, requireBody } from '../lib/http.js';
 import { writeAudit } from '../lib/db.js';
-import { secrets } from '#core/helpers/secretManager.js';
 import type DashDataStoreHandler from '../../../dash-data/src/handlers/store.js';
 import type { DashLayoutDoc, LayoutScope } from '../../../dash-data/src/lib/store.js';
+import { isBotOwnerUser, isBotOwnerFromBits } from '../lib/owner.js';
 
 const SCOPES = new Set<LayoutScope>([
     'public_landing',
@@ -15,20 +15,13 @@ const SCOPES = new Set<LayoutScope>([
     'server_guild',
 ]);
 
-function envOwnerIds(): string[] {
-    const raw = secrets.getOptional('BotOwnerIds', '') ?? '';
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
-}
-
-function isEnvOwner(userId: string): boolean {
-    return envOwnerIds().includes(userId);
-}
-
-function requireEnvOwner(req: DashRequest): void {
+async function requireBotOwner(req: DashRequest): Promise<void> {
     const userId = req.dashSession!.payload.userId;
-    if (!isEnvOwner(userId)) {
-        throw new HttpError(403, 'forbidden', 'Layout authoring requires env BotOwnerIds');
+    const bits = req.dashSession!.payload.bits;
+    if (isBotOwnerFromBits(userId, bits) || (await isBotOwnerUser(userId))) {
+        return;
     }
+    throw new HttpError(403, 'forbidden', 'Layout authoring requires bot.owner');
 }
 
 function parseScope(raw: unknown): LayoutScope {
@@ -77,7 +70,32 @@ export default class AdminLayoutsRoute extends BaseRoute {
         return h;
     }
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/admin/layouts:
+     *   get:
+     *     tags: [DashboardLayouts]
+     *     summary: List layouts
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Layouts }
+     *   put:
+     *     tags: [DashboardLayouts]
+     *     summary: Upsert layout
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Saved }
+     * /api/dash/admin/layouts/can-author:
+     *   get:
+     *     tags: [DashboardLayouts]
+     *     summary: Whether caller may author layouts
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Capability }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
         const sess = requireSession(this.heart);
 
@@ -88,7 +106,7 @@ export default class AdminLayoutsRoute extends BaseRoute {
 
     private async canAuthor(req: DashRequest, res: Response): Promise<void> {
         const userId = req.dashSession!.payload.userId;
-        ok(res, { canAuthor: isEnvOwner(userId), userId });
+        ok(res, { canAuthor: await isBotOwnerUser(userId), userId });
     }
 
     private async get(req: DashRequest, res: Response): Promise<void> {
@@ -102,7 +120,7 @@ export default class AdminLayoutsRoute extends BaseRoute {
     }
 
     private async put(req: DashRequest, res: Response): Promise<void> {
-        requireEnvOwner(req);
+        await requireBotOwner(req);
         const body = requireBody<{
             id: string;
             scope: string;

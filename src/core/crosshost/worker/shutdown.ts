@@ -8,8 +8,13 @@ export function isWorkerShuttingDown(): boolean {
     return shuttingDown;
 }
 
-
 export async function performWorkerShutdown(signal: string): Promise<void> {
+    try {
+        const { clearClusterClientAuth } = await import('./clusterClient.js');
+        clearClusterClientAuth();
+    } catch {
+    }
+
     if (shuttingDown) return;
     shuttingDown = true;
 

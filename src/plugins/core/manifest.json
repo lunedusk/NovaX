@@ -1,9 +1,13 @@
 {
     "id": "core",
     "name": "Core",
-    "version": "0.2.0",
+    "version": "1.0.0",
     "author": "Lunedusk",
-    "node_version": ">=18.20.8",
-    "dependencies": ["api", "permissions"],
-    "zene_version": ">=0.5.2"
+    "node_version": ">=20",
+    "dependencies": [
+        "api",
+        "permissions"
+    ],
+    "zene_version": ">=0.5.4",
+    "emoji": "\u2699\ufe0f"
 }

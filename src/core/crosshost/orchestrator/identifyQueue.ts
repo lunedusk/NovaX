@@ -102,7 +102,6 @@ export class IdentifyQueue {
             )
             .catch(() => undefined);
 
-
         return message;
     }
 

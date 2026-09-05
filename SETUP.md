@@ -81,3 +81,43 @@ Under `/admin` (owner-gated): `reload-config`, `reload-lang`, `reload-env` (`.en
 5. Optional: `CROSS_HOST_INDEX_ENABLED=true` with backend `redis` (default) or `postgres` (`Database.crosshost_index` or postgres `main`).
 
 Do not enable Cross-Host with sqlite/file engines — boot will fail the storage gate. Full runbook: [CROSS_HOST.md](CROSS_HOST.md).
+
+## Optional: `@lunedusk/gateway-multiplex`
+
+Cross-Host-only raw Discord gateway helper (WebSocket per shard). **Not** a replacement for root `discord.js`.
+
+```bash
+# from repo root
+npm run install-packages
+# or:
+cd packages/gateway-multiplex && npm install && npm run build && cd ../..
+npm install ./packages/gateway-multiplex
+```
+
+Root `package.json` already depends on `"@lunedusk/gateway-multiplex": "file:packages/gateway-multiplex"`.
+
+| Path | Role |
+|------|------|
+| `node_modules/discord.js` (or `discord.js` dep) | **Required** for all modes (normal, classic sharded, Cross-Host workers via `DiscordShardAdapter`) |
+| `packages/gateway-multiplex` | Optional raw gateway; load only when `CROSS_HOST=true` via `#core/crosshost/gateway/multiplexLoader.js` |
+| `packages/discord.js-14.27.0` | Vendored discord.js source for reference / future patches — **do not** install as the app runtime client unless you intentionally switch the root dependency |
+
+Keep **both**: stock `discord.js` for the bot; multiplex as a separate local package when experimenting with raw gateway multiplexing.
+
+## Route probe
+
+1. Start the bot (normal, sharded, or cross-host worker) with the **token** plugin and `TokenMasterSecret` set.
+2. Run the probe (env form recommended):
+
+```bash
+PROBE_BASE_URL=http://127.0.0.1:8011 \
+PROBE_USER_ID=your_discord_id \
+PROBE_TOKEN_MASTER_SECRET=same_as_bot_TokenMasterSecret \
+node scripts/route-probe.mjs
+```
+
+3. The probe tries **issue → verify → refresh**, captures the bearer, then hits authenticated routes.
+4. Optional: `PROBE_TOKEN` if you already have a bearer; `PROBE_ALLOW_RESTART=1` for restart cases.
+5. Report: `route-probe-report.json` (or `PROBE_REPORT_PATH`).
+
+Also listed from [README.md](README.md).

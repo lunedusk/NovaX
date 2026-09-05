@@ -63,7 +63,11 @@ export class LangLoader {
     public async syncPlugin(pluginDir: string, pluginId: string): Promise<void> {
         const sourceLangDir = path.join(pluginDir, 'data', 'configuration', 'lang');
         try {
-            const files = await fs.readdir(sourceLangDir).catch(err => err.code === 'ENOENT' ? null : Promise.reject(err));
+            const files = await fs.readdir(sourceLangDir).catch((err) =>
+                err && typeof err === 'object' && (err as NodeJS.ErrnoException).code === 'ENOENT'
+                    ? null
+                    : Promise.reject(err),
+            );
             if (!files) return;
             const json5Files = files.filter((f: string) => f.endsWith('.json5'));
             if (!json5Files.length) return;
@@ -73,53 +77,82 @@ export class LangLoader {
                 const sourcePath = path.join(sourceLangDir, file);
                 const targetName = this.formatLangName(pluginId, file);
                 const targetPath = path.join(this.globalLangDir, targetName);
+                const locale = path.basename(file, '.json5');
+
                 let defaultLang: JsonObject;
                 try {
                     defaultLang = JSON5.parse(await fs.readFile(sourcePath, 'utf-8'));
                 } catch {
-                    log.error(`[${pluginId}] Malformed default language schema: ${file}. Skipping sync.`);
+                    log.error(`[${pluginId}] Malformed default language file: ${file}. Skipping sync.`);
                     continue;
                 }
-                const defOk = await this.validateLang(pluginId, sourcePath, defaultLang, path.basename(file, '.json5'));
-                if (!defOk.ok) {
-                    log.error(`[${pluginId}] Default lang failed validation (${file}): ${defOk.message}`);
-                    continue;
-                }
-                defaultLang = defOk.data;
 
-                try {
-                    const userLang = JSON5.parse(await fs.readFile(targetPath, 'utf-8'));
-                    const mutations: string[] = [];
-                    const merged = mergePreserveObject(
-                        defaultLang as Record<string, unknown>,
-                        userLang as Record<string, unknown>,
-                        mutations,
+                const defOk = await this.validateLang(pluginId, sourcePath, defaultLang, locale);
+                if (!defOk.ok) {
+                    log.warn(
+                        `[${pluginId}] Default lang has validation issues (${file}): ${defOk.message}. Continuing merge using raw default as structure donor.`,
                     );
-                    const mergedOk = await this.validateLang(pluginId, targetPath, merged, path.basename(file, '.json5'));
-                    if (!mergedOk.ok) {
-                        log.error(
-                            `[${pluginId}] Merged lang has validation issues (${targetName}): ${mergedOk.message}`,
-                        );
-                    }
-                    if (mutations.length > 0) {
-                        const mode = await writeJson5Preserving(targetPath, merged);
-                        log.info(
-                            `[${pluginId}] Synced language file ${targetName} (${mode}). Applied ${mutations.length} updates.`,
-                        );
-                        for (const m of mutations) {
-                            if (m.startsWith('[Type Mismatch]')) log.warn(`[${pluginId}] ${m}`);
-                        }
-                    }
+                } else {
+                    defaultLang = defOk.data;
+                }
+
+                let userLang: JsonObject | null = null;
+                let userMissing = false;
+                try {
+                    userLang = JSON5.parse(await fs.readFile(targetPath, 'utf-8'));
                 } catch (error: unknown) {
                     const err = error as NodeJS.ErrnoException;
                     if (err.code === 'ENOENT') {
-                        await this.atomicWriteNew(targetPath, defaultLang);
-                        log.info(`[${pluginId}] Generated fresh global translation: ${targetName}`);
+                        userMissing = true;
                     } else if (error instanceof SyntaxError) {
-                        log.warn(`[${pluginId}] Global translation ${targetName} corrupted; backup and reset.`);
-                        await fs.rename(targetPath, `${targetPath}.corrupted.bak`);
-                        await this.atomicWriteNew(targetPath, defaultLang);
-                    } else throw error;
+                        log.warn(`[${pluginId}] Global translation ${targetName} corrupted; backup and reset from default.`);
+                        await fs.rename(targetPath, `${targetPath}.corrupted.bak`).catch(() => undefined);
+                        userMissing = true;
+                    } else {
+                        throw error;
+                    }
+                }
+
+                if (userMissing || !userLang) {
+                    await this.atomicWriteNew(targetPath, defaultLang);
+                    const freshOk = await this.validateLang(pluginId, targetPath, defaultLang, locale);
+                    if (!freshOk.ok) {
+                        log.error(
+                            `[${pluginId}] Fresh global translation ${targetName} still invalid: ${freshOk.message}`,
+                        );
+                    } else {
+                        log.info(`[${pluginId}] Generated fresh global translation: ${targetName}`);
+                    }
+                    continue;
+                }
+
+                const mutations: string[] = [];
+                const merged = mergePreserveObject(
+                    defaultLang as Record<string, unknown>,
+                    userLang as Record<string, unknown>,
+                    mutations,
+                ) as JsonObject;
+
+                const mergedOk = await this.validateLang(pluginId, targetPath, merged, locale);
+                if (!mergedOk.ok) {
+                    log.error(
+                        `[${pluginId}] Merged lang has validation issues (${targetName}): ${mergedOk.message}`,
+                    );
+                }
+
+                if (mutations.length > 0) {
+                    const mode = await writeJson5Preserving(targetPath, merged);
+                    log.info(
+                        `[${pluginId}] Synced language file ${targetName} (${mode}). Applied ${mutations.length} updates.`,
+                    );
+                    for (const m of mutations) {
+                        if (m.startsWith('[Type Mismatch]')) log.warn(`[${pluginId}] ${m}`);
+                        else if (m.startsWith('[Missing Key]')) log.info(`[${pluginId}] ${m}`);
+                    }
+                } else if (!mergedOk.ok) {
+                    log.warn(
+                        `[${pluginId}] No structural mutations for ${targetName}, but validation failed — check schema/rules vs content.`,
+                    );
                 }
             }
         } catch (error: unknown) {

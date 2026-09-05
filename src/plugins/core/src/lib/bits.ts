@@ -15,6 +15,22 @@ export const BITS = {
     BOT_DASH_PAGES_MANAGE: 'bot.dash.pages.manage',
     BOT_LOGS_VIEW: 'bot.logs.view',
     BOT_ANALYTICS_VIEW: 'bot.analytics.view',
+    BOT_FLEET_VIEW: 'bot.fleet.view',
+    BOT_FLEET_RESTART: 'bot.fleet.restart',
+    BOT_SHARD_VIEW: 'bot.shard.view',
+    BOT_SHARD_SHIFT: 'bot.shard.shift',
+    BOT_WORKER_RESTART: 'bot.worker.restart',
+    BOT_CROSSHOST_VIEW: 'bot.crosshost.view',
+    BOT_CROSSHOST_MANAGE: 'bot.crosshost.manage',
+    BOT_CACHE_MANAGE: 'bot.cache.manage',
+    BOT_CONFIG_RELOAD: 'bot.config.reload',
+    BOT_LANG_RELOAD: 'bot.lang.reload',
+    BOT_AUDIT_EXPORT: 'bot.audit.export',
+    BOT_ERRORS_EXPORT: 'bot.errors.export',
+    BOT_MEMBERS_NICK: 'bot.members.nick',
+    BOT_MEMBERS_ROLE: 'bot.members.role',
+    BOT_HIERARCHY_VIEW: 'bot.hierarchy.view',
+    BOT_ROLE_LINKS_MANAGE: 'bot.role_links.manage',
 
     SERVER_CONFIG_VIEW: 'server.config.view',
     SERVER_CONFIG_MANAGE: 'server.config.manage',
@@ -28,6 +44,11 @@ export const BITS = {
     SERVER_LANG_MANAGE: 'server.lang.manage',
     SERVER_LOGS_VIEW: 'server.logs.view',
     SERVER_ANALYTICS_VIEW: 'server.analytics.view',
+    SERVER_MEMBERS_NICK: 'server.members.nick',
+    SERVER_MEMBERS_ROLE: 'server.members.role',
+    SERVER_HIERARCHY_VIEW: 'server.hierarchy.view',
+    SERVER_ROLE_LINKS_MANAGE: 'server.role_links.manage',
+    SERVER_DISCORD_MIRROR_MANAGE: 'server.discord_mirror.manage',
 
     PLUGIN_DASHBOARD_MEMBERS_NOTES: 'plugin.dashboard.members.notes',
     PLUGIN_DASHBOARD_INFRACTIONS_MANAGE: 'plugin.dashboard.infractions.manage',
@@ -36,6 +57,13 @@ export const BITS = {
 export type BitKey = keyof typeof BITS;
 
 export const BOT_OWNER_BIT = 'bot.owner';
+export const BOT_PROTECTED_BIT = 'bot.protected';
+export const SERVER_PROTECTED_BIT = 'server.protected';
+
+export const PROTECTED_BITS = {
+    BOT: BOT_PROTECTED_BIT,
+    SERVER: SERVER_PROTECTED_BIT,
+} as const;
 
 export const CUSTOM_BITS_TO_REGISTER: Array<{ bit: string; description: string }> = [
     {

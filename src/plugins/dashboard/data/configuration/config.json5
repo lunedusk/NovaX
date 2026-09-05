@@ -22,5 +22,12 @@
     // Default member ban message-delete window when not specified by caller
     moderation: {
         defaultDeleteMessageDays: 0,
+        logActions: true,
+    },
+
+    fleet: {
+        exposeStatus: true,
+        allowRestart: true,
+        allowShardShift: true,
     },
 }

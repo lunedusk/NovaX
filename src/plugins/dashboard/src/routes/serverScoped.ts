@@ -17,7 +17,173 @@ type GuildRoleParams = { guildId: string; roleId: string };
 export default class ServerScopedRoute extends BaseRoute {
     public readonly basePath = '/api/dash/servers';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/servers/{guildId}:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Server overview
+     *     security: [{ bearerAuth: [] }]
+     *     parameters:
+     *       - in: path
+     *         name: guildId
+     *         required: true
+     *         schema: { type: string }
+     *     responses:
+     *       '200': { description: Guild overview }
+     * /api/dash/servers/{guildId}/plugins:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Guild plugins
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Plugins }
+     * /api/dash/servers/{guildId}/plugins/{pluginId}/config:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Guild plugin config
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Config }
+     *   put:
+     *     tags: [DashboardServerScoped]
+     *     summary: Update guild plugin config
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Saved }
+     * /api/dash/servers/{guildId}/members:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Guild members
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Members }
+     * /api/dash/servers/{guildId}/members/{userId}:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Guild member
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Member }
+     * /api/dash/servers/{guildId}/members/{userId}/infractions:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Member infractions
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Infractions }
+     * /api/dash/servers/{guildId}/members/{userId}/kick:
+     *   post:
+     *     tags: [DashboardServerScoped]
+     *     summary: Kick
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Result }
+     * /api/dash/servers/{guildId}/members/{userId}/ban:
+     *   post:
+     *     tags: [DashboardServerScoped]
+     *     summary: Ban
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Result }
+     * /api/dash/servers/{guildId}/members/{userId}/mute:
+     *   post:
+     *     tags: [DashboardServerScoped]
+     *     summary: Mute
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Result }
+     * /api/dash/servers/{guildId}/members/{userId}/infractions/{id}:
+     *   delete:
+     *     tags: [DashboardServerScoped]
+     *     summary: Delete infraction
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Deleted }
+     * /api/dash/servers/{guildId}/members/{userId}/notes:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Notes
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Notes }
+     *   post:
+     *     tags: [DashboardServerScoped]
+     *     summary: Add note
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '201': { description: Created }
+     * /api/dash/servers/{guildId}/roles:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Server roles
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Roles }
+     *   post:
+     *     tags: [DashboardServerScoped]
+     *     summary: Create server role
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '201': { description: Created }
+     * /api/dash/servers/{guildId}/roles/{roleId}:
+     *   put:
+     *     tags: [DashboardServerScoped]
+     *     summary: Update server role
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Updated }
+     *   delete:
+     *     tags: [DashboardServerScoped]
+     *     summary: Delete server role
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Deleted }
+     * /api/dash/servers/{guildId}/roles/{roleId}/assign:
+     *   post:
+     *     tags: [DashboardServerScoped]
+     *     summary: Assign
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Assigned }
+     * /api/dash/servers/{guildId}/roles/{roleId}/revoke:
+     *   post:
+     *     tags: [DashboardServerScoped]
+     *     summary: Revoke
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Revoked }
+     * /api/dash/servers/{guildId}/lang:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Guild lang
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Lang }
+     *   put:
+     *     tags: [DashboardServerScoped]
+     *     summary: Set guild lang
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Saved }
+     * /api/dash/servers/{guildId}/logs:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Guild logs
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Logs }
+     * /api/dash/servers/{guildId}/analytics:
+     *   get:
+     *     tags: [DashboardServerScoped]
+     *     summary: Guild analytics
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Analytics }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
         const g = this.heart;
         const R = <T extends keyof typeof BITS>(bit: T, cross?: keyof typeof BITS) =>

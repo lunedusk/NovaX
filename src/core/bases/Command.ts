@@ -6,6 +6,7 @@ import {
     type PermissionResolvable
 } from 'discord.js';
 import { resolveGlobalPlaceholders } from '#core/placeholder/index.js';
+import type { RegisterRequirements } from '#core/loader/requirements.js';
 
 export interface CommandConfig {
     readonly cooldown?: number;
@@ -18,6 +19,7 @@ export interface CommandConfig {
     readonly allowInDm?: boolean;
     readonly denyMessage?: string;
     readonly autoDefer?: boolean | 'ephemeral';
+    readonly requirements?: RegisterRequirements;
 }
 
 export abstract class BaseCommand {
@@ -30,8 +32,14 @@ export abstract class BaseCommand {
     
     public async onError(error: Error, interaction: ChatInputCommandInteraction): Promise<void> {
         this.heart.log.error(`Command [${this.data.name}] failed: ${error.message}`, { stack: error.stack });
-        
-        const msg = resolveGlobalPlaceholders('%%emoji_cross%% An error occurred while executing this command.');
+
+        let msg: string;
+        try {
+            const { coreErrorMessage } = await import('#plugins/core/src/lib/coreErrors.js');
+            msg = coreErrorMessage('COMMAND_FAILED');
+        } catch {
+            msg = resolveGlobalPlaceholders('%%emoji_cross%% An error occurred while executing this command.');
+        }
         if (interaction.deferred || interaction.replied) {
             await interaction.followUp({ content: msg, ephemeral: true }).catch(() => {});
         } else {

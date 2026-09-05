@@ -2,6 +2,9 @@
 
 Manual-first update system for core and first-party plugins. Not exposed over HTTP.
 
+See also: [README.md](README.md) · [SETUP.md](SETUP.md)
+
+
 ## Modes
 
 | Mode | Behavior |
@@ -40,3 +43,7 @@ Apply is boot/CLI/system only. Audit records `updater.apply` as `system` when em
 ## Dashboard status (read-only)
 
 `GET /api/dash/admin/updater/status` (session + **bot.owner**) returns `UpdaterStatusDto` from baseline/receipts/package metadata. **No HTTP apply or trigger** — apply remains CLI (`npm run updater`) / explicit background opt-in only.
+
+## Packaging excludes
+
+Hard excludes (updater walk/copy + release zips) include: `node_modules`, `.git`, **`.github`**, `.data`, `logs`, `configuration`, coverage, `.turbo`, `.nx`, `.env*`, IDE folders. Slim/Bundled source zips also exclude `.github/*` and `.env*`.

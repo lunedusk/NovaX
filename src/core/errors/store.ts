@@ -254,7 +254,6 @@ export async function upsertErrorOccurrence(input: ErrorOccurrenceInput): Promis
     }
 }
 
-
 export interface ErrorListFilter {
     code?: string;
     category?: string;

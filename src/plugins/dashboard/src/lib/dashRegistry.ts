@@ -145,7 +145,7 @@ function visibilityEstimate(
     const v = surface.visibility;
     if (!v) return { visible: true };
     if (v.denyUserIds?.includes(userId)) return { visible: false, reason: 'deny_user' };
-    if (v.envOwnerOnly && !isEnvOwner) return { visible: false, reason: 'env_owner_only' };
+    if (v.envOwnerOnly && !isEnvOwner && !bits.has('bot.owner')) return { visible: false, reason: 'env_owner_only' };
     if (v.allowUserIds && v.allowUserIds.length > 0 && !v.allowUserIds.includes(userId)) {
         return { visible: false, reason: 'allow_user' };
     }

@@ -1,4 +1,5 @@
 import { type IHeart } from '#core/heart/index.js';
+import type { RegisterRequirements } from '#core/loader/requirements.js';
 import { getLogger, type Logger } from '#core/utils/logger.js';
 
 export abstract class BaseHandler {
@@ -8,6 +9,7 @@ export abstract class BaseHandler {
     public abstract readonly name: string;
     public readonly version?: string;
     public readonly description?: string;
+    public readonly requirements?: RegisterRequirements;
 
     constructor(heart: IHeart) {
         this.#heart = heart;

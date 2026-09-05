@@ -8,7 +8,33 @@ import { inspectCommands, inspectEvents, inspectRoutes } from '../lib/registryIn
 export default class AdminRegistryRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin/registry';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/admin/registry/commands:
+     *   get:
+     *     tags: [DashboardAdmin]
+     *     summary: Registered commands
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Command tree }
+     * /api/dash/admin/registry/events:
+     *   get:
+     *     tags: [DashboardAdmin]
+     *     summary: Registered events
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Events }
+     * /api/dash/admin/registry/routes:
+     *   get:
+     *     tags: [DashboardAdmin]
+     *     summary: Registered HTTP routes
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Routes }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
         const view = requireAuthedBit(this.heart, BITS.BOT_PLUGINS_VIEW);
 

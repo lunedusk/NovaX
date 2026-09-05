@@ -48,7 +48,6 @@ class Common777 {
         return this.authorizedCallerPath;
     }
 
-
     private applyEnvConfig(config: CommonConfig): void {
         if (config.ENVSettings === true) {
             log.info('ENVSettings=true: respecting existing process.env, no overrides applied.');

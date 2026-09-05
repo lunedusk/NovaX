@@ -18,6 +18,8 @@ import { SemVer } from '#core/utils/semver.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { NodeVersion } from '#core/utils/nodever.js';
 import { CommandLoader } from './commands.js';
+import { MiddlewareLoader } from './middlewares.js';
+import { freezeCommandStructure } from './commandRegistry.js';
 import { configLoader } from './config.js';
 import { DependencyLoader } from './dependency.js';
 import { emojiLoader } from './emoji.js';
@@ -61,6 +63,7 @@ export class PluginManager extends EventEmitter {
     constructor(baseDir: string = process.cwd()) {
         super();
         this.pluginsDir = path.join(baseDir, 'plugins');
+        (globalThis as { __zenePluginManager?: PluginManager }).__zenePluginManager = this;
     }
 
     private async initCoreVersion(): Promise<void> {
@@ -132,7 +135,6 @@ export class PluginManager extends EventEmitter {
 
         return sorted;
     }
-
 
     private async discoverPlugins(): Promise<Map<string, DiscoveredPlugin>> {
         const discovered = new Map<string, DiscoveredPlugin>();
@@ -380,6 +382,7 @@ export class PluginManager extends EventEmitter {
                     await this.withTimeout(instance.onSetup(), id, 'onSetup()');
                 }
                 
+                await MiddlewareLoader.loadForPlugin(dir, id, scopedHeart);
                 await EventLoader.loadForPlugin(dir, id, scopedHeart);
                 await CommandLoader.loadForPlugin(dir, id, scopedHeart);
                 await HandlerLoader.loadForPlugin(dir, id, scopedHeart);
@@ -414,6 +417,8 @@ export class PluginManager extends EventEmitter {
         }
 
         if (baseClient) await emojiLoader.init(baseClient);
+
+        freezeCommandStructure();
 
         const activeCount = this.registry.size;
         const totalTime = ((performance.now() - totalStart) / 1000).toFixed(2);
@@ -594,6 +599,7 @@ export class PluginManager extends EventEmitter {
                     await this.withTimeout(instance.onSetup(), pluginId, 'onSetup()');
                 }
                 
+                await MiddlewareLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
                 await EventLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
                 await CommandLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
                 await HandlerLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);

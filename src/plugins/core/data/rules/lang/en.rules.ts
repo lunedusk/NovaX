@@ -97,6 +97,37 @@ const REQUIRED_ADMIN_KEYS = [
     'commands.admin.bitHolders.continued',
     'commands.admin.bitHolders.memberLine',
     'commands.admin.bitHolders.pageHeader',
+    'commands.admin.titles.metrics',
+    'commands.admin.titles.shard',
+    'commands.admin.titles.fleet',
+    'commands.admin.titles.worker',
+    'commands.admin.gate.disabled',
+    'commands.admin.gate.guildBlockDescription',
+    'commands.admin.gate.guildUnblockDescription',
+    'commands.admin.gate.guildListDescription',
+    'commands.admin.gate.pluginBlockDescription',
+    'commands.admin.gate.pluginUnblockDescription',
+    'commands.admin.gate.pluginListDescription',
+    'commands.admin.gate.guildIdDescription',
+    'commands.admin.gate.notReady',
+    'commands.admin.gate.needGuild',
+    'commands.admin.access.blacklistAddDescription',
+    'commands.admin.access.blacklistRemoveDescription',
+    'commands.admin.access.blacklistListDescription',
+    'commands.admin.access.whitelistAddDescription',
+    'commands.admin.access.whitelistRemoveDescription',
+    'commands.admin.access.whitelistListDescription',
+    'commands.admin.access.checkDescription',
+    'commands.admin.access.guildIdDescription',
+    'commands.admin.access.disabled',
+    'commands.admin.access.notReady',
+    'commands.admin.access.needGuild',
+    'commands.admin.access.blacklisted',
+    'commands.admin.access.unblacklisted',
+    'commands.admin.access.whitelisted',
+    'commands.admin.access.unwhitelisted',
+    'commands.admin.access.checkResult',
+    'commands.admin.access.title',
 ];
 
 export async function validate(
@@ -117,6 +148,21 @@ export async function validate(
 
     const issues: string[] = [];
     for (const path of REQUIRED_ADMIN_KEYS) {
+        requireStringPath(d, path, issues);
+    }
+    const errorKeys = [
+        'errors.discord.permission_denied',
+        'errors.discord.hierarchy',
+        'errors.discord.target_is_owner',
+        'errors.codes.COMMAND_FAILED',
+        'errors.codes.PAGINATOR_EXPIRED',
+        'errors.codes.HIERARCHY_RANK',
+        'errors.codes.ROLE_BITS_MISSING',
+        'errors.codes.MISSING_BIT',
+        'layouts.containerError',
+        'layouts.containerSuccess',
+    ];
+    for (const path of errorKeys) {
         requireStringPath(d, path, issues);
     }
 

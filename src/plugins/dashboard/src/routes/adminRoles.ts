@@ -11,7 +11,63 @@ type RoleParams = { roleId: string };
 export default class AdminRolesRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin/roles';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/admin/roles:
+     *   get:
+     *     tags: [DashboardRoles]
+     *     summary: List bot-wide roles
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Roles }
+     *   post:
+     *     tags: [DashboardRoles]
+     *     summary: Create bot-wide role
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '201': { description: Created }
+     * /api/dash/admin/roles/{roleId}:
+     *   get:
+     *     tags: [DashboardRoles]
+     *     summary: Get role
+     *     security: [{ bearerAuth: [] }]
+     *     parameters:
+     *       - in: path
+     *         name: roleId
+     *         required: true
+     *         schema: { type: string }
+     *     responses:
+     *       '200': { description: Role }
+     *   put:
+     *     tags: [DashboardRoles]
+     *     summary: Update role
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Updated }
+     *   delete:
+     *     tags: [DashboardRoles]
+     *     summary: Delete role
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Deleted }
+     * /api/dash/admin/roles/{roleId}/assign:
+     *   post:
+     *     tags: [DashboardRoles]
+     *     summary: Assign role to users
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Assigned }
+     * /api/dash/admin/roles/{roleId}/revoke:
+     *   post:
+     *     tags: [DashboardRoles]
+     *     summary: Revoke role from users
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Revoked }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
         const manage = requireAuthedBit(this.heart, BITS.BOT_ROLES_MANAGE);
 

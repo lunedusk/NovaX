@@ -120,18 +120,24 @@ import { DISCORD_BRIDGED_EVENT_NAMES } from '#core/manager/events/EventBus.js';
 
 ---
 
-## Permissions / guild gate / plugins / interactions
+## Permissions / guild gate / guild access / plugins / interactions
 
 | Event | Payload | When | Modes |
 |-------|---------|------|-------|
 | `permissions.ready` | `{ engine; alias }` | PermissionsManager init | client / worker |
 | `guildgate.ready` | `{ engine; alias }` | GuildGate ready | client / worker |
+| `guildaccess.ready` | `{ engine; alias }` | GuildAccess (leave lists) ready | client / worker |
+| `guildaccess.changed` | `{ kind; guildId; action }` | Blacklist / whitelist / owner-authorize mutation | client / worker |
 | `plugin.enabled` | `{ pluginId; version?; durationMs? }` | Single plugin enabled | client / worker |
 | `plugin.disabled` | `{ pluginId }` | Plugin disabled (when emitted) | all |
 | `plugin.preload.complete` | `{ count }` | Preload finished (when emitted) | crosshost-worker |
 | `interaction.commands.synced` | `{ count; guildId?; global }` | Slash/context commands deployed | client / worker |
 | `interaction.handled` | `{ category; commandName?; pluginId?; guildId?; success; durationMs? }` | Reserved for pipeline telemetry (emit when wired) | client |
 | `command:executed` | `{ pluginId; commandName }` | Command path executed (legacy name) | client |
+
+**Guild gate** = soft block (bot stays). **Guild access** = leave policy (blacklist / whitelist / owner-authorized). Neither replaces Discord permissions.
+
+**Feature requirements** (`#core/manager/featureRequirements.js`): not event-bus messages. On client ready, missing **intents** are logged as console soft-warns. On `GuildCreate`, missing **permissions** may DM the Discord server owner or post in a staff/sendable channel (see README / System Prompt).
 
 ---
 
@@ -192,3 +198,20 @@ Listeners may register early; zero listeners is always safe.
 - [LOADER.md](LOADER.md) — plugin load order  
 - [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) — plugin contracts including EventBus  
 - Source of truth: `src/core/manager/events/EventBus.ts` (`EventArgsMap`)
+
+## Command structure
+
+| Event | When | Payload |
+|-------|------|---------|
+| `commands.structure.freeze` | After plugin boot, before/at sync barrier | `{ roots, at }` |
+| `commands.structure.resync` | After `resyncApplicationCommands` | `{ guildId, at, tree }` |
+
+## Permissions hierarchy & role links (Phase 4–5)
+
+| Event | When | Shape (summary) |
+|-------|------|-----------------|
+| `permissions.hierarchy.denied` | Moderation target blocked by Discord or rank hierarchy | `{ actorUserId, targetUserId, guildId, action, code, at }` |
+| `permissions.role_link.linked` | Discord role linked to perm role | `{ scope, guildId, discordRoleId, permRoleId, createdBy, at }` |
+| `permissions.role_link.unlinked` | Link removed | `{ scope, guildId, discordRoleId, permRoleId, at }` |
+| `commands.structure.freeze` | Command tree frozen after boot | `{ roots, at }` |
+| `commands.structure.resync` | Application commands resynced | `{ guildId, at, tree }` |

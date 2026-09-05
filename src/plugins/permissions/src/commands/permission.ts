@@ -1,4 +1,5 @@
 import { BaseCommand, type CommandConfig } from '#core/bases/Command.js';
+import { permissionsManager } from '#core/manager/permissions.js';
 import { PermissionError } from '#core/types/permissions.js';
 import { buildComponentsV2, type Cv2LayoutSpec } from '#core/builders/index.js';
 import {
@@ -119,6 +120,51 @@ export default class PermissionsCommand extends BaseCommand {
                 )
         )
 
+        .addSubcommandGroup(group =>
+            group.setName('links')
+                .setDescription('Discord role to perm role links')
+                .addSubcommand(sub =>
+                    sub.setName('list')
+                        .setDescription('List Discord role links')
+                        .addStringOption(opt =>
+                            opt.setName('scope').setDescription('bot or server').setRequired(false)
+                                .addChoices({ name: 'Bot-wide', value: 'bot' }, { name: 'Server', value: 'server' })
+                        )
+                )
+                .addSubcommand(sub =>
+                    sub.setName('link')
+                        .setDescription('Link a Discord role to a perm role')
+                        .addStringOption(opt =>
+                            opt.setName('scope').setDescription('bot or server').setRequired(true)
+                                .addChoices({ name: 'Bot-wide', value: 'bot' }, { name: 'Server', value: 'server' })
+                        )
+                        .addRoleOption(opt => opt.setName('discord_role').setDescription('Discord role').setRequired(true))
+                        .addStringOption(opt => opt.setName('perm_role').setDescription('Perm role id').setRequired(true))
+                )
+                .addSubcommand(sub =>
+                    sub.setName('unlink')
+                        .setDescription('Remove a Discord role link')
+                        .addStringOption(opt =>
+                            opt.setName('scope').setDescription('bot or server').setRequired(true)
+                                .addChoices({ name: 'Bot-wide', value: 'bot' }, { name: 'Server', value: 'server' })
+                        )
+                        .addRoleOption(opt => opt.setName('discord_role').setDescription('Discord role').setRequired(true))
+                        .addStringOption(opt => opt.setName('perm_role').setDescription('Perm role id').setRequired(true))
+                )
+                .addSubcommand(sub =>
+                    sub.setName('sync')
+                        .setDescription('Sync Discord roles to perm grants in this guild')
+                )
+        )
+
+        .addSubcommandGroup(group =>
+            group.setName('mirror')
+                .setDescription('Per-guild Discord permission → server bit mirror (default off)')
+                .addSubcommand(sub => sub.setName('status').setDescription('Show mirror status for this guild'))
+                .addSubcommand(sub => sub.setName('enable').setDescription('Enable Discord permission mirror for this guild'))
+                .addSubcommand(sub => sub.setName('disable').setDescription('Disable Discord permission mirror for this guild'))
+        )
+
         .addSubcommand(sub =>
             sub.setName('resolve')
                 .setDescription(this.t('commands.permissions.resolve.desc'))
@@ -194,6 +240,8 @@ export default class PermissionsCommand extends BaseCommand {
                 case 'roles':  await this.handleRoles(interaction, handler, sub); break;
                 case 'bits':   await this.handleBits(interaction, handler, sub); break;
                 case 'cache':  await this.handleCache(interaction, handler, sub); break;
+                case 'links':  await this.handleLinks(interaction, handler, sub); break;
+                case 'mirror': await this.handleMirror(interaction, sub); break;
                 default:
                     if (sub === 'resolve') await this.handleResolve(interaction, handler);
                     break;
@@ -351,15 +399,28 @@ export default class PermissionsCommand extends BaseCommand {
     }
 
     private async bitsList(interaction: ChatInputCommandInteraction, handler: PermissionsHandler): Promise<void> {
-        const scopeRaw = interaction.options.getString('scope', false) as 'bot' | 'server' | 'plugin' | undefined;
+        const scopeRaw = interaction.options.getString('scope', false) as 'bot' | 'server' | 'plugin' | null;
         const bits = await handler.listBits(scopeRaw ?? undefined);
 
         if (bits.length === 0) {
             return this.replyInfo(interaction, this.t('commands.permissions.titles.bits'), this.t('commands.permissions.messages.bitsEmpty'));
         }
 
-        const lines = bits.map(b => `\`${b._id}\` — ${b.description} **[${b.scope}]**`);
-        await this.replyInfo(interaction, this.t('commands.permissions.titles.bits'), lines.join('\n'));
+        const units = bits.map((b, i) => ({
+            id: `bit:${i}`,
+            text: `\`${b._id}\` — ${b.description} **[${b.scope}]**`,
+        }));
+
+        const scopeLabel = scopeRaw ?? 'all';
+        const paginator = this.heart.paginator.create({
+            units,
+            mode: 'cv2',
+            title: `${this.t('commands.permissions.titles.bits')} · ${scopeLabel}`,
+            accentColor: 0x5865f2,
+            session: { ephemeral: true, authorOnly: true },
+            split: { preferUnits: 10, maxUnitsPerPage: 15 },
+        });
+        await paginator.reply(interaction);
     }
 
     private async bitsRegister(interaction: ChatInputCommandInteraction, handler: PermissionsHandler): Promise<void> {
@@ -424,4 +485,120 @@ export default class PermissionsCommand extends BaseCommand {
             }
         }
     }
+    private async handleLinks(
+        interaction: ChatInputCommandInteraction,
+        handler: PermissionsHandler,
+        sub: string,
+    ): Promise<void> {
+        const guildId = interaction.guildId;
+        if (!(await this.requireBit(interaction, 'bot.roles.manage', guildId ?? undefined))) return;
+
+        if (sub === 'list') {
+            const scopeRaw = interaction.options.getString('scope', false);
+            const scope = scopeRaw === 'bot' || scopeRaw === 'server' ? scopeRaw : undefined;
+            const links = await handler.listDiscordRoleLinks({
+                scope,
+                guildId: scope === 'bot' ? null : guildId ?? undefined,
+            });
+            if (links.length === 0) {
+                return this.replyContainer(interaction, true, 'Role links', 'No Discord role links.');
+            }
+            const lines = links.map(
+                (l) =>
+                    `• **${l.scope}** discord=\`${l.discordRoleId}\` → perm=\`${l.permRoleId}\`` +
+                    (l.guildId ? ` guild=\`${l.guildId}\`` : ''),
+            );
+            return this.replyContainer(interaction, true, 'Role links', lines.join('\n'));
+        }
+
+        if (sub === 'link' || sub === 'unlink') {
+            const scope = interaction.options.getString('scope', true);
+            if (scope !== 'bot' && scope !== 'server') {
+                return this.replyContainer(interaction, false, 'Role links', 'Invalid scope.');
+            }
+            const discordRole = interaction.options.getRole('discord_role', true);
+            const permRoleId = interaction.options.getString('perm_role', true);
+            const gId = scope === 'bot' ? null : guildId;
+            if (scope === 'server' && !gId) {
+                return this.replyContainer(interaction, false, 'Role links', 'Not in a guild.');
+            }
+            if (sub === 'link') {
+                await handler.linkDiscordRole({
+                    scope,
+                    guildId: gId,
+                    discordRoleId: discordRole.id,
+                    permRoleId,
+                    createdBy: interaction.user.id,
+                });
+                return this.replyContainer(
+                    interaction,
+                    true,
+                    'Role links',
+                    `Linked <@&${discordRole.id}> → \`${permRoleId}\`.`,
+                );
+            }
+            await handler.unlinkDiscordRole({
+                scope,
+                guildId: gId,
+                discordRoleId: discordRole.id,
+                permRoleId,
+            });
+            return this.replyContainer(
+                interaction,
+                true,
+                'Role links',
+                `Unlinked <@&${discordRole.id}> from \`${permRoleId}\`.`,
+            );
+        }
+
+        if (sub === 'sync') {
+            if (!guildId) {
+                return this.replyContainer(interaction, false, 'Role links', 'Not in a guild.');
+            }
+            const result = await handler.syncDiscordRoleLinks(guildId);
+            return this.replyContainer(
+                interaction,
+                true,
+                'Role links',
+                `Sync complete (${result.linked} link(s) in scope).`,
+            );
+        }
+    }
+
+    private async handleMirror(interaction: ChatInputCommandInteraction, sub: string): Promise<void> {
+        const guildId = interaction.guildId;
+        if (!guildId) {
+            return this.replyContainer(interaction, false, 'Mirror', 'Not in a guild.');
+        }
+        if (!(await this.requireBit(interaction, 'server.roles.manage', guildId))) return;
+
+        if (!permissionsManager) {
+            return this.replyContainer(interaction, false, 'Mirror', 'Permissions unavailable.');
+        }
+
+        if (sub === 'status') {
+            const state = await permissionsManager.getGuildDiscordMirror(guildId);
+            return this.replyContainer(
+                interaction,
+                true,
+                'Mirror',
+                `Discord permission mirror is **${state.enabled ? 'enabled' : 'disabled'}** for this guild.`,
+            );
+        }
+
+        if (sub === 'enable' || sub === 'disable') {
+            const enabled = sub === 'enable';
+            await permissionsManager.setGuildDiscordMirror(guildId, {
+                enabled,
+                updatedBy: interaction.user.id,
+            });
+            return this.replyContainer(
+                interaction,
+                true,
+                'Mirror',
+                `Mirror **${enabled ? 'enabled' : 'disabled'}**.`,
+            );
+        }
+    }
+
 }

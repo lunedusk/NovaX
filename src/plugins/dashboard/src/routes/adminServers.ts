@@ -11,7 +11,52 @@ type GuildParams = { guildId: string };
 export default class AdminServersRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin/servers';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/admin/servers:
+     *   get:
+     *     tags: [DashboardServers]
+     *     summary: List servers
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Servers }
+     * /api/dash/admin/servers/{guildId}:
+     *   get:
+     *     tags: [DashboardServers]
+     *     summary: Server detail
+     *     security: [{ bearerAuth: [] }]
+     *     parameters:
+     *       - in: path
+     *         name: guildId
+     *         required: true
+     *         schema: { type: string }
+     *     responses:
+     *       '200': { description: Guild }
+     * /api/dash/admin/servers/{guildId}/ban:
+     *   post:
+     *     tags: [DashboardServers]
+     *     summary: Ban guild (gate)
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Banned }
+     * /api/dash/admin/servers/{guildId}/unban:
+     *   post:
+     *     tags: [DashboardServers]
+     *     summary: Unban guild
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Unbanned }
+     * /api/dash/admin/servers/{guildId}/leave:
+     *   post:
+     *     tags: [DashboardServers]
+     *     summary: Leave guild
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Left }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
 
         this.router.get(

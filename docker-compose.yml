@@ -15,6 +15,8 @@ services:
       DiscordIntents: ${DiscordIntents:-default}
       LogLevel: ${LogLevel:-info}
       Database: ${Database:-}
+      TokenMasterSecret: ${TokenMasterSecret:-}
+      BotOwnerIds: ${BotOwnerIds:-}
       AutoUpdater: ${AutoUpdater:-true}
       UpdaterMode: ${UpdaterMode:-background}
       UpdaterBackgroundApply: ${UpdaterBackgroundApply:-true}
@@ -22,6 +24,7 @@ services:
       UpdaterIntervalMs: ${UpdaterIntervalMs:-21600000}
       SafeUpdate: ${SafeUpdate:-true}
       DevBuilds: ${DevBuilds:-false}
+      CROSS_HOST: ${CROSS_HOST:-false}
     ports:
       - "${APIPort:-3000}:${APIPort:-3000}"
     env_file:
@@ -38,7 +41,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "require('http').get('http://127.0.0.1:'+(process.env.APIPort||3000)+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+          "fetch('http://127.0.0.1:'+(process.env.APIPort||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         ]
       interval: 30s
       timeout: 5s
