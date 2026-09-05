@@ -6,7 +6,7 @@ import { Cooldown } from '#core/decorators/cooldown.js';
 import { HelpUtils, type HelpPluginGroup } from '../utils/helpUtils.js';
 
 export default class HelpMenuEvent extends BaseEvent<[unknown]> {
-    public readonly name = 'interactionCreate';
+    public readonly name = 'discord.interactionCreate';
     public readonly once = false;
 
     public readonly buttons = new Map<

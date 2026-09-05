@@ -6,7 +6,7 @@ import { clientHasGuildMembersIntent } from '#core/manager/permissionRoleLinks.j
 export default class GuildMemberUpdatePermSync extends BaseEvent<
     [GuildMember | PartialGuildMember, GuildMember]
 > {
-    public readonly name = 'guildMemberUpdate';
+    public readonly name = 'discord.guildMemberUpdate';
     public readonly once = false;
 
     public async execute(

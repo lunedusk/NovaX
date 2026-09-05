@@ -7,7 +7,7 @@ import { BOT_OWNER_BIT } from '../lib/bits.js';
 import { featureRequirements } from '#core/manager/featureRequirements.js';
 
 export default class GuildAccessEvent extends BaseEvent<[Guild]> {
-    public readonly name = 'guildCreate';
+    public readonly name = 'discord.guildCreate';
     public readonly once = false;
 
     public async execute(guild: Guild): Promise<void> {
