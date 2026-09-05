@@ -50,3 +50,15 @@ Best-effort live metadata for the dashboard admin UI (nulls allowed where unknow
 Gate: session + `bot.plugins.view`.
 
 Core helpers: `EventBus.listInspect()`, `HttpServer.listMounts()`.
+
+## Dynamic registry (core)
+
+File loaders for middlewares → events → commands → handlers → routes call shared registration. Programmatic registration uses `heart.registry` during `onSetup` / `onEnable`.
+
+After all plugins boot, **`commands.structure.freeze`** fires and the structure is locked. Further `registerCommand` / `extendCommand` require `{ resync: true }` and `resyncApplicationCommands`, which emits **`commands.structure.resync`**.
+
+Requirements evaluation: `#core/loader/requirements.js`. Command tree: `#core/loader/commandRegistry.js`.
+
+## Help permission filter
+
+`core` config `help.filterByPermissions` (default **true**) filters the `/help` directory to commands the invoker can execute. Modules with zero visible commands are omitted when filtering is on.
