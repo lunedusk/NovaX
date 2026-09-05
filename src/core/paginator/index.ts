@@ -5,7 +5,14 @@ export type { PaginatorCreateOptions, SplitPolicy, SessionPolicy, NavPolicy } fr
 export { packAtomicUnits, defaultPackOptions } from './split/atomic.js';
 export { newSessionId, encodeNavCustomId, parseNavCustomId } from './controls/ids.js';
 export { canAttachNav, paginationButtonBudget } from './controls/capacity.js';
-export { buildNavButtons, buildNavRow } from './controls/buttons.js';
+export {
+    buildNavButtons,
+    buildNavRow,
+    buttonBuilderToCv2Spec,
+    buttonBuildersToCv2ActionRows,
+    navHasPageIndicator,
+} from './controls/buttons.js';
+export type { Cv2NavButtonSpec, Cv2NavButtonStyle } from './controls/buttons.js';
 export {
     putSession,
     getSession,

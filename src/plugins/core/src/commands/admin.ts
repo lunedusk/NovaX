@@ -976,26 +976,35 @@ export default class AdminCommand extends BaseCommand {
                     this.t('commands.admin.errors.listEmpty'),
                 );
             }
-            const lines = entries.map(e =>
-                this.t('commands.admin.errors.listLine', {
-                    id: e.id,
-                    code: e.code,
-                    count: e.count,
-                    severity: e.severity,
-                    category: e.category,
-                    firstSeen: String(e.firstSeen),
-                    lastSeen: String(e.lastSeen),
-                }),
-            );
-            return this.replyContainer(
-                interaction,
-                true,
-                this.t('commands.admin.titles.errors'),
-                this.t('commands.admin.errors.listHeader', {
-                    count: entries.length,
-                    grid: lines.join('\n'),
-                }),
-            );
+            const summary = this.t('commands.admin.errors.listHeader', {
+                count: entries.length,
+                grid: '',
+            }).replace(/\n+$/, '');
+            const units = [
+                { id: 'summary', text: summary },
+                ...entries.map((e, i) => ({
+                    id: `err:${i}`,
+                    text: this.t('commands.admin.errors.listLine', {
+                        id: e.id,
+                        code: e.code,
+                        count: e.count,
+                        severity: e.severity,
+                        category: e.category,
+                        firstSeen: String(e.firstSeen),
+                        lastSeen: String(e.lastSeen),
+                    }),
+                })),
+            ];
+            const paginator = this.heart.paginator.create({
+                units,
+                mode: 'cv2',
+                title: this.t('commands.admin.titles.errors'),
+                accentColor: 0xed4245,
+                session: { ephemeral: true, authorOnly: true },
+                split: { preferUnits: 8, maxUnitsPerPage: 12 },
+            });
+            await paginator.reply(interaction);
+            return;
         }
 
         if (sub === 'error-export') {
@@ -1073,25 +1082,34 @@ export default class AdminCommand extends BaseCommand {
                     this.t('commands.admin.audit.listEmpty'),
                 );
             }
-            const lines = entries.map(e =>
-                this.t('commands.admin.audit.listLine', {
-                    id: e.id,
-                    action: e.action,
-                    outcome: e.outcome,
-                    actor: `${e.actorType}:${e.actorId}`,
-                    target: e.target,
-                    when: String(e.createdAt),
-                }),
-            );
-            return this.replyContainer(
-                interaction,
-                true,
-                this.t('commands.admin.titles.audit'),
-                this.t('commands.admin.audit.listHeader', {
-                    count: entries.length,
-                    grid: lines.join('\n'),
-                }),
-            );
+            const summary = this.t('commands.admin.audit.listHeader', {
+                count: entries.length,
+                grid: '',
+            }).replace(/\n+$/, '');
+            const units = [
+                { id: 'summary', text: summary },
+                ...entries.map((e, i) => ({
+                    id: `audit:${i}`,
+                    text: this.t('commands.admin.audit.listLine', {
+                        id: e.id,
+                        action: e.action,
+                        outcome: e.outcome,
+                        actor: `${e.actorType}:${e.actorId}`,
+                        target: e.target,
+                        when: String(e.createdAt),
+                    }),
+                })),
+            ];
+            const paginator = this.heart.paginator.create({
+                units,
+                mode: 'cv2',
+                title: this.t('commands.admin.titles.audit'),
+                accentColor: 0x5865f2,
+                session: { ephemeral: true, authorOnly: true },
+                split: { preferUnits: 8, maxUnitsPerPage: 12 },
+            });
+            await paginator.reply(interaction);
+            return;
         }
 
         if (sub === 'audit-export') {
@@ -1240,7 +1258,30 @@ export default class AdminCommand extends BaseCommand {
         const c = this.heart.control;
         const client = this.heart.client;
         const shards = c.shards();
+        let ecosystemLine = '';
+        try {
+            const { listCommandTree } = await import('#core/loader/commandRegistry.js');
+            const tree = listCommandTree();
+            const roots = tree.roots.length;
+            const subs = tree.roots.reduce((n, r) => n + r.subHandlers.length, 0);
+            ecosystemLine = `**Ecosystem:** ${roots} root command(s) · ${subs} sub-handler(s) · frozen=${tree.frozen ? 'yes' : 'no'}`;
+            try {
+                const plugins = await HelpUtils.fetchEcosystemData(this.heart, interaction);
+                const totalCmds = plugins.reduce((acc, p) => acc + p.commands.length, 0);
+                ecosystemLine = this.t('commands.help.homeDesc', {
+                    plugins: plugins.length,
+                    commands: totalCmds,
+                    emoji_menu: HelpUtils.getEmoji(this.heart, 'menu'),
+                    emoji_command: HelpUtils.getEmoji(this.heart, 'command'),
+                }).replace(/\n+/g, ' · ');
+            } catch {
+                /* keep registry summary */
+            }
+        } catch {
+            ecosystemLine = '';
+        }
         const lines = [
+            ...(ecosystemLine ? [ecosystemLine] : []),
             `**Mode:** ${detectAdminMode()}`,
             `**PID:** ${c.pid()}`,
             `**Uptime:** ${Math.floor(c.uptimeMs() / 1000)}s`,
