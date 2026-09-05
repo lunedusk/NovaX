@@ -7,10 +7,10 @@ export default class ErrorReporterPlugin extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'error-reporter',
         name: 'Error Reporter',
-        version: '1.4.0',
+        version: '1.5.0',
         description: 'Forwards log.error and unhandled process errors to Discord.',
         author: 'NovaX',
-        zene_version: '>=0.5.2',
+        zene_version: '>=0.5.4',
         node_version: '>=20',
     };
 
