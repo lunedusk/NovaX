@@ -70,7 +70,7 @@ zene/
 │   ├── core/                 # framework
 │   │   ├── heart/            # injected context surface
 │   │   ├── loader/           # plugins, commands, requirements
-│   │   ├── manager/          # config, lang, permissions, tokens, HTTP, updater…
+│   │   ├── manager/          # config, lang, permissions, guildGate/Access/Locale, featureRequirements, tokens, HTTP, updater…
 │   │   ├── permissions/      # hierarchy + Discord mirror
 │   │   ├── paginator/        # in-process atomic paginator
 │   │   ├── crosshost/        # orchestrator / worker (env-gated)
@@ -110,6 +110,21 @@ zene/
 
 Details: [PLUGINS.md](PLUGINS.md) · [Database.md](Database.md) · [EVENTS.md](EVENTS.md)
 
+### Guild gate vs guild access
+
+| System | Effect | Config (core) | Commands |
+|--------|--------|---------------|----------|
+| **Guild gate** | Soft-block commands/plugins; bot **stays** | `guildGate.enabled` | `/admin gate …` (DM + guild) |
+| **Guild access** | **Leave** disallowed guilds | `guildAccess.*` policy | `/admin access …` (DM + guild) |
+
+Lists live in the DB (shared `dataBackend` soft-resolve). `allowOwner` records inviters who own the bot (env / `bot.owner`) so those guilds are not left. Default locale remains env **`DefaultLocale`**. Optional **guild locale pick** (`guildLocale` / `guildLangFiles`) resolves via `lang.get` without edit commands yet.
+
+### Feature requirements registry
+
+Core and plugins register Discord **intents** + **permissions** they need (`featureRequirements.register`). Missing intents → one soft console warn listing features. On join, missing permissions → try DM the Discord server owner, else a staff/sendable channel with an owner ping. Standalone, classic shard, and Cross-Host workers each run this on the Client that owns the guild.
+
+→ [PLUGINS.md](PLUGINS.md) · [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) · [EVENTS.md](EVENTS.md)
+
 ### Cross-Host
 
 Optional multi-machine sharding. Classic standalone and single-host `ShardingManager` stay unchanged when `CROSS_HOST` is off.
@@ -129,8 +144,6 @@ Long lists (bits, holders, help) use the in-process paginator (`heart.paginator`
 Crash-safe updates with hard excludes for `.github`, `node_modules`, env files, and related junk.
 
 → [UPDATER.md](UPDATER.md)
-
----
 
 ## License
 

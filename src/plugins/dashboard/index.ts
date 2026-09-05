@@ -3,6 +3,8 @@ import { CUSTOM_BITS_TO_REGISTER } from './src/lib/bits.js';
 import type PermissionsHandler from '../permissions/src/handlers/manager.js';
 import type DashboardAnalyticsHandler from './src/handlers/analytics.js';
 
+import { registerDashboardFeatureRequirements } from '#core/manager/featureRequirements.js';
+
 export default class DashboardPlugin extends BasePlugin {
 
     public readonly manifest: PluginManifest = {
@@ -16,6 +18,7 @@ export default class DashboardPlugin extends BasePlugin {
     };
 
     public async onSetup(): Promise<void> {
+        registerDashboardFeatureRequirements();
         const perms = this.heart.system.handler.$get('permissions', 'manager') as PermissionsHandler | undefined;
         if (perms) {
             const ranks: Record<string, number> = {

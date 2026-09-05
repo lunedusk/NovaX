@@ -34,6 +34,40 @@ Violating any of the following means your plugin will not be verified or signed,
 Report bugs or ask questions via GitHub Issues and Discussions:  
 https://github.com/lunedusk/Zene
 
+
+
+## Feature requirements (intents & Discord permissions)
+
+Plugins and core register what they need so operators get soft-fail visibility without hard-disabling features.
+
+```ts
+import {
+  featureRequirements,
+  registerPermissionsFeatureRequirements, // or register your own
+} from '#core/manager/featureRequirements.js';
+import { PermissionFlagsBits } from 'discord.js';
+
+// Prefer onSetup() so registrations exist before Client ready / guildCreate:
+featureRequirements.register({
+  id: 'myplugin.syncMembers',
+  pluginId: 'myplugin',
+  description: 'Short operator-facing label',
+  intents: ['GuildMembers'],
+  permissions: [PermissionFlagsBits.ManageRoles],
+  // softDisabled: true  // skip intent warn + join permission notices
+});
+```
+
+| Concern | Behaviour |
+|---------|-----------|
+| Missing **intents** | Console soft-warn once: feature label + intents in parentheses. Feature is **not** auto-disabled. |
+| Missing **permissions** on join | DM Discord **server owner**; else staff-like / first sendable channel + owner ping; else silence. |
+| Modes | Standalone, classic shard, Cross-Host **worker** (guild-owning process only). |
+| Built-ins | `registerAllBuiltinFeatureRequirements()` from core covers core handlers, permissions, api, token, dashboard, dash-data. Each plugin also calls its `register*FeatureRequirements()` in `onSetup`. |
+
+Do **not** put guild ID lists in config for gate/access — use commands + DB. Locale **pick** helpers: `guildLocale.setGuildLocaleValidated` (schema/rules fail closed); no public edit cmds/routes yet.
+
+
 ## Related
 
 - [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) — authoring contract  

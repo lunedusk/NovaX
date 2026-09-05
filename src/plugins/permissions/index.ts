@@ -1,5 +1,7 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 
+import { registerPermissionsFeatureRequirements } from '#core/manager/featureRequirements.js';
+
 export default class PermissionsPlugin extends BasePlugin {
 
     public readonly manifest: PluginManifest = {
@@ -14,6 +16,7 @@ export default class PermissionsPlugin extends BasePlugin {
     };
 
     public async onSetup(): Promise<void> {
+        registerPermissionsFeatureRequirements();
         this.log.info('Permissions plugin setting up.');
     }
 

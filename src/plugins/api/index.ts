@@ -2,6 +2,8 @@ import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 import { GatewayConfigManager, type GatewayPluginConfig } from './src/lib/GatewayConfigManager.js';
 import { NovaError } from '#core/errors/NovaError.js';
 
+import { registerApiFeatureRequirements } from '#core/manager/featureRequirements.js';
+
 export default class ApiGatewayPlugin extends BasePlugin {
 
     public readonly manifest: PluginManifest = {
@@ -15,6 +17,7 @@ export default class ApiGatewayPlugin extends BasePlugin {
     };
 
     public async onSetup(): Promise<void> {
+        registerApiFeatureRequirements();
         const config = this.heart.assets.config.get<GatewayPluginConfig>('api');
 
         if (!config) {

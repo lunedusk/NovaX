@@ -1,5 +1,7 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 
+import { registerTokenFeatureRequirements } from '#core/manager/featureRequirements.js';
+
 export default class TokenPlugin extends BasePlugin {
 
     public readonly manifest: PluginManifest = {
@@ -15,6 +17,7 @@ export default class TokenPlugin extends BasePlugin {
     };
 
     public async onSetup(): Promise<void> {
+        registerTokenFeatureRequirements();
         this.log.info('Token plugin setting up.');
     }
 

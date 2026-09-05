@@ -80,6 +80,39 @@ export interface IHeart {
 | **registry** | dynamic commands / middleware | See registry domain |
 | **paginator** | long replies | See paginator domain |
 
+#### Feature requirements registry
+
+Import `#core/manager/featureRequirements.js` (core exception for this registry). Register in `onSetup()`:
+
+```ts
+featureRequirements.register({
+  id: 'pluginId.featureKey',
+  pluginId: 'pluginId',
+  description: 'Operator label',
+  intents: ['GuildMembers'],           // optional — missing → soft console warn
+  permissions: [PermissionFlagsBits.BanMembers], // optional — missing on join → owner DM/channel
+  softDisabled: false,
+});
+```
+
+- **Intents**: soft-fail only (warn). Do not hard-disable the feature in code solely because the registry says intents are missing unless product logic already soft-skips (e.g. role sync).
+- **Permissions**: registry does not log missing perms at boot; `GuildCreate` may notify the Discord server owner.
+- Built-in registrations: `registerAllBuiltinFeatureRequirements` / per-plugin `register*FeatureRequirements`.
+
+#### Guild gate vs guild access vs guild locale
+
+| Manager | Module | Operator effect |
+|---------|--------|-----------------|
+| `guildGate` | `#core/manager/guildGate.js` | Soft-block; bot stays |
+| `guildAccess` | `#core/manager/guildAccess.js` | Leave policy lists + owner-authorize |
+| `guildLocale` | `#core/manager/guildLocale.js` | Per-guild locale **pick**; `setGuildLocaleValidated` validates via lang failures |
+
+Config policy under core: `dataBackend`, `guildGate.enabled`, `guildAccess.*`, `guildLocale.enabled`, `guildLangFiles.enabled`. **DefaultLocale** is env-only. Lang **edit** commands/routes are not wired.
+
+Interaction pipeline sets guild locale ALS so `this.t` / `lang.get` resolve guild → DefaultLocale → `en` when features enabled.
+
+
+
 #### `this.heart.system.handler` (proxy)
 
 ```ts

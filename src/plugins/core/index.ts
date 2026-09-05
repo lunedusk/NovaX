@@ -1,7 +1,13 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 import { ActivityType, type PresenceStatusData, type Client } from 'discord.js';
 import { guildGate } from '#core/manager/guildGate.js';
-import { resolveGuildGateBackend } from '#core/database/backendSelector.js';
+import { guildAccess } from '#core/manager/guildAccess.js';
+import { guildLocale } from '#core/manager/guildLocale.js';
+import { resolveCoreDataBackend } from '#core/database/backendSelector.js';
+import {
+    featureRequirements,
+    registerAllBuiltinFeatureRequirements,
+} from '#core/manager/featureRequirements.js';
 
 type ConfigActivityType = 'PLAYING' | 'STREAMING' | 'LISTENING' | 'WATCHING' | 'COMPETING' | 'CUSTOM';
 
@@ -16,10 +22,19 @@ interface PresenceConfig {
     updateIntervalSeconds: number;
     status: PresenceStatusData;
     activities: ActivityConfig[];
-    guildGate?: {
-        engine?: string;
-        alias?: string;
+    dataBackend?: { engine?: string; alias?: string };
+    guildGate?: { enabled?: boolean };
+    guildAccess?: {
+        enabled?: boolean;
+        conflictPriority?: 'blacklist' | 'whitelist';
+        emptyWhitelistMeans?: 'allow_all' | 'deny_all';
+        leaveOnBoot?: boolean;
+        leaveOnJoin?: boolean;
+        allowOwner?: boolean;
+        leaveReason?: string;
     };
+    guildLocale?: { enabled?: boolean };
+    guildLangFiles?: { enabled?: boolean };
     help?: {
         filterByPermissions?: boolean;
         maxCharsPerPage?: number;
@@ -58,111 +73,72 @@ export default class Core extends BasePlugin {
         const rawConfig = this.heart.assets.config.get<PresenceConfig>('core');
 
         if (!rawConfig) {
-            const crossHost = (await import('#core/helpers/secretManager.js')).secrets.getBoolean(
-                'CROSS_HOST',
-                false,
-            );
-            this.log.warn(
-                crossHost
-                    ? 'No core config found. Presence engine disabled; default guildGate postgres/main under Cross-Host.'
-                    : 'No core config found. Presence engine disabled; attempting default guildGate sqlite.',
-            );
+            this.log.warn('No core config found. Presence engine disabled; dataBackend soft-resolve.');
             this.config = {
                 enabled: false,
                 updateIntervalSeconds: 0,
                 status: 'online',
                 activities: [],
-                guildGate: crossHost
-                    ? { engine: 'postgres', alias: 'main' }
-                    : { engine: 'sqlite', alias: 'main' },
+                guildGate: { enabled: true },
+                guildAccess: { enabled: true },
             };
         } else {
             this.config = rawConfig;
         }
 
-        const ggCfg = this.config.guildGate ?? {};
-        let gg: { engine: string; alias: string };
+        const live = () => this.heart.assets.config.get<PresenceConfig>('core') ?? this.config;
+        const dbCfg = live()?.dataBackend;
+
         try {
-            const resolved = resolveGuildGateBackend({
-                engine: (ggCfg as { engine?: string }).engine,
-                alias: (ggCfg as { alias?: string }).alias,
+            const resolved = resolveCoreDataBackend({
+                engine: dbCfg?.engine,
+                alias: dbCfg?.alias,
             });
-            gg = resolved;
-        } catch {
-            gg = { engine: (ggCfg as { engine?: string }).engine ?? 'sqlite', alias: (ggCfg as { alias?: string }).alias ?? 'main' };
-        }
-        try {
-            await guildGate.init({ engine: gg.engine, alias: gg.alias });
+            await guildGate.init({ engine: resolved.engine, alias: resolved.alias });
             this.gatesOk = true;
         } catch (e1) {
-            const crossHost = (await import('#core/helpers/secretManager.js')).secrets.getBoolean(
-                'CROSS_HOST',
-                false,
-            );
-            if (crossHost) {
-                this.log.warn(
-                    `GuildGate init failed (${gg.engine}/${gg.alias}): ${(e1 as Error).message}. Cross-Host: trying postgres/main then mongo/main (sqlite forbidden).`,
-                );
-                const attempts: Array<{ engine: string; alias: string }> = [
-                    { engine: 'postgres', alias: 'main' },
-                    { engine: 'mongo', alias: 'main' },
-                ];
-                let ok = false;
-                for (const attempt of attempts) {
-                    if (attempt.engine === gg.engine && attempt.alias === gg.alias) continue;
-                    try {
-                        await guildGate.init({ engine: attempt.engine, alias: attempt.alias });
-                        this.gatesOk = true;
-                        ok = true;
-                        this.log.info(`GuildGate recovered on ${attempt.engine}/${attempt.alias}`);
-                        break;
-                    } catch (e2) {
-                        this.log.warn(
-                            `GuildGate ${attempt.engine}/${attempt.alias} failed: ${(e2 as Error).message}`,
-                        );
-                    }
-                }
-                if (!ok) {
-                    this.gatesOk = false;
-                    throw new Error(
-                        'Core disabled: no usable networked database for guild gates under Cross-Host (postgres/mongo required; sqlite forbidden).',
-                    );
-                }
-            } else {
-                this.log.warn(
-                    `GuildGate init failed (${gg.engine}/${gg.alias}): ${(e1 as Error).message}. Falling back to sqlite/main.`,
-                );
-                try {
-                    await guildGate.init({ engine: 'sqlite', alias: 'main' });
-                    this.gatesOk = true;
-                } catch (e2) {
-                    this.log.error(
-                        `GuildGate fallback sqlite/main failed: ${(e2 as Error).message}. Core plugin will disable.`,
-                    );
-                    this.gatesOk = false;
-                    throw new Error(
-                        'Core disabled: no usable database for guild gates (sqlite/postgres/mongo).',
-                    );
-                }
-            }
+            this.log.warn(`GuildGate init soft-failed: ${(e1 as Error).message}`);
+            this.gatesOk = false;
+        }
+
+        try {
+            const resolved = resolveCoreDataBackend({
+                engine: dbCfg?.engine,
+                alias: dbCfg?.alias,
+            });
+            await guildAccess.init({ engine: resolved.engine, alias: resolved.alias });
+        } catch (e) {
+            this.log.warn(`GuildAccess init soft-failed: ${(e as Error).message}`);
+        }
+
+        try {
+            const resolved = resolveCoreDataBackend({
+                engine: dbCfg?.engine,
+                alias: dbCfg?.alias,
+            });
+            await guildLocale.init({ engine: resolved.engine, alias: resolved.alias });
+        } catch (e) {
+            this.log.warn(`GuildLocale init soft-failed: ${(e as Error).message}`);
         }
     }
 
     public async onEnable(): Promise<void> {
-        if (!this.gatesOk) {
-            this.log.error('Guild gates not ready — core should not have enabled.');
-            return;
-        }
-
-        if (!this.config?.enabled || !this.config?.activities?.length) {
-            this.log.warn('Presence engine is disabled or has no activities configured. Idling.');
-            return;
-        }
-
         const client = (this.heart as any).client as Client<true>;
         if (!client) {
             throw new Error('Fatal: Discord Client is not accessible on the Heart object.');
         }
+
+        registerAllBuiltinFeatureRequirements();
+        featureRequirements.warnMissingIntents(client);
+
+        await this.enforceAccessOnBoot(client);
+
+        const live = this.heart.assets.config.get<PresenceConfig>('core') ?? this.config;
+        if (!live?.enabled || !live?.activities?.length) {
+            this.log.warn('Presence engine is disabled or has no activities configured. Idling.');
+            return;
+        }
+        this.config = live;
 
         this.applyPresence(client);
 
@@ -194,8 +170,28 @@ export default class Core extends BasePlugin {
         }
     }
 
+    private async enforceAccessOnBoot(client: Client<true>): Promise<void> {
+        if (!guildAccess.isReady()) return;
+        const policy = guildAccess.getPolicy();
+        if (!policy.enabled || !policy.leaveOnBoot) return;
+
+        const guilds = [...client.guilds.cache.values()];
+        for (const guild of guilds) {
+            if (guildAccess.isGuildAllowed(guild.id)) continue;
+            try {
+                this.log.warn(`GuildAccess leaving guild ${guild.id} (${guild.name}) on boot: ${policy.leaveReason}`);
+                await guild.leave();
+            } catch (err) {
+                this.log.error(`GuildAccess boot leave failed for ${guild.id}: ${(err as Error).message}`);
+            }
+        }
+    }
+
     private applyPresence(client: Client<true>): void {
-        const activity = this.config.activities[this.currentIndex];
+        const live = this.heart.assets.config.get<PresenceConfig>('core') ?? this.config;
+        if (!live?.activities?.length) return;
+        this.config = live;
+        const activity = this.config.activities[this.currentIndex % this.config.activities.length];
         const rawType = activity.type?.toUpperCase() || 'PLAYING';
         const typeEnum = this.ActivityTypeMap[rawType] ?? ActivityType.Playing;
 

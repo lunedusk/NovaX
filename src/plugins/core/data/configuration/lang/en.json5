@@ -135,7 +135,7 @@
             }
         },
         admin: {
-            description: "Bot owner administration (restart, reload, cache, guild gates).",
+            description: "Bot owner administration (restart, reload, cache, guild gates, leave access).",
             titles: {
                 access: "Access",
                 system: "System Execution",
@@ -286,6 +286,32 @@
             },
 
 
+
+            access: {
+                blacklistAddDescription: "Add a guild to the leave blacklist.",
+                blacklistRemoveDescription: "Remove a guild from the leave blacklist.",
+                blacklistListDescription: "List guilds on the leave blacklist.",
+                whitelistAddDescription: "Add a guild to the leave whitelist.",
+                whitelistRemoveDescription: "Remove a guild from the leave whitelist.",
+                whitelistListDescription: "List guilds on the leave whitelist.",
+                checkDescription: "Check whether a guild is allowed under leave policy.",
+                guildIdDescription: "Guild snowflake (default: current; required in DM)",
+                reasonDescription: "Optional reason",
+                disabled: "%%emoji_caution%% Guild access (leave policy) is disabled in core config.",
+                notReady: "%%emoji_caution%% Guild access store is not ready.",
+                needGuild: "%%emoji_caution%% Provide a guild id (required in DM).",
+                blacklisted: "%%emoji_tick%% Guild `{{guild}}` added to leave blacklist.",
+                unblacklisted: "%%emoji_tick%% Guild `{{guild}}` removed from leave blacklist.",
+                notOnBlacklist: "%%emoji_question%% Guild `{{guild}}` was not on the blacklist.",
+                whitelisted: "%%emoji_tick%% Guild `{{guild}}` added to leave whitelist.",
+                unwhitelisted: "%%emoji_tick%% Guild `{{guild}}` removed from leave whitelist.",
+                notOnWhitelist: "%%emoji_question%% Guild `{{guild}}` was not on the whitelist.",
+                listEmpty: "> *None*",
+                listHeader: "**{{kind}}:** {{count}}",
+                listLine: "`{{guild}}` — {{reason}} (by {{by}})",
+                checkResult: "Guild `{{guild}}`\nallowed: **{{allowed}}**\nblacklist: {{blacklist}}\nwhitelist: {{whitelist}}\nownerAuthorized: {{ownerAuthorized}}",
+                title: "Guild Access"
+            },
             gate: {
                 guildBlockDescription: "Block the entire bot in a guild.",
                 guildUnblockDescription: "Unblock a guild.",
@@ -296,6 +322,7 @@
                 guildIdDescription: "Guild snowflake (default: current)",
                 pluginIdDescription: "Plugin id",
                 reasonDescription: "Optional reason",
+                disabled: "%%emoji_caution%% Guild gate is disabled in core config.",
                 notReady: "%%emoji_caution%% Guild gate store is not ready.",
                 needGuild: "%%emoji_caution%% Provide guild id or run inside a server.",
                 guildBlocked: "%%emoji_tick%% Guild `{{guild}}` blocked.\nReason: {{reason}}",

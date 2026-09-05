@@ -1,5 +1,7 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 
+import { registerDashDataFeatureRequirements } from '#core/manager/featureRequirements.js';
+
 export default class DashDataPlugin extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'dash-data',
@@ -15,6 +17,7 @@ export default class DashDataPlugin extends BasePlugin {
     };
 
     public async onSetup(): Promise<void> {
+        registerDashDataFeatureRequirements();
         this.log.info('dash-data store ready (persistence owner).');
     }
 

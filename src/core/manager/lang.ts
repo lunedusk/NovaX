@@ -17,6 +17,7 @@ import {
     loadPluginLangSchema,
     validateValue
 } from '#core/validation/index.js';
+import { guildLocale } from '#core/manager/guildLocale.js';
 
 const log = getLogger('LanguageManager');
 const SUPPORTED_LOCALES = new Set([
@@ -630,7 +631,7 @@ export class LanguageManager {
 
     public get(namespace: string, key: string, variables?: TranslationVars, requestedLocale?: string): string {
         const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
-        const targetLocale = requestedLocale || masterLocale;
+        const targetLocale = guildLocale.resolveLocale(undefined, requestedLocale ?? null);
         const fallbacks = [targetLocale];
         const baseLocale = targetLocale.split('-')[0];
         if (baseLocale !== targetLocale) fallbacks.push(baseLocale);

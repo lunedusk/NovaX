@@ -4,7 +4,8 @@ import {
     AttachmentBuilder,
     type ChatInputCommandInteraction,
     type AutocompleteInteraction,
-    MessageFlags
+    MessageFlags,
+    InteractionContextType
 } from 'discord.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -18,6 +19,8 @@ import { reloadEnvFromDisk } from '#core/helpers/envReload.js';
 import { listRegisteredCaches, getRegisteredCache } from '#core/helpers/cache.js';
 import { actorFromUser } from '#core/audit/actor.js';
 import { permissionsManager } from '#core/manager/permissions.js';
+import { guildAccess } from '#core/manager/guildAccess.js';
+import { configManager } from '#core/manager/config.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { BOT_OWNER_BIT } from '../lib/bits.js';
 
@@ -35,6 +38,7 @@ export default class AdminCommand extends BaseCommand {
         let b = new SlashCommandBuilder()
             .setName('admin')
             .setDescription(this.t('commands.admin.description'))
+            .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel)
             .addSubcommand(sub =>
                 sub
                     .setName('restart')
@@ -227,6 +231,63 @@ export default class AdminCommand extends BaseCommand {
                                     .setName('guild')
                                     .setDescription(this.t('commands.admin.gate.guildIdDescription'))
                                     .setRequired(false)
+                            )
+                    )
+            )
+            .addSubcommandGroup(group =>
+                group
+                    .setName('access')
+                    .setDescription(this.t('commands.admin.access.title'))
+                    .addSubcommand(sub =>
+                        sub
+                            .setName('blacklist-add')
+                            .setDescription(this.t('commands.admin.access.blacklistAddDescription'))
+                            .addStringOption(opt =>
+                                opt.setName('guild').setDescription('Guild id').setRequired(false)
+                            )
+                            .addStringOption(opt =>
+                                opt.setName('reason').setDescription('Optional reason').setRequired(false)
+                            )
+                    )
+                    .addSubcommand(sub =>
+                        sub
+                            .setName('blacklist-remove')
+                            .setDescription(this.t('commands.admin.access.blacklistRemoveDescription'))
+                            .addStringOption(opt =>
+                                opt.setName('guild').setDescription('Guild id').setRequired(false)
+                            )
+                    )
+                    .addSubcommand(sub =>
+                        sub.setName('blacklist-list').setDescription(this.t('commands.admin.access.blacklistListDescription'))
+                    )
+                    .addSubcommand(sub =>
+                        sub
+                            .setName('whitelist-add')
+                            .setDescription(this.t('commands.admin.access.whitelistAddDescription'))
+                            .addStringOption(opt =>
+                                opt.setName('guild').setDescription('Guild id').setRequired(false)
+                            )
+                            .addStringOption(opt =>
+                                opt.setName('reason').setDescription('Optional reason').setRequired(false)
+                            )
+                    )
+                    .addSubcommand(sub =>
+                        sub
+                            .setName('whitelist-remove')
+                            .setDescription(this.t('commands.admin.access.whitelistRemoveDescription'))
+                            .addStringOption(opt =>
+                                opt.setName('guild').setDescription('Guild id').setRequired(false)
+                            )
+                    )
+                    .addSubcommand(sub =>
+                        sub.setName('whitelist-list').setDescription(this.t('commands.admin.access.whitelistListDescription'))
+                    )
+                    .addSubcommand(sub =>
+                        sub
+                            .setName('check')
+                            .setDescription(this.t('commands.admin.access.checkDescription'))
+                            .addStringOption(opt =>
+                                opt.setName('guild').setDescription('Guild id').setRequired(false)
                             )
                     )
             )
@@ -503,6 +564,14 @@ export default class AdminCommand extends BaseCommand {
                 return ['bot.config.reload'];
             case 'reload-lang':
                 return ['bot.lang.reload'];
+            case 'access-blacklist-add':
+            case 'access-blacklist-remove':
+            case 'access-blacklist-list':
+            case 'access-whitelist-add':
+            case 'access-whitelist-remove':
+            case 'access-whitelist-list':
+            case 'access-check':
+                return 'owner';
             case 'audit-export':
                 return ['bot.audit.export', 'bot.audit.view'];
             case 'error-export':
@@ -547,6 +616,7 @@ export default class AdminCommand extends BaseCommand {
             if (sub === 'audit-export') return this.handleAudit(interaction, sub);
             if (sub === 'bit-holders') return this.handleBitHolders(interaction);
             if (sub.startsWith('gate-')) return this.handleGate(interaction, sub);
+            if (sub.startsWith('access-')) return this.handleAccess(interaction, sub);
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             this.log.error(`Admin command error: ${err.message}`);
@@ -763,7 +833,146 @@ export default class AdminCommand extends BaseCommand {
         );
     }
 
+
+    private async handleAccess(interaction: ChatInputCommandInteraction, sub: string): Promise<void> {
+        try {
+            const core = configManager.get<{ guildAccess?: { enabled?: boolean } }>('core');
+            if (core?.guildAccess?.enabled === false) {
+                return this.replyContainer(
+                    interaction,
+                    false,
+                    this.t('commands.admin.access.title'),
+                    this.t('commands.admin.access.disabled'),
+                );
+            }
+        } catch {
+            
+        }
+
+        if (!guildAccess.isReady()) {
+            return this.replyContainer(
+                interaction,
+                false,
+                this.t('commands.admin.access.title'),
+                this.t('commands.admin.access.notReady'),
+            );
+        }
+
+        const guildId = this.resolveGuildId(interaction);
+        if (sub.endsWith('-list')) {
+            const kind = sub.includes('blacklist') ? ('blacklist' as const) : ('whitelist' as const);
+            const rows = await guildAccess.list(kind);
+            if (rows.length === 0) {
+                return this.replyContainer(
+                    interaction,
+                    true,
+                    this.t('commands.admin.access.title'),
+                    this.t('commands.admin.access.listEmpty'),
+                );
+            }
+            const units = rows.map((r, i) => ({
+                id: `${kind}:${i}`,
+                text: this.t('commands.admin.access.listLine', {
+                    guild: r.guildId,
+                    reason: r.reason ?? '—',
+                    by: r.updatedBy ?? '—',
+                }),
+            }));
+            const paginator = this.heart.paginator.create({
+                units,
+                mode: 'cv2',
+                title: this.t('commands.admin.access.listHeader', { kind, count: String(rows.length) }),
+                accentColor: 0x5865f2,
+                session: { ephemeral: true, authorOnly: true },
+                split: { preferUnits: 10, maxUnitsPerPage: 15 },
+            });
+            await paginator.reply(interaction);
+            return;
+        }
+
+        if (sub === 'access-check') {
+            if (!guildId) {
+                return this.replyContainer(
+                    interaction,
+                    false,
+                    this.t('commands.admin.access.title'),
+                    this.t('commands.admin.access.needGuild'),
+                );
+            }
+            const allowed = guildAccess.isGuildAllowed(guildId);
+            return this.replyContainer(
+                interaction,
+                true,
+                this.t('commands.admin.access.title'),
+                this.t('commands.admin.access.checkResult', {
+                    guild: guildId,
+                    allowed: String(allowed),
+                    blacklist: String(guildAccess.isOnBlacklist(guildId)),
+                    whitelist: String(guildAccess.isOnWhitelist(guildId)),
+                    ownerAuthorized: String(guildAccess.isOwnerAuthorized(guildId)),
+                }),
+            );
+        }
+
+        if (!guildId) {
+            return this.replyContainer(
+                interaction,
+                false,
+                this.t('commands.admin.access.title'),
+                this.t('commands.admin.access.needGuild'),
+            );
+        }
+
+        const reason = interaction.options.getString('reason') ?? null;
+        if (sub === 'access-blacklist-add') {
+            await guildAccess.addToList('blacklist', guildId, interaction.user.id, reason);
+            return this.replyContainer(
+                interaction,
+                true,
+                this.t('commands.admin.access.title'),
+                this.t('commands.admin.access.blacklisted', { guild: guildId }),
+            );
+        }
+        if (sub === 'access-blacklist-remove') {
+            const ok = await guildAccess.removeFromList('blacklist', guildId);
+            return this.replyContainer(
+                interaction,
+                true,
+                this.t('commands.admin.access.title'),
+                ok
+                    ? this.t('commands.admin.access.unblacklisted', { guild: guildId })
+                    : this.t('commands.admin.access.notOnBlacklist', { guild: guildId }),
+            );
+        }
+        if (sub === 'access-whitelist-add') {
+            await guildAccess.addToList('whitelist', guildId, interaction.user.id, reason);
+            return this.replyContainer(
+                interaction,
+                true,
+                this.t('commands.admin.access.title'),
+                this.t('commands.admin.access.whitelisted', { guild: guildId }),
+            );
+        }
+        if (sub === 'access-whitelist-remove') {
+            const ok = await guildAccess.removeFromList('whitelist', guildId);
+            return this.replyContainer(
+                interaction,
+                true,
+                this.t('commands.admin.access.title'),
+                ok
+                    ? this.t('commands.admin.access.unwhitelisted', { guild: guildId })
+                    : this.t('commands.admin.access.notOnWhitelist', { guild: guildId }),
+            );
+        }
+    }
+
     private async handleGate(interaction: ChatInputCommandInteraction, sub: string): Promise<void> {
+        try {
+            const core = configManager.get<{ guildGate?: { enabled?: boolean } }>('core');
+            if (core?.guildGate?.enabled === false) {
+                return this.replyContainer(interaction, false, this.t('commands.admin.titles.system'), this.t('commands.admin.gate.disabled'));
+            }
+        } catch { /* continue */ }
         if (!guildGate.isReady()) {
             return this.replyContainer(
                 interaction,

@@ -120,18 +120,72 @@ export function resolveTokenBackend(cfg?: {
     });
 }
 
+export function resolveCoreDataBackend(cfg?: {
+    engine?: string | null;
+    alias?: string | null;
+}): BackendChoice {
+    let fromCore: { engine?: string; alias?: string } = {};
+    try {
+        const core = configManager.get<{ dataBackend?: { engine?: string; alias?: string } }>('core');
+        if (core?.dataBackend) {
+            fromCore = {
+                engine: core.dataBackend.engine != null ? String(core.dataBackend.engine) : undefined,
+                alias: core.dataBackend.alias != null ? String(core.dataBackend.alias) : undefined,
+            };
+        }
+    } catch {
+        fromCore = {};
+    }
+
+    const engineRaw = cfg?.engine ?? fromCore.engine ?? secrets.getOptional('CoreDataEngine') ?? null;
+    const alias =
+        (cfg?.alias ?? fromCore.alias ?? secrets.getOptional('CoreDataAlias') ?? 'main').toString().trim() ||
+        'main';
+
+    const forced = normalizeEngine(engineRaw);
+    if (forced) {
+        if (isConnected(forced, alias)) {
+            return { engine: forced, alias };
+        }
+    }
+
+    const preference: DataEngine[] = ['sqlite', 'postgres', 'mongo'];
+    const crossHost = secrets.getBoolean('CROSS_HOST', false);
+    for (const engine of preference) {
+        if (crossHost && engine === 'sqlite') continue;
+        if (isConnected(engine, alias)) {
+            return { engine, alias };
+        }
+    }
+
+    for (const engine of preference) {
+        if (crossHost && engine === 'sqlite') continue;
+        if (isConnected(engine, 'main')) {
+            return { engine, alias: 'main' };
+        }
+    }
+
+    throw new Error(
+        `No usable data backend connected (preferred ${forced ?? 'unset'}/${alias}; tried available engines).`,
+    );
+}
+
 export function resolveGuildGateBackend(cfg?: {
     engine?: string | null;
     alias?: string | null;
 }): BackendChoice {
-    return resolveBackend({
-        configSection: 'guildGate',
-        configEngine: cfg?.engine,
-        configAlias: cfg?.alias,
-        envEngineKey: 'GuildGateEngine',
-        envAliasKey: 'GuildGateDbAlias',
-        defaultAlias: 'main',
-    });
+    try {
+        return resolveCoreDataBackend(cfg);
+    } catch {
+        return resolveBackend({
+            configSection: 'guildGate',
+            configEngine: cfg?.engine,
+            configAlias: cfg?.alias,
+            envEngineKey: 'GuildGateEngine',
+            envAliasKey: 'GuildGateDbAlias',
+            defaultAlias: 'main',
+        });
+    }
 }
 
 export function resolveDashboardBackend(cfg?: {

@@ -219,7 +219,15 @@ export class InteractionHandler {
                 }
             }
 
-            await route.handler(interaction);
+            {
+                const { guildLocale } = await import('#core/manager/guildLocale.js');
+                await guildLocale.runWithContextAsync(
+                    { guildId: interaction.guildId ?? null },
+                    async () => {
+                        await route.handler!(interaction);
+                    },
+                );
+            }
             isSuccess = true;
 
         } catch (error: unknown) {
