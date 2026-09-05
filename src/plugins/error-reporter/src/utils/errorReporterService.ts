@@ -10,7 +10,7 @@ import JSON5 from 'json5';
 import type { BasePlugin } from '#core/bases/Plugin.js';
 type IHeart = BasePlugin['heart'];
 import type { LogErrorPayload } from '#core/utils/logger.js';
-import type { UnhandledErrorPayload } from '#core/error/index.js';
+import type { UnhandledErrorPayload } from '#core/errors/index.js';
 import { buildComponentsV2 } from '#core/builders/index.js';
 import type { Cv2LayoutSpec, Cv2BuildContext } from '#core/builders/index.js';
 import { resolveGlobalPlaceholders } from '#core/placeholder/index.js';

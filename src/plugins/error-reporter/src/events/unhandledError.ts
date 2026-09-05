@@ -1,5 +1,5 @@
 import { BaseEvent } from '#core/bases/Event.js';
-import type { UnhandledErrorPayload } from '#core/error/index.js';
+import type { UnhandledErrorPayload } from '#core/errors/index.js';
 import type { ErrorReporterService } from '../utils/errorReporterService.js';
 
 const SERVICE_KEY = Symbol.for('novax.error-reporter.service');
