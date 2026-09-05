@@ -309,15 +309,23 @@ export class HelpUtils {
     }
 
     public static chunkCommands(commands: HelpCommandInfo[], maxChars: number): HelpCommandInfo[][] {
+        if (commands.length === 0) return [];
         const pages: HelpCommandInfo[][] = [];
         let currentPage: HelpCommandInfo[] = [];
         let currentCharCount = 0;
         for (const cmd of commands) {
             const len = cmd.rawFormatted.length + 1;
-            if (currentCharCount + len > maxChars && currentPage.length > 0) {
-                pages.push(currentPage);
-                currentPage = [];
-                currentCharCount = 0;
+            const wouldExceed = currentCharCount + len > maxChars && currentPage.length > 0;
+            if (wouldExceed || currentPage.length >= 12) {
+                if (currentPage.length > 0) {
+                    pages.push(currentPage);
+                    currentPage = [];
+                    currentCharCount = 0;
+                }
+            }
+            if (len > maxChars && currentPage.length === 0) {
+                pages.push([cmd]);
+                continue;
             }
             currentPage.push(cmd);
             currentCharCount += len;

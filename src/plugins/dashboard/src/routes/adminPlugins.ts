@@ -33,7 +33,125 @@ type PluginLocaleParams = { pluginId: string; locale: string };
 export default class AdminPluginsRoute extends BaseRoute {
     public readonly basePath = '/api/dash/plugins';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/plugins/registry:
+     *   get:
+     *     tags: [DashboardPlugins]
+     *     summary: Plugin registry
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Registry }
+     * /api/dash/plugins:
+     *   get:
+     *     tags: [DashboardPlugins]
+     *     summary: List plugins
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Plugins }
+     * /api/dash/plugins/{pluginId}:
+     *   get:
+     *     tags: [DashboardPlugins]
+     *     summary: Plugin detail
+     *     security: [{ bearerAuth: [] }]
+     *     parameters:
+     *       - in: path
+     *         name: pluginId
+     *         required: true
+     *         schema: { type: string }
+     *     responses:
+     *       '200': { description: Plugin }
+     * /api/dash/plugins/{pluginId}/enable:
+     *   post:
+     *     tags: [DashboardPlugins]
+     *     summary: Enable plugin
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Enabled }
+     * /api/dash/plugins/{pluginId}/disable:
+     *   post:
+     *     tags: [DashboardPlugins]
+     *     summary: Disable plugin
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Disabled }
+     * /api/dash/plugins/{pluginId}/reload:
+     *   post:
+     *     tags: [DashboardPlugins]
+     *     summary: Reload plugin
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Reloaded }
+     * /api/dash/plugins/{pluginId}/config:
+     *   get:
+     *     tags: [DashboardPlugins]
+     *     summary: Plugin config
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Config }
+     *   put:
+     *     tags: [DashboardPlugins]
+     *     summary: Update plugin config
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Saved }
+     * /api/dash/plugins/{pluginId}/config/redacted:
+     *   get:
+     *     tags: [DashboardPlugins]
+     *     summary: Redacted config
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Config }
+     * /api/dash/plugins/{pluginId}/config/schema:
+     *   get:
+     *     tags: [DashboardPlugins]
+     *     summary: Config schema
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Schema }
+     * /api/dash/plugins/{pluginId}/config/reset:
+     *   post:
+     *     tags: [DashboardPlugins]
+     *     summary: Reset config
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Reset }
+     * /api/dash/plugins/{pluginId}/lang:
+     *   get:
+     *     tags: [DashboardPlugins]
+     *     summary: List locales
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Locales }
+     * /api/dash/plugins/{pluginId}/lang/{locale}:
+     *   get:
+     *     tags: [DashboardPlugins]
+     *     summary: Get locale strings
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Lang }
+     *   put:
+     *     tags: [DashboardPlugins]
+     *     summary: Replace locale
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Saved }
+     *   post:
+     *     tags: [DashboardPlugins]
+     *     summary: Merge locale
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Merged }
+     *   delete:
+     *     tags: [DashboardPlugins]
+     *     summary: Delete locale
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Deleted }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
 
         const view = requireAuthedBit(this.heart, BITS.BOT_PLUGINS_VIEW);

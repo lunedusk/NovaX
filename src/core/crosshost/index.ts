@@ -28,7 +28,6 @@ export type {
     QueryResponseMessage,
 } from './types.js';
 
-
 export { runCrossHost } from './bootstrap.js';
 export { loadCrossHostEnv, resolveCrossHostRedis } from './env.js';
 export {

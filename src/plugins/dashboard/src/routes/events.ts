@@ -3,8 +3,8 @@ import { BaseRoute } from '#core/bases/Route.js';
 import { type Response } from 'express';
 import { applyGateway, requireSession, type DashRequest } from '../lib/authz.js';
 import { guarded, HttpError, err } from '../lib/http.js';
-import { secrets } from '#core/helpers/secretManager.js';
 import { BOT_OWNER_BIT } from '../lib/bits.js';
+import { isBotOwnerFromBits } from '../lib/owner.js';
 import type { Bit } from '#core/manager/token.js';
 import { tryTokens } from '../lib/tokens.js';
 import { ensureDashEventWiring, addSseClient } from '../lib/dashEvents.js';
@@ -12,15 +12,29 @@ import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('DashEventsRoute');
 
-function envOwnerIds(): string[] {
-    const raw = secrets.getOptional('BotOwnerIds', '') ?? '';
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
-}
-
 export default class DashEventsRoute extends BaseRoute {
     public readonly basePath = '/api/dash/events';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/events/sse:
+     *   get:
+     *     tags: [DashboardEvents]
+     *     summary: Server-sent events stream
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: text/event-stream }
+     * /api/dash/events/ws:
+     *   get:
+     *     tags: [DashboardEvents]
+     *     summary: WebSocket upgrade endpoint metadata
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Upgrade or info }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
         ensureDashEventWiring();
 
@@ -64,7 +78,7 @@ export default class DashEventsRoute extends BaseRoute {
             res,
             userId: session.payload.userId,
             bits,
-            isEnvOwner: envOwnerIds().includes(session.payload.userId),
+            isEnvOwner: isBotOwnerFromBits(session.payload.userId, bits),
         });
 
         log.debug(`SSE client ${id} connected user=${session.payload.userId}`);

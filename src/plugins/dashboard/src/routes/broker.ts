@@ -2,8 +2,8 @@ import { BaseRoute } from '#core/bases/Route.js';
 import { type Response } from 'express';
 import { applyGateway, requireSession, type DashRequest } from '../lib/authz.js';
 import { ok, guarded, HttpError, requireBody } from '../lib/http.js';
-import { secrets } from '#core/helpers/secretManager.js';
 import { BOT_OWNER_BIT } from '../lib/bits.js';
+import { isBotOwnerFromBits } from '../lib/owner.js';
 import type { Bit } from '#core/manager/token.js';
 import { tryTokens } from '../lib/tokens.js';
 import { buildRegistrySnapshot } from '../lib/dashRegistry.js';
@@ -17,11 +17,6 @@ import {
 } from '../lib/brokerLimits.js';
 import { issueFrameNonce, bindFrameOnReady, getBoundFrame, revokeFrame } from '../lib/brokerNonce.js';
 
-function envOwnerIds(): string[] {
-    const raw = secrets.getOptional('BotOwnerIds', '') ?? '';
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
-}
-
 function resolveBits(req: DashRequest, heart: DashRequest['dashSession'] extends never ? never : import('#core/heart/index.js').IHeart): Set<string> {
     const session = req.dashSession!;
     const bits = new Set<string>((session.payload.bits ?? []).map(String));
@@ -31,7 +26,40 @@ function resolveBits(req: DashRequest, heart: DashRequest['dashSession'] extends
 export default class BrokerRoute extends BaseRoute {
     public readonly basePath = '/api/dash/broker';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/broker/session:
+     *   post:
+     *     tags: [DashboardBroker]
+     *     summary: Create broker session
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Session }
+     * /api/dash/broker/ready:
+     *   post:
+     *     tags: [DashboardBroker]
+     *     summary: Mark session ready
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: OK }
+     * /api/dash/broker/proxy:
+     *   post:
+     *     tags: [DashboardBroker]
+     *     summary: Proxy request through broker
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Proxied response }
+     * /api/dash/broker/dispose:
+     *   post:
+     *     tags: [DashboardBroker]
+     *     summary: Dispose broker session
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Disposed }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
         const sess = requireSession(this.heart);
 
@@ -74,11 +102,12 @@ export default class BrokerRoute extends BaseRoute {
     } {
         const session = req.dashSession!;
         const userId = session.payload.userId;
+        const bits = this.bitsFor(req);
         return {
             userId,
             jti: String(session.payload.jti),
-            bits: this.bitsFor(req),
-            isEnvOwner: envOwnerIds().includes(userId),
+            bits,
+            isEnvOwner: isBotOwnerFromBits(userId, bits),
         };
     }
 

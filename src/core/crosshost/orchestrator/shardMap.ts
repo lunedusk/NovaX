@@ -136,4 +136,55 @@ export class ShardMap {
             reason,
         });
     }
+
+    public dump(): {
+        totalShards: number;
+        generation: number;
+        owners: Record<string, number[]>;
+        shardToMachine: Record<string, string>;
+    } {
+        const owners: Record<string, number[]> = {};
+        const shardToMachine: Record<string, string> = {};
+        for (const [shardId, machineId] of this.owner.entries()) {
+            shardToMachine[String(shardId)] = machineId;
+            if (!owners[machineId]) owners[machineId] = [];
+            owners[machineId].push(shardId);
+        }
+        for (const id of Object.keys(owners)) {
+            owners[id].sort((a, b) => a - b);
+        }
+        return {
+            totalShards: this.totalShards,
+            generation: this.generation,
+            owners,
+            shardToMachine,
+        };
+    }
+
+    public async moveShard(
+        shardId: number,
+        toMachineId: string,
+        reason: AssignmentReason = 'manual',
+        identifyQueue?: IdentifyQueue,
+    ): Promise<{ from: string | null; to: string }> {
+        if (!Number.isInteger(shardId) || shardId < 0 || shardId >= this.totalShards) {
+            throw new Error(`Shard id out of range: ${shardId}`);
+        }
+        const from = this.owner.get(shardId) ?? null;
+        if (from === toMachineId) {
+            return { from, to: toMachineId };
+        }
+        const toList = [...this.shardsFor(toMachineId)];
+        if (!toList.includes(shardId)) toList.push(shardId);
+        const fromList = from
+            ? this.shardsFor(from).filter((s) => s !== shardId)
+            : null;
+        await this.assign(toMachineId, toList, reason, identifyQueue);
+        if (from && fromList) {
+            await this.assign(from, fromList, reason, identifyQueue);
+        }
+        log.info('Shard moved', { shardId, from, to: toMachineId, reason });
+        return { from, to: toMachineId };
+    }
+
 }

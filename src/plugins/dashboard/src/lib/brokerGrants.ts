@@ -54,7 +54,7 @@ export function computeSurfaceGrants(ctx: GrantContext): {
     if (v?.denyUserIds?.includes(ctx.userId)) {
         return { capabilities: [], pathPatterns: [], canWrite: false };
     }
-    if (v?.envOwnerOnly && !ctx.isEnvOwner) {
+    if (v?.envOwnerOnly && !ctx.isEnvOwner && !ctx.bits.has('bot.owner')) {
         return { capabilities: [], pathPatterns: [], canWrite: false };
     }
     if (v?.allowUserIds && v.allowUserIds.length > 0 && !v.allowUserIds.includes(ctx.userId)) {

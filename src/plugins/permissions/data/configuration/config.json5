@@ -64,5 +64,13 @@
 
         { method: "GET", path: "/api/errors", bits: ["bot.errors.view"] },
         { method: "GET", path: "/api/errors/:id", bits: ["bot.errors.view"] },
+
+        { method: "GET", path: "/api/dash/admin/audit/export", bits: ["bot.audit.export", "bot.audit.view"], bitsMode: "any" },
+        { method: "GET", path: "/api/dash/admin/errors/export", bits: ["bot.errors.export", "bot.errors.view"], bitsMode: "any" },
+        { method: "GET", path: "/api/dash/admin/fleet/status", bits: ["bot.fleet.view", "bot.shard.view", "bot.crosshost.view"], bitsMode: "any" },
+        { method: "GET", path: "/api/dash/admin/fleet/shards", bits: ["bot.fleet.view", "bot.shard.view", "bot.crosshost.view"], bitsMode: "any" },
+        { method: "POST", path: "/api/dash/admin/fleet/restart", bits: ["bot.fleet.restart", "bot.worker.restart", "bot.crosshost.manage"], bitsMode: "any" },
+        { method: "POST", path: "/api/dash/admin/fleet/shard-shift", bits: ["bot.shard.shift", "bot.crosshost.manage"], bitsMode: "any" },
+        { method: "GET", path: "/api/dash/admin/fleet/moderation-actions", bits: ["bot.logs.view", "bot.members.view", "bot.audit.view"], bitsMode: "any" },
     ],
 }

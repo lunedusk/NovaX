@@ -45,7 +45,6 @@ export default class TokenHandler extends BaseHandler {
         this.log.info('Token handler ready.');
     }
 
-
     public async onTeardown(): Promise<void> {
         this.log.info('Token handler torn down.');
     }

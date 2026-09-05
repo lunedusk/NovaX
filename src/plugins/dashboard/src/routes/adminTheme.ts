@@ -10,7 +10,63 @@ type PresetParams = { presetId: string };
 export default class AdminThemeRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin';
 
-    protected register(): void {
+    
+    /**
+     * @openapi
+     * /api/dash/admin/theme:
+     *   get:
+     *     tags: [DashboardTheme]
+     *     summary: Get theme
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Theme }
+     *   put:
+     *     tags: [DashboardTheme]
+     *     summary: Set theme
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Updated }
+     * /api/dash/admin/theme/presets:
+     *   get:
+     *     tags: [DashboardTheme]
+     *     summary: List presets
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Presets }
+     *   post:
+     *     tags: [DashboardTheme]
+     *     summary: Create preset
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '201': { description: Created }
+     * /api/dash/admin/theme/presets/{presetId}:
+     *   delete:
+     *     tags: [DashboardTheme]
+     *     summary: Delete preset
+     *     security: [{ bearerAuth: [] }]
+     *     parameters:
+     *       - in: path
+     *         name: presetId
+     *         required: true
+     *         schema: { type: string }
+     *     responses:
+     *       '200': { description: Deleted }
+     * /api/dash/admin/public/landing-config:
+     *   get:
+     *     tags: [DashboardTheme]
+     *     summary: Admin get landing config
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Config }
+     *   put:
+     *     tags: [DashboardTheme]
+     *     summary: Admin set landing config
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Saved }
+     */
+
+protected register(): void {
         applyGateway(this.heart, this.router);
         const theme = requireAuthedBit(this.heart, BITS.BOT_THEME_MANAGE);
         const pages = requireAuthedBit(this.heart, BITS.BOT_DASH_PAGES_MANAGE);

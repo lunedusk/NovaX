@@ -1,7 +1,5 @@
 {
-    // Master switch for the core addon (presence etc.).
     enabled: true,
-    // Presence status: "online" | "idle" | "dnd" | "invisible".
     status: "online",
     updateIntervalSeconds: 60,
     placeholders: {},
@@ -16,15 +14,26 @@
         maxCharsPerPage: 3000,
         ephemeral: true,
     },
-    /**
-     * Guild gate storage backend.
-     * engine: "sqlite" | "postgres" | "mongo"
-     * alias: Database env alias (must already be connected), default "main"
-     * If engine/alias unavailable → falls back to default sqlite "main".
-     * If that also fails → core plugin disables itself in onSetup.
-     */
-    guildGate: {
+    dataBackend: {
         engine: "sqlite",
         alias: "main",
+    },
+    guildGate: {
+        enabled: true,
+    },
+    guildAccess: {
+        enabled: true,
+        conflictPriority: "blacklist",
+        emptyWhitelistMeans: "allow_all",
+        leaveOnBoot: true,
+        leaveOnJoin: true,
+        allowOwner: true,
+        leaveReason: "Guild is not allowed by bot access policy.",
+    },
+    guildLocale: {
+        enabled: true,
+    },
+    guildLangFiles: {
+        enabled: true,
     },
 }

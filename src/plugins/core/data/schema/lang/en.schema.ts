@@ -22,6 +22,10 @@ const adminTitles = z
         audit: nonEmpty,
         errors: nonEmpty,
         bitHolders: nonEmpty,
+        metrics: nonEmpty,
+        shard: nonEmpty,
+        fleet: nonEmpty,
+        worker: nonEmpty,
     })
     .catchall(node);
 
@@ -117,6 +121,61 @@ const adminBitHolders = z
     })
     .catchall(node);
 
+
+const adminGate = z
+    .object({
+        disabled: nonEmpty,
+        guildBlockDescription: nonEmpty,
+        guildUnblockDescription: nonEmpty,
+        guildListDescription: nonEmpty,
+        pluginBlockDescription: nonEmpty,
+        pluginUnblockDescription: nonEmpty,
+        pluginListDescription: nonEmpty,
+        guildIdDescription: nonEmpty,
+        pluginIdDescription: nonEmpty,
+        reasonDescription: nonEmpty,
+        notReady: nonEmpty,
+        needGuild: nonEmpty,
+        guildBlocked: nonEmpty,
+        guildUnblocked: nonEmpty,
+        guildNotBlocked: nonEmpty,
+        pluginBlocked: nonEmpty,
+        pluginUnblocked: nonEmpty,
+        pluginNotBlocked: nonEmpty,
+        listEmpty: nonEmpty,
+        guildListHeader: nonEmpty,
+        pluginListHeader: nonEmpty,
+    })
+    .catchall(node);
+
+const adminAccess = z
+    .object({
+        blacklistAddDescription: nonEmpty,
+        blacklistRemoveDescription: nonEmpty,
+        blacklistListDescription: nonEmpty,
+        whitelistAddDescription: nonEmpty,
+        whitelistRemoveDescription: nonEmpty,
+        whitelistListDescription: nonEmpty,
+        checkDescription: nonEmpty,
+        guildIdDescription: nonEmpty,
+        reasonDescription: nonEmpty,
+        disabled: nonEmpty,
+        notReady: nonEmpty,
+        needGuild: nonEmpty,
+        blacklisted: nonEmpty,
+        unblacklisted: nonEmpty,
+        notOnBlacklist: nonEmpty,
+        whitelisted: nonEmpty,
+        unwhitelisted: nonEmpty,
+        notOnWhitelist: nonEmpty,
+        listEmpty: nonEmpty,
+        listHeader: nonEmpty,
+        listLine: nonEmpty,
+        checkResult: nonEmpty,
+        title: nonEmpty,
+    })
+    .catchall(node);
+
 const adminCommands = z
     .object({
         description: nonEmpty,
@@ -126,6 +185,8 @@ const adminCommands = z
         audit: adminAudit,
         errors: adminErrors,
         bitHolders: adminBitHolders,
+        gate: adminGate,
+        access: adminAccess,
     })
     .catchall(node);
 
@@ -135,10 +196,36 @@ const commandsSection = z
     })
     .catchall(node);
 
+const errorsDiscord = z
+    .object({
+        permission_denied: nonEmpty,
+        hierarchy: nonEmpty,
+        target_is_owner: nonEmpty,
+    })
+    .catchall(node);
+
+const errorsCodes = z
+    .object({
+        COMMAND_FAILED: nonEmpty,
+        PAGINATOR_EXPIRED: nonEmpty,
+        HIERARCHY_RANK: nonEmpty,
+        ROLE_BITS_MISSING: nonEmpty,
+        MISSING_BIT: nonEmpty,
+    })
+    .catchall(node);
+
+const errorsSection = z
+    .object({
+        discord: errorsDiscord,
+        codes: errorsCodes,
+    })
+    .catchall(node);
+
 export const langSchema = z
     .object({
         commands: commandsSection,
         layouts: z.record(z.string(), node),
+        errors: errorsSection,
     })
     .catchall(node);
 

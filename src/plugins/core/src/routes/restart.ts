@@ -21,6 +21,36 @@ export default class CoreAdminRoute extends BaseRoute {
         );
     }
 
+    /**
+     * @openapi
+     * /api/core/restart:
+     *   post:
+     *     tags: [Core]
+     *     summary: Schedule process restart (bot.owner)
+     *     security:
+     *       - bearerAuth: []
+     *     requestBody:
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             properties:
+     *               reason: { type: string }
+     *     responses:
+     *       '202':
+     *         description: Restart scheduled
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 ok: { type: boolean }
+     *                 message: { type: string }
+     *       '401':
+     *         description: Unauthorized
+     *       '403':
+     *         description: Forbidden
+     */
     private async restart(req: Authed, res: Response): Promise<void> {
         const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'No reason provided';
         this.heart.log.warn(`Restart via REST by ${req.dashSession!.payload.userId}: ${reason}`);

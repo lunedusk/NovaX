@@ -15,7 +15,6 @@ function parsePort(raw: string | undefined, fallback: number): number {
     return n;
 }
 
-
 function parseNonNegNumber(raw: string | undefined, fallback: number, name: string): number {
     if (raw === undefined || raw === '') return fallback;
     const n = Number(raw);

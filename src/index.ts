@@ -128,7 +128,7 @@ async function runBotMode(): Promise<void> {
     const { i18n } = await import('#core/manager/lang.js');
     const { eventManager } = await import('#core/manager/events/Manager.js');
     const { initAllDatabases } = await import('#core/database/bootstrap.js');
-    const { globalCatcher } = await import('#core/error/index.js');
+    const { globalCatcher } = await import('#core/errors/index.js');
     const { emojis } = await import('#core/manager/emoji.js');
     const { wireErrorBridge } = await import('#core/bootstrap/errorBridge.js');
     const { createPermissionsManager } = await import('#core/manager/permissions.js');
@@ -263,6 +263,9 @@ async function runBotMode(): Promise<void> {
                 }
             } catch (error) {
                 this.log.error('Critical failure during bootstrap sequence:', error);
+                await this.cleanupResources().catch((cleanupErr: unknown) => {
+                    this.log.error('Cleanup after bootstrap failure also failed:', cleanupErr);
+                });
                 throw error;
             }
         }
@@ -306,14 +309,30 @@ async function runBotMode(): Promise<void> {
             try {
                 this.stopBackgroundUpdater?.();
                 this.stopBackgroundUpdater = null;
+
                 await pluginManager.shutdownAll().catch((e: unknown) => this.log.error('Plugin shutdown error:', e));
 
                 if (this.isPrimaryShard) {
                     await httpServer.stop().catch((e: unknown) => this.log.error('HTTP Server shutdown error:', e));
                 }
 
-                this.client.destroy();
-                await new Promise(r => setTimeout(r, 250));
+                try {
+                    if (this.client) {
+                        this.client.destroy();
+                    }
+                } catch (e) {
+                    this.log.warn('Client destroy during teardown failed:', e);
+                }
+
+                try {
+                    const { sqliteDB } = await import('#core/database/sqlite.js');
+                    await sqliteDB.disconnectAll();
+                } catch (e) {
+                    this.log.warn('SQLite disconnect during teardown failed:', e);
+                }
+
+                this.log.info(`Finishing teardown for ${this.shardIdentifier}`);
+                await new Promise((r) => setTimeout(r, 250));
                 await flushLogs();
             } catch (error) {
                 this.log.error('Fatal error during resource cleanup:', error);

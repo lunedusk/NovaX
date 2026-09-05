@@ -37,8 +37,23 @@ const APPLY_STATE = path.join(STATE_DIR, 'apply-state.json');
 const RECEIPTS_DIR = path.join(STATE_DIR, 'receipts');
 
 const HARD_EXCLUDES = new Set([
-    'node_modules', '.git', '.data', 'logs', 'configuration',
-    '.env', '.env.local', 'common.json'
+    'node_modules',
+    '.git',
+    '.github',
+    '.data',
+    'logs',
+    'configuration',
+    '.env',
+    '.env.local',
+    '.env.development',
+    '.env.production',
+    '.DS_Store',
+    '.idea',
+    '.vscode',
+    'coverage',
+    '.turbo',
+    '.nx',
+    'common.json',
 ]);
 
 function parsePluginPublicKeys(): Record<string, string> {
@@ -285,7 +300,17 @@ function shouldHardExclude(rel: string): boolean {
 
 function walkLocal(root = process.cwd()): string[] {
     const results: string[] = [];
-    const skip = new Set(['node_modules', '.git', '.data', 'logs', 'configuration']);
+    const skip = new Set([
+        'node_modules',
+        '.git',
+        '.github',
+        '.data',
+        'logs',
+        'configuration',
+        'coverage',
+        '.turbo',
+        '.nx',
+    ]);
 
     function recurse(dir: string, relBase: string) {
         let entries: fs.Dirent[];
@@ -309,7 +334,7 @@ async function computeLocalHashes(files: string[]): Promise<Record<string, Basel
         try {
             const { hash, size } = await hashFile(full);
             out[rel] = { hash, size };
-        } catch { /* skip */ }
+        } catch {  }
     }
     return out;
 }
@@ -396,7 +421,15 @@ async function mirrorPluginToRuntime(pluginId: string): Promise<void> {
 async function copyDirRecursive(src: string, dest: string): Promise<void> {
     fs.mkdirSync(dest, { recursive: true });
     for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
-        if (ent.name === 'node_modules' || ent.name === '.git') continue;
+        if (
+            ent.name === 'node_modules' ||
+            ent.name === '.git' ||
+            ent.name === '.github' ||
+            ent.name === 'coverage' ||
+            ent.name === '.turbo' ||
+            ent.name === '.nx'
+        )
+            continue;
         const s = path.join(src, ent.name);
         const d = path.join(dest, ent.name);
         if (ent.isSymbolicLink()) continue;
@@ -1653,7 +1686,7 @@ export class Updater {
                 try {
                     await execFileAsync('cp', ['-a', coreSrc, path.join(dir, 'core')]);
                 } catch (e) {
-                    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore cleanup */ }
+                    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {  }
                     throw new Error(
                         `createBackup failed copying core/: ${(e as Error).message}. Apply aborted.`
                     );

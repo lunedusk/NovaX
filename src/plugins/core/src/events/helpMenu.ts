@@ -131,6 +131,11 @@ export default class HelpMenuEvent extends BaseEvent<[unknown]> {
                 content: `**${plugin.emoji} ${this.heart.assets.lang.get(this.heart.id, 'commands.help.categoryTitle', { name: plugin.name })}**`,
             },
             { type: 'separator', spacing: 'small' },
+            {
+                type: 'text',
+                content: `> ${HelpUtils.getEmoji(this.heart, 'command')} **${plugin.commands.length}** accessible command(s) in this module`,
+            },
+            { type: 'separator', spacing: 'small' },
         );
 
         if (plugin.commands.length === 0) {
@@ -145,7 +150,10 @@ export default class HelpMenuEvent extends BaseEvent<[unknown]> {
         const safePage = Math.max(0, Math.min(page, pages.length - 1));
         const currentCommands = pages[safePage];
 
-        container.children.push({ type: 'text', content: currentCommands.map((c) => c.rawFormatted).join('\n') });
+        container.children.push({
+            type: 'text',
+            content: currentCommands.map((c) => `• ${c.rawFormatted}`).join('\n'),
+        });
 
         container.children.push({
             type: 'actionRow',
@@ -394,31 +402,34 @@ export default class HelpMenuEvent extends BaseEvent<[unknown]> {
         }
 
         if (needsPagination) {
+            const utilCount = row.components.length;
             row.components.push({
                 type: 'button',
                 style: 'primary',
                 customId: `core_help_nav:${type}:${targetId}:${page - 1}`,
                 emoji: HelpUtils.getEmoji(this.heart, 'navLeft'),
                 disabled: page <= 0,
-                label: '\u200b',
+                label: '​',
             });
-            row.components.push({
-                type: 'button',
-                style: 'secondary',
-                customId: `mock_page_ind`,
-                label: this.heart.assets.lang.get(this.heart.id, 'commands.help.pageFooter', {
-                    current: page + 1,
-                    total: totalPages,
-                }),
-                disabled: true,
-            });
+            if (utilCount === 0) {
+                row.components.push({
+                    type: 'button',
+                    style: 'secondary',
+                    customId: `mock_page_ind`,
+                    label: this.heart.assets.lang.get(this.heart.id, 'commands.help.pageFooter', {
+                        current: page + 1,
+                        total: totalPages,
+                    }),
+                    disabled: true,
+                });
+            }
             row.components.push({
                 type: 'button',
                 style: 'primary',
                 customId: `core_help_nav:${type}:${targetId}:${page + 1}`,
                 emoji: HelpUtils.getEmoji(this.heart, 'navRight'),
                 disabled: page >= totalPages - 1,
-                label: '\u200b',
+                label: '​',
             });
         }
 

@@ -320,7 +320,6 @@ async function runOrchestrator(): Promise<void> {
         )
         .catch(() => undefined);
 
-
     setCrossHostQueryFacade(
         buildQueryFacade({
             env,

@@ -127,7 +127,6 @@ export function ensureDashEventWiring(): void {
     log.info('Dash SSE event wiring active');
 }
 
-
 export function sseClientCount(): number {
     return clients.size;
 }

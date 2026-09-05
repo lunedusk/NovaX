@@ -119,6 +119,18 @@ export default class DashDataStoreHandler extends BaseHandler {
         return store.writeAudit(this.heart, entry);
     }
 
+    public async recordModerationAction(
+        entry: Parameters<typeof store.recordModerationAction>[0],
+    ): Promise<Awaited<ReturnType<typeof store.recordModerationAction>>> {
+        return store.recordModerationAction(entry);
+    }
+
+    public async listModerationActions(
+        opts?: Parameters<typeof store.listModerationActions>[0],
+    ): Promise<Awaited<ReturnType<typeof store.listModerationActions>>> {
+        return store.listModerationActions(opts);
+    }
+
     public heartRef(): IHeart {
         return this.heart;
     }

@@ -1,4 +1,5 @@
 import { type IHeart } from '#core/heart/index.js';
+import type { RegisterRequirements } from '#core/loader/requirements.js';
 import type { ButtonInteraction, ModalSubmitInteraction, AnySelectMenuInteraction, PermissionResolvable } from 'discord.js';
 
 export abstract class BaseEvent<TArgs extends any[] = any[]> {
@@ -12,6 +13,7 @@ export abstract class BaseEvent<TArgs extends any[] = any[]> {
     public readonly clientPermissions?: PermissionResolvable[];
     public readonly allowInDm?: boolean;
     public readonly denyMessage?: string;
+    public readonly requirements?: RegisterRequirements;
     public buttons?: Map<string | RegExp, (interaction: ButtonInteraction, match?: RegExpMatchArray) => Promise<void>>;
     public modals?: Map<string | RegExp, (interaction: ModalSubmitInteraction, match?: RegExpMatchArray) => Promise<void>>;
     public selects?: Map<string | RegExp, (interaction: AnySelectMenuInteraction, match?: RegExpMatchArray) => Promise<void>>;

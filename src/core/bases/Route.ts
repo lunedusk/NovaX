@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction, type RequestHandler } from 'express';
 import { type IHeart } from '#core/heart/index.js';
+import type { RegisterRequirements } from '#core/loader/requirements.js';
 import { getLogger, type Logger } from '#core/utils/logger.js';
 
 export abstract class BaseRoute {
@@ -7,6 +8,7 @@ export abstract class BaseRoute {
     #heart: IHeart;
     #logger?: Logger;
     public abstract readonly basePath: string;
+    public readonly requirements?: RegisterRequirements;
     constructor(heart: IHeart) {
         this.#heart = heart;
         this.router = Router({ strict: false, mergeParams: true });

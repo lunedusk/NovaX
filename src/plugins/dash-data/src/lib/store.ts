@@ -543,3 +543,126 @@ export async function setSurfaceFlag(
 export function resetDashDataAdapterCache(): void {
     adapter = null;
 }
+
+export interface DashModerationAction {
+    id: string;
+    action: string;
+    actorId: string;
+    targetUserId: string;
+    guildId: string | null;
+    reason: string | null;
+    outcome: string;
+    detail: string | null;
+    createdAt: number;
+}
+
+export async function recordModerationAction(entry: {
+    action: string;
+    actorId: string;
+    targetUserId: string;
+    guildId?: string | null;
+    reason?: string | null;
+    outcome?: string;
+    detail?: string | null;
+}): Promise<DashModerationAction> {
+    const id = newId('mod');
+    const createdAt = Date.now();
+    const row: DashModerationAction = {
+        id,
+        action: entry.action,
+        actorId: entry.actorId,
+        targetUserId: entry.targetUserId,
+        guildId: entry.guildId ?? null,
+        reason: entry.reason ?? null,
+        outcome: entry.outcome ?? 'success',
+        detail: entry.detail ?? null,
+        createdAt,
+    };
+    const db = await ensureDashboardAdapter();
+    if (db.engine === 'mongo') {
+        await db.mongoCollection('dash_moderation_actions').insertOne({
+            _id: row.id,
+            ...row,
+        });
+        return row;
+    }
+    await db.run(
+        `INSERT INTO dash_moderation_actions
+         (id, action, actorId, targetUserId, guildId, reason, outcome, detail, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            row.id,
+            row.action,
+            row.actorId,
+            row.targetUserId,
+            row.guildId,
+            row.reason,
+            row.outcome,
+            row.detail,
+            row.createdAt,
+        ],
+    );
+    return row;
+}
+
+export async function listModerationActions(opts?: {
+    actorId?: string;
+    targetUserId?: string;
+    guildId?: string;
+    limit?: number;
+}): Promise<DashModerationAction[]> {
+    const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 500);
+    const db = await ensureDashboardAdapter();
+    if (db.engine === 'mongo') {
+        const q: Record<string, string> = {};
+        if (opts?.actorId) q.actorId = opts.actorId;
+        if (opts?.targetUserId) q.targetUserId = opts.targetUserId;
+        if (opts?.guildId) q.guildId = opts.guildId;
+        const rows = await db.mongoCollection('dash_moderation_actions').find(q);
+        return rows
+            .map((r) => ({
+                id: String(r.id ?? r._id),
+                action: String(r.action),
+                actorId: String(r.actorId),
+                targetUserId: String(r.targetUserId),
+                guildId: r.guildId != null ? String(r.guildId) : null,
+                reason: r.reason != null ? String(r.reason) : null,
+                outcome: String(r.outcome ?? 'success'),
+                detail: r.detail != null ? String(r.detail) : null,
+                createdAt: Number(r.createdAt),
+            }))
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .slice(0, limit);
+    }
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (opts?.actorId) {
+        clauses.push('actorId = ?');
+        params.push(opts.actorId);
+    }
+    if (opts?.targetUserId) {
+        clauses.push('targetUserId = ?');
+        params.push(opts.targetUserId);
+    }
+    if (opts?.guildId) {
+        clauses.push('guildId = ?');
+        params.push(opts.guildId);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit);
+    const rows = await db.all(
+        `SELECT * FROM dash_moderation_actions ${where} ORDER BY createdAt DESC LIMIT ?`,
+        params,
+    );
+    return rows.map((r) => ({
+        id: String(r.id),
+        action: String(r.action),
+        actorId: String(r.actorId),
+        targetUserId: String(r.targetUserId),
+        guildId: r.guildId != null ? String(r.guildId) : null,
+        reason: r.reason != null ? String(r.reason) : null,
+        outcome: String(r.outcome ?? 'success'),
+        detail: r.detail != null ? String(r.detail) : null,
+        createdAt: Number(r.createdAt),
+    }));
+}

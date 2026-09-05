@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getLogger } from '#core/utils/logger.js';
+import { buildRequirementContext, evaluateRequirements, requirementsMode } from './requirements.js';
 import { type IHeart } from '#core/heart/index.js';
 import { BaseEvent } from '#core/bases/Event.js';
 import { interactionRegistry } from '#core/manager/interaction/registry.js';
@@ -73,6 +74,22 @@ export class EventLoader {
                 }
 
                 const instance: BaseEvent = new EventClass(heart);
+                if (instance.requirements) {
+                    const ctx = buildRequirementContext(heart, pluginId);
+                    const req = await evaluateRequirements(instance.requirements, ctx);
+                    if (!req.ok) {
+                        const mode = requirementsMode(instance.requirements, 'soft');
+                        if (mode === 'strict') {
+                            throw new Error(
+                                `Event ${instance.name} requirements failed: ${req.reasons.join('; ')}`,
+                            );
+                        }
+                        log.info(
+                            `[${pluginId}] skipped event ${instance.name}: ${req.reasons.join('; ')}`,
+                        );
+                        return;
+                    }
+                }
                 const access = accessFromEvent(instance);
 
                 if (instance.buttons) {

@@ -80,48 +80,75 @@ export class ConfigLoader {
                 try {
                     defaultConfig = JSON5.parse(await fs.readFile(sourcePath, 'utf-8'));
                 } catch {
-                    log.error(`[${pluginId}] Malformed default schema: ${file}. Skipping sync.`);
+                    log.error(`[${pluginId}] Malformed default config: ${file}. Skipping sync.`);
                     continue;
                 }
                 const defOk = await this.validatePluginConfig(pluginId, sourcePath, defaultConfig, true);
                 if (!defOk.ok) {
-                    log.error(`[${pluginId}] Default config failed validation (${file}): ${defOk.message}. Plugin will be DISABLED if this reaches runtime.`);
-                    continue;
-                }
-                defaultConfig = defOk.data;
-
-                try {
-                    const userConfig = JSON5.parse(await fs.readFile(targetPath, 'utf-8'));
-                    const mutations: string[] = [];
-                    const merged = mergePreserveObject(
-                        defaultConfig as Record<string, unknown>,
-                        userConfig as Record<string, unknown>,
-                        mutations,
+                    log.warn(
+                        `[${pluginId}] Default config has validation issues (${file}): ${defOk.message}. Continuing merge using raw default as structure donor.`,
                     );
-                    const mergedOk = await this.validatePluginConfig(pluginId, targetPath, merged, false);
-                    if (!mergedOk.ok) {
-                        log.error(
-                            `[${pluginId}] Merged config has validation issues (${targetName}): ${mergedOk.message}`,
-                        );
-                    }
-                    if (mutations.length > 0) {
-                        const mode = await writeJson5Preserving(targetPath, merged);
-                        log.info(
-                            `[${pluginId}] synced ${targetName} (${mode}). Applied ${mutations.length} updates.`,
-                        );
-                        for (const m of mutations) {
-                            if (m.startsWith('[Type Mismatch]')) log.warn(`[${pluginId}] ${m}`);
-                        }
-                    }
-                } catch (err: any) {
-                    if (err.code === 'ENOENT') {
-                        await this.atomicWriteNew(targetPath, defaultConfig);
-                        log.info(`[${pluginId}] Generated fresh global config: ${targetName}`);
+                } else {
+                    defaultConfig = defOk.data;
+                }
+
+                let userConfig: JsonObject | null = null;
+                let userMissing = false;
+                try {
+                    userConfig = JSON5.parse(await fs.readFile(targetPath, 'utf-8'));
+                } catch (err: unknown) {
+                    const e = err as NodeJS.ErrnoException;
+                    if (e.code === 'ENOENT') {
+                        userMissing = true;
                     } else if (err instanceof SyntaxError) {
                         log.warn(`[${pluginId}] User config ${targetName} corrupted; backup and reset.`);
-                        await fs.rename(targetPath, `${targetPath}.corrupted.bak`);
-                        await this.atomicWriteNew(targetPath, defaultConfig);
-                    } else throw err;
+                        await fs.rename(targetPath, `${targetPath}.corrupted.bak`).catch(() => undefined);
+                        userMissing = true;
+                    } else {
+                        throw err;
+                    }
+                }
+
+                if (userMissing || !userConfig) {
+                    await this.atomicWriteNew(targetPath, defaultConfig);
+                    const freshOk = await this.validatePluginConfig(pluginId, targetPath, defaultConfig, false);
+                    if (!freshOk.ok) {
+                        log.error(
+                            `[${pluginId}] Fresh global config ${targetName} still invalid: ${freshOk.message}`,
+                        );
+                    } else {
+                        log.info(`[${pluginId}] Generated fresh global config: ${targetName}`);
+                    }
+                    continue;
+                }
+
+                const mutations: string[] = [];
+                const merged = mergePreserveObject(
+                    defaultConfig as Record<string, unknown>,
+                    userConfig as Record<string, unknown>,
+                    mutations,
+                ) as JsonObject;
+
+                const mergedOk = await this.validatePluginConfig(pluginId, targetPath, merged, false);
+                if (!mergedOk.ok) {
+                    log.error(
+                        `[${pluginId}] Merged config has validation issues (${targetName}): ${mergedOk.message}`,
+                    );
+                }
+
+                if (mutations.length > 0) {
+                    const mode = await writeJson5Preserving(targetPath, merged);
+                    log.info(
+                        `[${pluginId}] synced ${targetName} (${mode}). Applied ${mutations.length} updates.`,
+                    );
+                    for (const m of mutations) {
+                        if (m.startsWith('[Type Mismatch]')) log.warn(`[${pluginId}] ${m}`);
+                        else if (m.startsWith('[Missing Key]')) log.info(`[${pluginId}] ${m}`);
+                    }
+                } else if (!mergedOk.ok) {
+                    log.warn(
+                        `[${pluginId}] No structural mutations for ${targetName}, but validation failed — check schema/rules vs content.`,
+                    );
                 }
             }
         } catch (error: unknown) {

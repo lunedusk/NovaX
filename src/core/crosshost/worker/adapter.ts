@@ -70,7 +70,6 @@ export function getActiveWorkerRuntime(): WorkerRuntimeState | null {
     return activeWorkerRuntime;
 }
 
-
 function resolveWorkerApiBaseUrl(env: CrossHostEnv): string | null {
     const advertise = env.workerApiAdvertiseHost;
     if (!advertise) return null;
@@ -257,6 +256,13 @@ export async function registerWithOrchestrator(env: CrossHostEnv): Promise<Worke
             }),
         )
         .catch(() => undefined);
+    try {
+        const { setClusterClientAuth } = await import('./clusterClient.js');
+        if (env.orchestratorUrl && registerJson.machineToken) {
+            setClusterClientAuth(registerJson.machineToken, env.orchestratorUrl);
+        }
+    } catch {
+    }
     log.info('Registration accepted', {
         machineId,
         generation: registerJson.generation,
@@ -557,7 +563,6 @@ export async function runWorkerControlPlane(
         snapshotVersion: state.snapshotCache.getVersion(),
     });
 }
-
 
 async function handleSnapshotNotify(
     env: CrossHostEnv,

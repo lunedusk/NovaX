@@ -17,6 +17,7 @@ import {
     loadPluginLangSchema,
     validateValue
 } from '#core/validation/index.js';
+import { guildLocale } from '#core/manager/guildLocale.js';
 
 const log = getLogger('LanguageManager');
 const SUPPORTED_LOCALES = new Set([
@@ -213,7 +214,6 @@ const SUPPORTED_LOCALES = new Set([
   'zh-HK',
 ]);
 
-
 export type TranslationVars = Record<string, string | number | boolean>;
 export type CompiledTranslation = (vars?: TranslationVars) => string;
 
@@ -249,7 +249,6 @@ export class LanguageManager {
         void import('#core/manager/event.js')
             .then(({ eventBus }) => eventBus.emitConcurrent('lang.loaded', { namespaces: loadedCount }))
             .catch(() => undefined);
-
 
         if (hotReload) {
             this.watcher = new FileWatcher(this.targetDir, { includePatterns: ['**/*.json5'] });
@@ -632,7 +631,7 @@ export class LanguageManager {
 
     public get(namespace: string, key: string, variables?: TranslationVars, requestedLocale?: string): string {
         const masterLocale = secrets.getOptional('DefaultLocale') || 'en';
-        const targetLocale = requestedLocale || masterLocale;
+        const targetLocale = guildLocale.resolveLocale(undefined, requestedLocale ?? null);
         const fallbacks = [targetLocale];
         const baseLocale = targetLocale.split('-')[0];
         if (baseLocale !== targetLocale) fallbacks.push(baseLocale);

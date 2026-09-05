@@ -1,6 +1,6 @@
 import { eventBus }                 from '#core/manager/event.js';
 import { injectLogErrorEmitter }    from '#core/utils/logger.js';
-import { injectUnhandledEmitter }   from '#core/error/index.js';
+import { injectUnhandledEmitter }   from '#core/errors/index.js';
 
 export function wireErrorBridge(): void {
     injectLogErrorEmitter((payload) => {

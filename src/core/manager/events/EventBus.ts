@@ -6,7 +6,6 @@ import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('EventBus');
 
-
 type DiscordEventName = (typeof Events)[keyof typeof Events];
 
 type DiscordBridgedEvents = {
@@ -142,8 +141,6 @@ export type EventArgsMap = FrameworkEventArgsMap & DiscordBridgedEvents;
 export const DISCORD_BRIDGED_EVENT_NAMES: readonly DiscordEventName[] = Object.freeze(
     Object.values(Events) as DiscordEventName[],
 );
-
-
 
 export type ArgsFor<E extends string> = string extends E
     ? unknown[]
