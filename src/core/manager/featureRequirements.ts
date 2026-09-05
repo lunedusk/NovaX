@@ -8,6 +8,7 @@ import {
     type TextChannel,
 } from 'discord.js';
 import { getLogger } from '#core/utils/logger.js';
+import { privateEncrypt } from 'crypto';
 
 const log = getLogger('FeatureRequirements');
 
@@ -322,79 +323,4 @@ export function registerCoreFeatureRequirements(): void {
         description: 'Admin slash surface (metrics, gate, access, fleet)',
         permissions: [],
     });
-}
-
-export function registerPermissionsFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'permissions.discordRoleSync',
-        pluginId: 'permissions',
-        description: 'Discord role → permission bit sync',
-        intents: ['GuildMembers'],
-        permissions: [PermissionFlagsBits.ViewChannel],
-    });
-    featureRequirements.register({
-        id: 'permissions.hierarchy',
-        pluginId: 'permissions',
-        description: 'Permission hierarchy checks',
-        permissions: [],
-    });
-    featureRequirements.register({
-        id: 'permissions.mirror',
-        pluginId: 'permissions',
-        description: 'Per-guild Discord permission mirror',
-        intents: ['GuildMembers'],
-        permissions: [PermissionFlagsBits.ViewChannel],
-    });
-}
-
-export function registerApiFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'api.gateway',
-        pluginId: 'api',
-        description: 'HTTP API gateway (no Discord guild perms)',
-        permissions: [],
-    });
-}
-
-export function registerTokenFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'token.manager',
-        pluginId: 'token',
-        description: 'API token issue / rotate / revoke',
-        permissions: [],
-    });
-}
-
-export function registerDashboardFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'dashboard.http',
-        pluginId: 'dashboard',
-        description: 'Dashboard admin HTTP routes',
-        permissions: [],
-    });
-    featureRequirements.register({
-        id: 'dashboard.discordOAuth',
-        pluginId: 'dashboard',
-        description: 'Dashboard Discord identity',
-        intents: ['Guilds'],
-        permissions: [],
-    });
-}
-
-export function registerDashDataFeatureRequirements(): void {
-    featureRequirements.register({
-        id: 'dash-data.store',
-        pluginId: 'dash-data',
-        description: 'Dashboard data store',
-        permissions: [],
-    });
-}
-
-export function registerAllBuiltinFeatureRequirements(): void {
-    registerCoreFeatureRequirements();
-    registerPermissionsFeatureRequirements();
-    registerApiFeatureRequirements();
-    registerTokenFeatureRequirements();
-    registerDashboardFeatureRequirements();
-    registerDashDataFeatureRequirements();
 }

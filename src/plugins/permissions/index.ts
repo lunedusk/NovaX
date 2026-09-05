@@ -1,6 +1,7 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 
-import { registerPermissionsFeatureRequirements } from '#core/manager/featureRequirements.js';
+import { featureRequirements } from '#core/manager/featureRequirements.js';
+import { PermissionFlagsBits } from 'discord.js';
 
 export default class PermissionsPlugin extends BasePlugin {
 
@@ -17,7 +18,7 @@ export default class PermissionsPlugin extends BasePlugin {
     };
 
     public async onSetup(): Promise<void> {
-        registerPermissionsFeatureRequirements();
+        this.registerPermissionsFeatureRequirements();
         this.log.info('Permissions plugin setting up.');
     }
 
@@ -33,5 +34,27 @@ export default class PermissionsPlugin extends BasePlugin {
 
     public async onDisable(): Promise<void> {
         this.log.info('Permissions plugin shutting down.');
+    }
+    private registerPermissionsFeatureRequirements(): void {
+        featureRequirements.register({
+            id: 'permissions.discordRoleSync',
+            pluginId: 'permissions',
+            description: 'Discord role → permission bit sync',
+            intents: ['GuildMembers'],
+            permissions: [PermissionFlagsBits.ViewChannel],
+        });
+        featureRequirements.register({
+            id: 'permissions.hierarchy',
+            pluginId: 'permissions',
+            description: 'Permission hierarchy checks',
+            permissions: [],
+        });
+        featureRequirements.register({
+            id: 'permissions.mirror',
+            pluginId: 'permissions',
+            description: 'Per-guild Discord permission mirror',
+            intents: ['GuildMembers'],
+            permissions: [PermissionFlagsBits.ViewChannel],
+        });
     }
 }

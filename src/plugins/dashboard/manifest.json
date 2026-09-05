@@ -1,7 +1,7 @@
 {
     "id": "dashboard",
     "name": "Dashboard API",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "REST API surface consumed by the web dashboard: auth, bot-owner admin, server-scoped management, and self-service user endpoints.",
     "author": "Dev",
     "dependencies": [
