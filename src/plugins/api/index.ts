@@ -9,10 +9,10 @@ export default class ApiGatewayPlugin extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id:            'api',
         name:          'API',
-        version:       '0.1.0',
+        version:       '1.0.0',
         description:   'API Gateway — CORS, bearer auth, security headers, and OpenAPI spec.',
         author:        'Lunedusk',
-        zene_version: '>=0.5.2',
+        zene_version: '>=0.5.4',
         node_version:  '>=20',
     };
 

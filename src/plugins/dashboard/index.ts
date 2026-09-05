@@ -10,10 +10,11 @@ export default class DashboardPlugin extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'dashboard',
         name: 'Dashboard API',
-        version: '1.0.0',
+        version: '1.1.0',
         description: 'REST API surface consumed by the web dashboard.',
         dependencies: ['dash-data', 'api', 'permissions', 'token'],
-        zene_version: '>=0.5.2',
+        zene_version: '>=0.5.4',
+        node_version: '>=20',
         priority: 10,
     };
 

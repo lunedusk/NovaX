@@ -7,11 +7,12 @@ export default class PermissionsPlugin extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'permissions',
         name: 'Permissions Manager',
-        version: '1.1.0',
+        version: '1.2.0',
         description: 'Admin commands for managing the bot permission system.',
         author: 'Lunedusk',
         dependencies: [],
-        zene_version: '>=0.5.2',
+        zene_version: '>=0.5.4',
+        node_version: '>=20',
         priority: -10,
     };
 

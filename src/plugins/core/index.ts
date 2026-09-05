@@ -46,9 +46,9 @@ export default class Core extends BasePlugin {
     public readonly manifest: PluginManifest = {
         id: 'core',
         name: 'Core',
-        version: '0.2.0',
+        version: '1.0.0',
         author: 'Lunedusk',
-        zene_version: '>=0.5.2',
+        zene_version: '>=0.5.4',
         node_version: '>=20',
         dependencies: ['api', 'permissions']
     };
